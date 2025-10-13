@@ -10,7 +10,7 @@ This mod adds chemistry to KSP by adding every single compound and element to th
 <strong>Real Solar System</strong> (different and better resources) <br>
 <strong>Station Parts Expansion Redux</strong> (full support, cargo parts can hold planet-speciifc resources) <br>
 <strong>Community Resource Pack</strong> (removes all resources for now) <br>
-<strong>Far Future Technologies</strong> (all resource-related parts are supported) <br>
+<strong>Far Future Technologies</strong> (full support except for mod compatability features, tank and reactor parts) <br>
 
 <h2>Incompatible mods:</h2>
 None found for now but some will be either added to here or they will get supported. <br>
