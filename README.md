@@ -1,5 +1,4 @@
-# Khemistry
-<br>
+<img src="https://raw.githubusercontent.com/Chitak985/khemistry/refs/heads/main/Khemistry/Flags/Logo.png">
 This mod adds chemistry to KSP by adding every single compound and element to the game! <br>
 
 <h2>Dependencies:</h2>
