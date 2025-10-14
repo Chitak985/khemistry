@@ -5,9 +5,12 @@ This mod adds chemistry to KSP by adding every single compound and element to th
 <strong>ModuleManager</strong> <br>
 <strong>SpaceDust</strong> (include to add atmospheric and cosmic resources) <br>
 
+<h2>Fully Supported Mods:</h2>
+<strong>Station Parts Expansion Redux</strong> (cargo parts can hold some planet-speciifc resources) <br>
+<strong>Outer Planets Mod</strong> (all planets have their own regolith types) <br>
+
 <h2>Supported mods:</h2>
 <strong>Real Solar System</strong> (different and better resources) <br>
-<strong>Station Parts Expansion Redux</strong> (full support, cargo parts can hold planet-speciifc resources) <br>
 <strong>Community Resource Pack</strong> (removes all resources for now) <br>
 <strong>Far Future Technologies</strong> (full support except for mod compatability features, tank and reactor parts) <br>
 
