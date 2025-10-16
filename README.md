@@ -8,12 +8,12 @@ This mod adds chemistry to KSP by adding every single compound, element, and all
 <h2>Fully Supported Mods:</h2>
 <strong>Station Parts Expansion Redux</strong> (cargo parts can hold some planet-speciifc resources) <br>
 <strong>Outer Planets Mod</strong> (all planets have their own regolith types) <br>
+<strong>Far Future Technologies</strong> (changes resources used and some recipes) <br>
 
 <h2>Supported mods:</h2>
 <strong>Real Solar System</strong> (different and better resources) <br>
 <strong>Community Resource Pack</strong> (removes all resources for now) <br>
-<strong>Far Future Technologies</strong> (full support except for mod compatability features and some tanks) <br>
-<strong>Near Future Propulsion</strong> (argon tanks are supported)
+<strong>Near Future Propulsion</strong> (argon tanks are supported) <br>
 
 <h2>Incompatible mods:</h2>
 None found for now but some will be either added to here or they will get supported. <br>
