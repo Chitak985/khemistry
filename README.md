@@ -18,16 +18,26 @@ This mod adds chemistry to KSP by adding every single compound, element, and all
 <h2>Incompatible mods:</h2>
 None found for now but some will be either added to here or they will get supported. <br>
 
+<h2>Fully Supported Mods Without Support:</h2>
+These mods are confirmed to work flawlessly with Khemistry and need no patches to be compatible. <br>
+<strong>Near Future Construction</strong> (some of its patches may need support) <br>
+<strong>Heat Control</strong> <br>
+<strong>Near Future Solar</strong> <br>
+<strong>Radioactivity</strong> <br>
+<strong>Deployable Engines</strong> <br>
+<strong>Waterfall</strong> <br>
+<strong>Community Tech Tree</strong>
+
 <h2>Current Resource Counts:</h2>
-(As of 10/16/2025, this readme commit)
-1x Alloy
-1x Composite Material
-3x Fuel Assemblies
-3x Fuel Pellets
-3x Fuel Rods
-3x Isotopes
-1x Mixture
-51x Natural Resources
-All Periodic Table Elements
-3x Powders
-23x Regoliths & Soils
+(As of 10/16/2025) <br>
+1x Alloy <br>
+1x Composite Material <br>
+3x Fuel Assemblies <br>
+3x Fuel Pellets <br>
+3x Fuel Rods <br>
+3x Isotopes <br>
+1x Mixture <br>
+51x Natural Resources <br>
+All Periodic Table Elements <br>
+3x Powders <br>
+23x Regoliths & Soils <br>
