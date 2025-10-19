@@ -31,15 +31,14 @@ These mods are confirmed to work flawlessly with Khemistry and need no patches t
 <strong>Community Tech Tree</strong>
 
 <h2>Current Resource Counts:</h2>
-(As of 10/16/2025) <br>
+(As of 10/19/2025) <br>
 1x Alloy <br>
 1x Composite Material <br>
 3x Fuel Assemblies <br>
 3x Fuel Pellets <br>
 3x Fuel Rods <br>
 3x Isotopes <br>
-1x Mixture <br>
-51x Natural Resources <br>
+10x Mixture <br>
+58x Natural Resources <br>
 All Periodic Table Elements <br>
 3x Powders <br>
-23x Regoliths & Soils <br>
