@@ -4,6 +4,7 @@ This mod adds chemistry to KSP by adding every single compound, element, and all
 <h2>Dependencies:</h2>
 <strong>ModuleManager</strong> <br>
 <strong>Kopernicus</strong> (adds custom ores for all planets, mod may break without it) <br>
+<strong>B9 Part Switch</strong> (assigns the custom per planet ores for cargo tanks, mod may break without it) <br>
 <strong>SpaceDust</strong> (include to add atmospheric and cosmic resources) <br>
 
 <h2>Fully Supported Mods:</h2>
