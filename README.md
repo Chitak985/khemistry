@@ -18,6 +18,7 @@ This mod adds chemistry to KSP by adding every single compound, element, and all
 <h2>Supported mods:</h2>
 <strong>Real Solar System</strong> (vast resource definitions) <br>
 <strong>Community Resource Pack</strong> (removes all resources for now) <br>
+<strong>Near Future Electrical</strong> (support for all parts added by the mod, may have problems) <br>
 
 <h2>Incompatible mods:</h2>
 None found for now but some will be either added to here or they will get supported. <br>
