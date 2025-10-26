@@ -18,7 +18,6 @@ This mod adds chemistry to KSP by adding every single compound, element, and all
 <strong>Near Future Exploration</strong> <br>
 <strong>Near Future Aeronautics</strong> <br>
 <strong>Kerbal Atomics</strong> <br>
-<strong>All Kopernicus Planet Packs</strong> (custom ores and pressurized air are added per planet and the stock ore is removed)
 
 <h2>Supported mods:</h2>
 <strong>Real Solar System</strong> (switch from Kerbin resources to Earth resources) <br>
