@@ -19,6 +19,10 @@ This mod adds chemistry to KSP by adding every single compound, element, and all
 <strong>Near Future Aeronautics</strong> <br>
 <strong>Kerbal Atomics</strong> <br>
 
+<h2>Planet Packs With Custom Ore</h2>
+<strong>Outer Planets Mod</strong> <br>
+<strong>Almajara-Core</strong> (as of 10/27/2025) <br>
+
 <h2>Supported mods:</h2>
 <strong>Real Solar System</strong> (switch from Kerbin resources to Earth resources) <br>
 <strong>Community Resource Pack</strong> (removes all resources for now) <br>
@@ -44,15 +48,22 @@ These mods are confirmed to work flawlessly with Khemistry and need no patches t
 <strong>Community Tech Tree</strong>
 
 <h2>Current Resource Counts:</h2>
-(As of 10/22/2025) <br>
+(As of 10/27/2025) <br>
 1x Alloy <br>
 1x Composite Material <br>
 3x Fuel Assemblies <br>
 3x Fuel Pellets <br>
 3x Fuel Rods <br>
+3x Fuel Resources <br>
 3x Isotopes <br>
 11x Mixture <br>
 82x Natural Resources <br>
 All Periodic Table Elements <br>
 3x Powders <br>
 2x Fuel Mixtures <br>
+
+<h2>Current Planetary Resources:</h2>
+(As of 10/27/2025) <br>
+10x Pressurized Air Types <br>
+28x Soils <br>
+16x Modded Celestial Bodies supported <br>
