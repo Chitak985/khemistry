@@ -3,7 +3,7 @@ This mod adds chemistry to KSP by adding every single compound, element, and all
 
 <h2>Known Issues:</h2>
 Far Future Technologies does not work properly with the mod in many ways. <br>
-Far Future Technologies also causes a fatal B9 Part Switch error "FissionParticles tank is not found!" which is caused by FFT overwriting one of the mod's patches. It will be fixed soon. <br>
+Far Future Technologies replaces one of Khemistry patches and it is fixed by making one of the tanks forced to hold Uranium Oxide Powder and not have multiple variants, which could be problematic for some people. <br>
 Near Future Electrical will not allow KSP to load unless the Legacy folder is deleted. <br>
 Near Future Construction causes a fatal B9 Part Switch error "Ore tank is not found!" which is caused by a mod overwriting Khemistry's patches. It will be fixed soon.
 
@@ -23,13 +23,15 @@ Near Future Construction causes a fatal B9 Part Switch error "Ore tank is not fo
 <strong>Near Future Electrical</strong> (parts and patches from this mod have full support, even deprecated ones. May have some problems with reactor core lifetime calculations. IMPORTANT: The "Legacy" folder inside the mod needs to be deleted in order for the game to finish loading!) <br>
 <strong>Near Future Exploration</strong> <br>
 <strong>Near Future Aeronautics</strong> <br>
+
+<h2>Full Support Using Procedural Patches</h2>
 <strong>Kerbal Atomics</strong> <br>
 
 <h2>Planet Packs With Custom Ore</h2>
 <strong>Outer Planets Mod</strong> <br>
 <strong>Almajara-Core</strong> (as of 10/27/2025) <br>
 
-<h2>Supported mods:</h2>
+<h2>Supported Mods:</h2>
 <strong>Real Solar System</strong> (switch from Kerbin resources to Earth resources) <br>
 <strong>Community Resource Pack</strong> (removes all resources for now) <br>
 
