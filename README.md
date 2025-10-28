@@ -1,6 +1,12 @@
 <img src="https://raw.githubusercontent.com/Chitak985/khemistry/refs/heads/main/Khemistry/Flags/Logo.png">
 This mod adds chemistry to KSP by adding every single compound, element, and all chemical (and not very chemical) resources to the game! <br>
 
+<h2>Known Issues:</h2>
+Far Future Technologies does not work properly with the mod in many ways. <br>
+Far Future Technologies also causes a fatal B9 Part Switch error "FissionParticles tank is not found!" which is caused by FFT overwriting one of the mod's patches. It will be fixed soon. <br>
+Near Future Electrical will not allow KSP to load unless the Legacy folder is deleted. <br>
+Near Future Construction causes a fatal B9 Part Switch error "Ore tank is not found!" which is caused by a mod overwriting Khemistry's patches. It will be fixed soon.
+
 <h2>Dependencies:</h2>
 <strong>ModuleManager</strong> <br>
 <strong>Kopernicus</strong> (used to add custom ores for all planets, mod may break without it) <br>
@@ -14,7 +20,7 @@ This mod adds chemistry to KSP by adding every single compound, element, and all
 <strong>Far Future Technologies</strong> (WARNING: Very broken! changes resources used and some recipes) <br>
 <strong>Near Future Propulsion</strong> <br>
 <strong>Near Future Construction</strong> (patches from this mod have full support) <br>
-<strong>Near Future Electrical</strong> (parts and patches from this mod have full support, even deprecated ones. May have some problems with reactor core lifetime calculations) <br>
+<strong>Near Future Electrical</strong> (parts and patches from this mod have full support, even deprecated ones. May have some problems with reactor core lifetime calculations. IMPORTANT: The "Legacy" folder inside the mod needs to be deleted in order for the game to finish loading!) <br>
 <strong>Near Future Exploration</strong> <br>
 <strong>Near Future Aeronautics</strong> <br>
 <strong>Kerbal Atomics</strong> <br>
