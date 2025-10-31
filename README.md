@@ -30,6 +30,7 @@ Near Future Construction causes a fatal B9 Part Switch error "Ore tank is not fo
 <h2>Planet Packs With Custom Ore</h2>
 <strong>Outer Planets Mod</strong> <br>
 <strong>Almajara-Core</strong> (as of 10/27/2025) <br>
+<strong>Kcalbeloh</strong> <br>
 
 <h2>Supported Mods:</h2>
 <strong>Real Solar System</strong> (switch from Kerbin resources to Earth resources) <br>
@@ -56,7 +57,7 @@ These mods are confirmed to work flawlessly with Khemistry and need no patches t
 <strong>Community Tech Tree</strong>
 
 <h2>Current Resource Counts:</h2>
-(As of 10/27/2025) <br>
+(As of 10/31/2025) <br>
 1x Alloy <br>
 1x Composite Material <br>
 3x Fuel Assemblies <br>
@@ -71,7 +72,7 @@ All Periodic Table Elements <br>
 2x Fuel Mixtures <br>
 
 <h2>Current Planetary Resources:</h2>
-(As of 10/27/2025) <br>
-10x Pressurized Air Types <br>
-28x Soils <br>
-16x Modded Celestial Bodies supported <br>
+(As of 10/31/2025) <br>
+25x Pressurized Air Types <br>
+49x Soils <br>
+57x Modded Celestial Bodies supported <br>
