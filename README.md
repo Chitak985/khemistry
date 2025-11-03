@@ -21,16 +21,18 @@ Near Future Construction causes a fatal B9 Part Switch error "Ore tank is not fo
 <strong>Near Future Propulsion</strong> <br>
 <strong>Near Future Construction</strong> (patches from this mod have full support) <br>
 <strong>Near Future Electrical</strong> (parts and patches from this mod have full support, even deprecated ones. May have some problems with reactor core lifetime calculations. IMPORTANT: The "Legacy" folder inside the mod needs to be deleted in order for the game to finish loading!) <br>
-<strong>Near Future Exploration</strong> <br>
-<strong>Near Future Aeronautics</strong> <br>
 
 <h2>Full Support Using Procedural Patches</h2>
 <strong>Kerbal Atomics</strong> <br>
+<strong>Near Future Exploration</strong> <br>
+<strong>Near Future Aeronautics</strong> <br>
 
 <h2>Planet Packs With Custom Ore</h2>
 <strong>Outer Planets Mod</strong> <br>
-<strong>Almajara-Core</strong> (as of 10/27/2025) <br>
+<strong>Almajara-Core</strong> <br>
 <strong>Kcalbeloh</strong> <br>
+<strong>Promised Worlds</strong> (Both Debdeb and Tunn must be installed!) <br>
+<strong>Grannus Expantion Pack</strong> <br>
 
 <h2>Supported Mods:</h2>
 <strong>Real Solar System</strong> (switch from Kerbin resources to Earth resources) <br>
@@ -57,7 +59,7 @@ These mods are confirmed to work flawlessly with Khemistry and need no patches t
 <strong>Community Tech Tree</strong>
 
 <h2>Current Resource Counts:</h2>
-(As of 10/31/2025) <br>
+(As of 11/03/2025) <br>
 1x Alloy <br>
 1x Composite Material <br>
 3x Fuel Assemblies <br>
