@@ -27,13 +27,6 @@ Near Future Construction causes a fatal B9 Part Switch error "Ore tank is not fo
 <strong>Near Future Exploration</strong> <br>
 <strong>Near Future Aeronautics</strong> <br>
 
-<h2>Planet Packs With Custom Ore</h2>
-<strong>Outer Planets Mod</strong> <br>
-<strong>Almajara-Core</strong> <br>
-<strong>Kcalbeloh</strong> <br>
-<strong>Promised Worlds</strong> (Both Debdeb and Tunn must be installed!) <br>
-<strong>Grannus Expantion Pack</strong> <br>
-
 <h2>Supported Mods:</h2>
 <strong>Real Solar System</strong> (switch from Kerbin resources to Earth resources) <br>
 <strong>Community Resource Pack</strong> (removes all resources for now) <br>
@@ -59,7 +52,7 @@ These mods are confirmed to work flawlessly with Khemistry and need no patches t
 <strong>Community Tech Tree</strong>
 
 <h2>Current Resource Counts:</h2>
-(As of 11/03/2025) <br>
+(As of 11/10/2025) <br>
 1x Alloy <br>
 1x Composite Material <br>
 3x Fuel Assemblies <br>
@@ -72,9 +65,3 @@ These mods are confirmed to work flawlessly with Khemistry and need no patches t
 All Periodic Table Elements <br>
 3x Powders <br>
 2x Fuel Mixtures <br>
-
-<h2>Current Planetary Resources:</h2>
-(As of 10/31/2025) <br>
-25x Pressurized Air Types <br>
-49x Soils <br>
-57x Modded Celestial Bodies supported <br>
