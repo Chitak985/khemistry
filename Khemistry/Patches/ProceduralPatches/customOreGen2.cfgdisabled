@@ -1,0 +1,382 @@
+// WARNING! Custom pressurized air types are not yet stored anywhere as they need a special tank and cannot use normal cargo tanks.
+
+///// ----- PREPARATIONS ----- /////
+// Prepare Stock patches
+@PART[RadialOreTank]:FINAL
+{
+	-RESOURCE,* { }
+	MODULE
+	{
+		name = ModuleB9PartSwitch
+		moduleID = oreSwitch
+		switcherDescription = Switch ore type
+		baseVolume = 75
+	}
+}
+@PART[SmallTank]:FINAL
+{
+	-RESOURCE,* { }
+	MODULE
+	{
+		name = ModuleB9PartSwitch
+		moduleID = oreSwitch
+		switcherDescription = Switch ore type
+		baseVolume = 300
+	}
+}
+@PART[LargeTank]:FINAL
+{
+	-RESOURCE,* { }
+	MODULE
+	{
+		name = ModuleB9PartSwitch
+		moduleID = oreSwitch
+		switcherDescription = Switch ore type
+		baseVolume = 1500
+	}
+}
+
+// Prepare SSPX patches
+@PART[sspx-cargo-container-25-1,sspx-cargo-container-25-2,sspx-cargo-container-25-3,sspx-cargo-container-375-1,sspx-cargo-container-375-2,sspx-cargo-container-375-3,sspx-cargo-container-radial-huge-1,sspx-cargo-container-radial-huge-2,sspx-cargo-container-radial-medium-1,sspx-cargo-container-radial-medium-2,sspx-cargo-container-radial-medium-3,sspx-cargo-container-radial-small-1,sspx-cargo-container-radial-small-2,sspx-cargo-container-radial-small-3]:NEEDS[StationPartsExpansionRedux]:FINAL
+{
+	@MODULE[ModuleB9PartSwitch]
+	{
+		!SUBTYPE,* {}
+	}
+}
+
+// Prepare resource and tank types defintions
+RESOURCE_DEFINITION
+{
+	name = DummyT
+	displayName = Raw Soil (see abbreviation)
+	density = 1
+	unitCost = 1000
+	isTweakable = true
+	isVisible = true
+	flowMode = STAGE_PRIORITY_FLOW
+	transfer = PUMP
+	volume = 1
+	noMagnetic = true
+}
+RESOURCE_DEFINITION
+{
+	name = DummyTA
+	displayName = Pressurized Air (see abbreviation)
+	density = 0.1
+	unitCost = 1000
+	isTweakable = true
+	isVisible = true
+	flowMode = STAGE_PRIORITY_FLOW
+	transfer = PUMP
+	volume = 0.1
+	noMagnetic = true
+}
+B9_TANK_TYPE
+{
+	noMagnetic = true
+	tankMass = 0.1
+	tankCost = 1
+	noMagnetic = true
+	name = DummyT
+	needsFixing = true
+}
+B9_TANK_TYPE
+{
+	noMagnetic = true
+	tankMass = 0.1
+	tankCost = 1
+	noMagnetic = true
+	name = DummyTA
+	needsFixing = true
+}
+BIOME_RESOURCE
+{
+	ResourceName = DummyOre
+	ResourceType = 0
+
+	Distribution
+	{
+		PresenceChance = 100
+		MinAbundance = 0.0005
+		MaxAbundance = 0.001
+		Variance = 5
+		Dispersal = 3
+	}
+}
+SPACEDUST_RESOURCE
+{
+	resourceName = DummyAirT
+	RESOURCEBAND
+	{
+		alwaysDiscovered = true
+		alwaysIdentified = true
+		bandType = Exosphere
+		minAbundance = 0.001225
+		maxAbundance = 0.000825
+		alwaysDiscovered = true
+		alwaysIdentified = false
+		remoteDiscoveryScale = 1.0
+		useAirDensity = True
+		densityCurve
+		{
+			key = 0 0
+			key = 1 1
+			key = 12 12
+		}
+		distributionType = Spherical
+		altUpperBound = 70
+		altLowerBound = 0
+		altPeak = 0
+		altVariability = 0
+		altFalloffType = Linear
+		latUpperBound = 90
+		latLowerBound = -90
+		latPeak = 0
+		latVariability = 0
+		latFalloffType = None
+	}
+}
+
+// Create a copy of Kopernicus for biomes so it can be modified freely without affecting the actual Body list
+$Kopernicus:FINAL
+{
+	@name = DummyB
+	!useOnDemand = DELETE
+	!Asteroid,* {}
+}
+
+// Extract all biomes
+@Kopernicus[DummyB]:FINAL:HAS[@Body]  // Access Dummy Kopernicus if has any Bodies
+{
+	#@Body,0/Properties/Biomes {}       // Copy biome list
+	@Biomes,-1                          // Access the biomes copied
+	{
+		name = #$Body,0/name$             // Add planet name to biome list
+		@Biome,*                          // Iterate through all biomes
+		{
+			planetName = #$../name$         // Add planet name
+			!displayName = DELETE           // Remove unused variable
+			!value = DELETE                 // Remove unused variable
+			!color = DELETE                 // Remove unused variable
+		}
+		!name = DELETE                    // Remove no longer needed planet name
+	}
+	!Body,0 {}                          // Delete processed Body
+	MM_PATCH_LOOP {}                    // Patch Rinse Repeat
+}
+
+// Unpack all biomes to Kopernicus
+@Kopernicus[DummyB]:FINAL:HAS[@Biomes]
+{
+	#Biomes,0/Biome,0 {}                // Copy the first biome from the first biome list
+	@Biomes,0                           // Access the first biome list
+	{
+		!Biome,0 {}                       // Delete the processed biome
+	}
+	!Biomes,0:HAS[!Biome] {}            // Delete processed biome list if no biomes left
+	MM_PATCH_LOOP {}                    // Patch Rinse Repeat
+}
+
+////////// COPY-PASTED ELEMENTS UP NEXT //////////  (Total: 100)
+
+// --------------- The following nodes are copy-pasted for each MaxBiomeProcessed ---------------
+// ----- BODY REMAINING CHECK -----
+@Kopernicus[Dummy]:FINAL
+{
+	allowed = false
+}
+@Kopernicus[Dummy]:FINAL:HAS[@Body]  // @Body[*]
+{
+	@allowed = true
+}
+
+//////////!!!!!!!!!! END OF NEW FILE, MODIFY EVERYTHING BELOW
+
+// ----- COPY AND MODIFY DEFINITIONS -----
+$RESOURCE_DEFINITION[DummyT]:FINAL
+{
+	@name = DummyTMP
+	allowed = #$/@Kopernicus[Dummy]/allowed$
+}
+@RESOURCE_DEFINITION[DummyTMP]:FINAL:HAS[#allowed[true]]
+{
+	@name = #$/@Kopernicus[Dummy]/Body,0/name$Soil
+	abbreviation = #$/@Kopernicus[Dummy]/Body,0/name$Soil
+}
+!RESOURCE_DEFINITION[DummyTMP]:FINAL {}
+
+$RESOURCE_DEFINITION[DummyT]:FINAL
+{
+	@name = DummyTMP
+	displayName = Raw Soil (see abbreviation)
+	allowed = #$/@Kopernicus[Dummy]/allowed$
+}
+@RESOURCE_DEFINITION[DummyTMP]:FINAL:HAS[#allowed[true]]
+{
+	@name = #$/@Kopernicus[Dummy]/Body,0/name$Air
+	abbreviation = #$/@Kopernicus[Dummy]/Body,0/name$Air
+}
+!RESOURCE_DEFINITION[DummyTMP]:FINAL {}
+
+$B9_TANK_TYPE[DummyT]:FINAL
+{
+	@name = DummyTMP
+	RESOURCE
+	{
+		unitsPerVolume = 1
+	}
+	allowed = #$/@Kopernicus[Dummy]/allowed$
+}
+@B9_TANK_TYPE[DummyTMP]:FINAL:HAS[#allowed[true]]
+{
+	@name = #$/@Kopernicus[Dummy]/Body,0/name$Soil
+	@RESOURCE
+	{
+		name = #$/@Kopernicus[Dummy]/Body,0/name$Soil
+	}
+}
+!B9_TANK_TYPE[DummyTMP]:FINAL {}
+
+$B9_TANK_TYPE[DummyT]:FINAL
+{
+	@name = DummyTMP
+	RESOURCE
+	{
+		unitsPerVolume = 3
+	}
+	allowed = #$/@Kopernicus[Dummy]/allowed$
+}
+@B9_TANK_TYPE[DummyTMP]:FINAL:HAS[#allowed[true]]
+{
+	@name = #$/@Kopernicus[Dummy]/Body,0/name$Air
+	@RESOURCE
+	{
+		name = #$/@Kopernicus[Dummy]/Body,0/name$Air
+	}
+}
+!B9_TANK_TYPE[DummyTMP]:FINAL {}
+
+$PLANETARY_RESOURCE:HAS[#ResourceName[DummyT]]:FINAL
+{
+	@ResourceName = DummyTMP
+	allowed = #$/@Kopernicus[Dummy]/allowed$
+}
+@PLANETARY_RESOURCE:HAS[#ResourceName[DummyTMP]&#allowed[true]]:FINAL
+{
+	@ResourceName = #$/@Kopernicus[Dummy]/Body,0/name$Soil
+	PlanetName = #$/@Kopernicus[Dummy]/Body,0/name$
+}
+!PLANETARY_RESOURCE[DummyTMP]:FINAL {}
+
+$PLANETARY_RESOURCE:HAS[#ResourceName[DummyT]]:FINAL
+{
+	@ResourceName = DummyTMP
+	@ResourceType = 2
+	allowed = #$/@Kopernicus[Dummy]/allowed$
+}
+@PLANETARY_RESOURCE:HAS[#ResourceName[DummyTMP]&#allowed[true]]:FINAL
+{
+	@ResourceName = #$/@Kopernicus[Dummy]/Body,0/name$Air
+	PlanetName = #$/@Kopernicus[Dummy]/Body,0/name$
+}
+!PLANETARY_RESOURCE[DummyTMP]:FINAL {}
+
+$SPACEDUST_RESOURCE:HAS[#resourceName[DummyAirT]]:FINAL
+{
+	@resourceName = DummyTMP
+	allowed = #$/@Kopernicus[Dummy]/allowed$
+}
+@SPACEDUST_RESOURCE:HAS[#resourceName[DummyTMP]&#allowed[true]]:FINAL
+{
+	@resourceName = #$/@Kopernicus[Dummy]/Body,0/name$Air
+	body = #$/@Kopernicus[Dummy]/Body,0/name$
+	@RESOURCEBAND
+	{
+		name = #$/@Kopernicus[Dummy]/Body,0/name$Atmo
+		title = #$/@Kopernicus[Dummy]/Body,0/name$ Atmosphere
+	}
+}
+!SPACEDUST_RESOURCE[DummyTMP]:FINAL {}
+
+// ----- STOCK PATCHES -----
+@PART[SmallTank,LargeTank,RadialOreTank]:FINAL
+{
+	allowed = #$/@Kopernicus[Dummy]/allowed$
+}
+@PART[SmallTank,LargeTank,RadialOreTank]:FINAL:HAS[#allowed[true]]
+{
+	@MODULE[ModuleB9PartSwitch]
+	{
+		SUBTYPE
+		{
+			name = #$/@Kopernicus[Dummy]/Body,0/name$Soil
+			tankType = #$/@Kopernicus[Dummy]/Body,0/name$Soil
+			title = Raw Soil (see resource)
+		}
+	}
+}
+
+// ----- SSPX PATCHES -----
+@PART[sspx-cargo-container-25-1,sspx-cargo-container-25-2,sspx-cargo-container-25-3,sspx-cargo-container-375-1,sspx-cargo-container-375-2,sspx-cargo-container-375-3,sspx-cargo-container-radial-huge-1,sspx-cargo-container-radial-huge-2,sspx-cargo-container-radial-medium-1,sspx-cargo-container-radial-medium-2,sspx-cargo-container-radial-medium-3,sspx-cargo-container-radial-small-1,sspx-cargo-container-radial-small-2,sspx-cargo-container-radial-small-3]:FINAL
+{
+	allowed = #$/@Kopernicus[Dummy]/allowed$
+}
+@PART[sspx-cargo-container-25-1,sspx-cargo-container-25-2,sspx-cargo-container-25-3,sspx-cargo-container-375-1,sspx-cargo-container-375-2,sspx-cargo-container-375-3,sspx-cargo-container-radial-huge-1,sspx-cargo-container-radial-huge-2,sspx-cargo-container-radial-medium-1,sspx-cargo-container-radial-medium-2,sspx-cargo-container-radial-medium-3,sspx-cargo-container-radial-small-1,sspx-cargo-container-radial-small-2,sspx-cargo-container-radial-small-3]:FINAL:HAS[#allowed[true]]
+{
+	@MODULE[ModuleB9PartSwitch]
+	{
+		SUBTYPE
+		{
+			name = #$/@Kopernicus[Dummy]/Body,0/name$Soil
+			tankType = #$/@Kopernicus[Dummy]/Body,0/name$Soil
+			title = Raw Soil (see resource)
+		}
+	}
+}
+
+// ----- CLEAN UP -----
+@Kopernicus[Dummy]:FINAL
+{
+	!Body,0 {}                                                      // Delete the processed Body
+	!allowed = DELETE
+}
+
+// Delete all "allowed" attribute
+@RESOURCE_DEFINITION,*:FINAL
+{
+	!allowed = DELETE
+}
+@RESOURCE_DEFINITION,*:FINAL
+{
+	!allowed = DELETE
+}
+@B9_TANK_TYPE,*:FINAL
+{
+	!allowed = DELETE
+}
+@B9_TANK_TYPE,*:FINAL
+{
+	!allowed = DELETE
+}
+@PLANETARY_RESOURCE,*:FINAL
+{
+	!allowed = DELETE
+}
+@PLANETARY_RESOURCE,*:FINAL
+{
+	!allowed = DELETE
+}
+@SPACEDUST_RESOURCE,*:FINAL
+{
+	!allowed = DELETE
+}
+@PART[SmallTank,LargeTank,RadialOreTank]:FINAL
+{
+	!allowed = DELETE
+}
+@PART[sspx-cargo-container-25-1,sspx-cargo-container-25-2,sspx-cargo-container-25-3,sspx-cargo-container-375-1,sspx-cargo-container-375-2,sspx-cargo-container-375-3,sspx-cargo-container-radial-huge-1,sspx-cargo-container-radial-huge-2,sspx-cargo-container-radial-medium-1,sspx-cargo-container-radial-medium-2,sspx-cargo-container-radial-medium-3,sspx-cargo-container-radial-small-1,sspx-cargo-container-radial-small-2,sspx-cargo-container-radial-small-3]:FINAL
+{
+	!allowed = DELETE
+}
+// --------------------------------------------------------------------------------------------
