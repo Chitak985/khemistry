@@ -1,67 +1,69 @@
 <img src="https://raw.githubusercontent.com/Chitak985/khemistry/refs/heads/main/Khemistry/Flags/Logo.png">
-This mod adds chemistry to KSP by adding every single compound, element, and all chemical (and not very chemical) resources to the game! <br>
+This mod adds chemistry to KSP by adding a lot of compounds, all periodic table elements, hundreds of alloys, and many other chemical (and not very chemical) resources to the game! Scroll all the way down to see the current resource counts.
 
-<h2>Known Issues:</h2>
-Far Future Technologies does not work properly with the mod in many ways. <br>
-Far Future Technologies replaces one of Khemistry patches and it is fixed by making one of the tanks forced to hold Uranium Oxide Powder and not have multiple variants, which could be problematic for some people. <br>
-Near Future Electrical will not allow KSP to load unless the Legacy folder is deleted. <br>
-Near Future Construction causes a fatal B9 Part Switch error "Ore tank is not found!" which is caused by a mod overwriting Khemistry's patches. It will be fixed soon.
+## Known Issues:
+- Far Future Technologies does not work properly with the mod in many ways. 
+- Far Future Technologies replaces one of Khemistry patches and it is fixed by making one of the tanks forced to hold Uranium Oxide Powder and not have multiple variants, which could be problematic for some people. 
+- Near Future Electrical will not allow KSP to load unless the Legacy folder is deleted. 
+- Near Future Construction causes a fatal B9 Part Switch error "Ore tank is not found!" which is caused by a mod overwriting Khemistry's patches. It will be fixed soon.
 
-<h2>Dependencies:</h2>
-<strong>ModuleManager</strong> <br>
-<strong>Kopernicus</strong> (used to add custom ores for all planets, mod may break without it) <br>
-<strong>B9 Part Switch</strong> (used to assign the custom per planet ores to cargo tanks, mod may break without it) <br>
+## Dependencies:
+- **ModuleManager** (Khermistry will do nothing without this mod)
+- **Community Resource Pack** (Khemistry removes most of its resources for now but it is vital for the mod's functionality) 
+- **Kopernicus** (used to add custom ores for all planets, mod may break without it)
+- **B9 Part Switch** (used to assign the custom per planet ores to cargo tanks, mod may break without it)
 
-<h2>Recommended Mods:</h2>
-<strong>SpaceDust</strong> (include to add resource belts) <br>
+## Recommended Mods:
+- **SpaceDust** (include to add resource belts) 
 
-<h2>Fully Supported Mods:</h2>
-<strong>Station Parts Expansion Redux</strong> (cargo parts can hold some planet-speciifc resources) <br>
-<strong>Far Future Technologies</strong> (WARNING: Very broken! changes resources used and some recipes) <br>
-<strong>Near Future Propulsion</strong> <br>
-<strong>Near Future Construction</strong> (patches from this mod have full support) <br>
-<strong>Near Future Electrical</strong> (parts and patches from this mod have full support, even deprecated ones. May have some problems with reactor core lifetime calculations. IMPORTANT: The "Legacy" folder inside the mod needs to be deleted in order for the game to finish loading!) <br>
+## Fully Supported Mods:
+- **Station Parts Expansion Redux** (cargo parts can hold some planet-speciifc resources) 
+- **Far Future Technologies** (WARNING: Very broken! changes resources used and some recipes) 
+- **Near Future Propulsion** 
+- **Near Future Construction** (patches from this mod have full support) 
+- **Near Future Electrical** (parts and patches from this mod have full support, even deprecated ones. May have some problems with reactor core lifetime calculations. IMPORTANT: The "Legacy" folder inside the mod needs to be deleted in order for the game to finish loading!) 
 
-<h2>Full Support Using Procedural Patches</h2>
-<strong>Kerbal Atomics</strong> <br>
-<strong>Near Future Exploration</strong> <br>
-<strong>Near Future Aeronautics</strong> <br>
+## Full Support Using Procedural Patches
+- **Kerbal Atomics** 
+- **Near Future Exploration** 
+- **Near Future Aeronautics** 
 
-<h2>Supported Mods:</h2>
-<strong>Real Solar System</strong> (switch from Kerbin resources to Earth resources) <br>
-<strong>Community Resource Pack</strong> (removes all resources for now) <br>
+## Supported Mods:
+- **Real Solar System** (switch from Kerbin resources to Earth resources) 
 
-<h2>Incompatible mods:</h2>
-These mods will be suported soon: <br>
-<strong>MkIVSystem</strong> <br>
-<strong>Near Future Spacecraft</strong> <br>
-<strong>Near Future Launch Vehicles</strong> <br>
-<strong>CryoTanks</strong> <br>
+## Incompatible mods:
+These mods will be suported soon: 
+- **MkIVSystem** 
+- **Near Future Spacecraft** 
+- **Near Future Launch Vehicles** 
+- **CryoTanks** 
 
-<h2>Fully Supported Mods Without Support:</h2>
-These mods are confirmed to work flawlessly with Khemistry and need no patches to be compatible. <br>
-<strong>Near Future Solar</strong> <br>
-<strong>Near Future Props</strong> <br>
-<strong>Heat Control</strong> <br>
-<strong>System Heat</strong> <br>
-<strong>Radioactivity</strong> <br>
-<strong>Deployable Engines</strong> <br>
-<strong>Dynamic Battery Storage</strong> <br>
-<strong>Waterfall</strong> <br>
-<strong>Waterfall Restock</strong> <br>
-<strong>Community Tech Tree</strong>
+## Fully Supported Mods Without Support:
+These mods are confirmed to work flawlessly with Khemistry and need no patches to be compatible. 
+- **Near Future Solar** 
+- **Near Future Props** 
+- **Heat Control** 
+- **System Heat** 
+- **Radioactivity** 
+- **Deployable Engines** 
+- **Dynamic Battery Storage** 
+- **Waterfall** 
+- **Waterfall Restock** 
+- **Community Tech Tree**
 
-<h2>Current Resource Counts:</h2>
-(As of 11/10/2025) <br>
-1x Alloy <br>
-1x Composite Material <br>
-3x Fuel Assemblies <br>
-3x Fuel Pellets <br>
-3x Fuel Rods <br>
-3x Fuel Resources <br>
-3x Isotopes <br>
-11x Mixture <br>
-82x Natural Resources <br>
-All Periodic Table Elements <br>
-3x Powders <br>
-2x Fuel Mixtures <br>
+## Current Resource Counts:
+(As of 01/15/2026, 9:32 AM EST)
+
+- 195x Alloys
+- 1x Composite Material
+- 3x Fuel Assemblies
+- 3x Fuel Pellets
+- 3x Fuel Rods
+- 3x Fuel Resources
+- 1x Impure Resource
+- 15x Isotopes
+- 11x Mixture
+- 81x Natural Resources
+- All Periodic Table Elements
+- 3x Powders
+- 8x "Snack"s
