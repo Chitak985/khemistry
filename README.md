@@ -6,6 +6,7 @@ This mod adds chemistry to KSP by adding a lot of compounds, all periodic table 
 - Far Future Technologies replaces one of Khemistry patches and it is fixed by making one of the tanks forced to hold Uranium Oxide Powder and not have multiple variants, which could be problematic for some people. 
 - Near Future Electrical will not allow KSP to load unless the Legacy folder is deleted. 
 - Near Future Construction causes a fatal B9 Part Switch error "Ore tank is not found!" which is caused by a mod overwriting Khemistry's patches. It will be fixed soon.
+- Solid Fuel isn't replaced by any Khemistry resource yet.
 
 ## Dependencies:
 - **ModuleManager** (Khermistry will do nothing without this mod)
@@ -13,30 +14,35 @@ This mod adds chemistry to KSP by adding a lot of compounds, all periodic table 
 - **Kopernicus** (used to add custom ores for all planets, mod may break without it)
 - **B9 Part Switch** (used to assign the custom per planet ores to cargo tanks, mod may break without it)
 
-## Recommended Mods:
-- **SpaceDust** (include to add resource belts) 
-
 ## Fully Supported Mods:
 - **Station Parts Expansion Redux** (cargo parts can hold some planet-speciifc resources) 
 - **Far Future Technologies** (WARNING: Very broken! changes resources used and some recipes) 
 - **Near Future Propulsion** 
 - **Near Future Construction** (patches from this mod have full support) 
 - **Near Future Electrical** (parts and patches from this mod have full support, even deprecated ones. May have some problems with reactor core lifetime calculations. IMPORTANT: The "Legacy" folder inside the mod needs to be deleted in order for the game to finish loading!) 
+- **CryoTanks** 
+- **SpaceDust** (used to create resource belts around planets and atmosphere resources) 
 
 ## Full Support Using Procedural Patches
 - **Kerbal Atomics** 
 - **Near Future Exploration** 
 - **Near Future Aeronautics** 
-
-## Supported Mods:
-- **Real Solar System** (switch from Kerbin resources to Earth resources) 
-
-## Incompatible mods:
-These mods will be suported soon: 
 - **MkIVSystem** 
 - **Near Future Spacecraft** 
-- **Near Future Launch Vehicles** 
-- **CryoTanks** 
+- **Near Future Launch Vehicles**
+- **Modular Fuel System**
+
+## Supported Mods:
+- **Real Solar System** (switch from Kerbin resources to Earth resources and some other things) 
+
+## Incompatible Mods:
+These mods will be suported soon: 
+- **ProceduralWings**
+- **ProceduralFuelTanks**
+- **Snacks**
+- **USI Life Support**
+- **Tac Life Support**
+- **Kerbalism**
 
 ## Fully Supported Mods Without Support:
 These mods are confirmed to work flawlessly with Khemistry and need no patches to be compatible. 
@@ -50,6 +56,9 @@ These mods are confirmed to work flawlessly with Khemistry and need no patches t
 - **Waterfall** 
 - **Waterfall Restock** 
 - **Community Tech Tree**
+- **Universal Storage 2**
+- **Ferram Aerospace Research (FAR)**
+- **Connected Living Space (CLS)**
 
 ## Current Resource Counts:
 (As of 01/15/2026, 9:32 AM EST)
