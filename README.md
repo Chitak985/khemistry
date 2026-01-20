@@ -7,6 +7,7 @@ This mod adds chemistry to KSP by adding a lot of compounds, all periodic table 
 - Near Future Electrical will not allow KSP to load unless the Legacy folder is deleted. 
 - Near Future Construction causes a fatal B9 Part Switch error "Ore tank is not found!" which is caused by a mod overwriting Khemistry's patches. It will be fixed soon.
 - Solid Fuel isn't replaced by any Khemistry resource yet.
+- Kerbalism is expected to be extremely glitchy.
 
 ## Dependencies:
 - **ModuleManager** (Khermistry will do nothing without this mod)
@@ -22,6 +23,7 @@ This mod adds chemistry to KSP by adding a lot of compounds, all periodic table 
 - **Near Future Electrical** (parts and patches from this mod have full support, even deprecated ones. May have some problems with reactor core lifetime calculations. IMPORTANT: The "Legacy" folder inside the mod needs to be deleted in order for the game to finish loading!) 
 - **CryoTanks** 
 - **SpaceDust** (used to create resource belts around planets and atmosphere resources) 
+- **Kerbalism** (this thing is kind of insane, I don't know if Khemistry even works properly with it)
 
 ## Full Support Using Procedural Patches
 - **Kerbal Atomics** 
@@ -42,7 +44,6 @@ These mods will be suported soon:
 - **Snacks**
 - **USI Life Support**
 - **Tac Life Support**
-- **Kerbalism**
 
 ## Fully Supported Mods Without Support:
 These mods are confirmed to work flawlessly with Khemistry and need no patches to be compatible. 
