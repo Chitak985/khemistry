@@ -25,6 +25,10 @@ This mod adds chemistry to KSP by adding a lot of compounds, all periodic table 
 - **SpaceDust** (used to create resource belts around planets and atmosphere resources) 
 - **Kerbalism** (this thing is kind of insane, I don't know if Khemistry even works properly with it)
 
+## Configurable Per-Version Support:
+- **Promised Worlds Debdeb** (1.2.1)
+- **Promised Worlds Tunn** (1.2.1)
+
 ## Full Support Using Procedural Patches
 - **Kerbal Atomics** 
 - **Near Future Exploration** 
@@ -33,6 +37,7 @@ This mod adds chemistry to KSP by adding a lot of compounds, all periodic table 
 - **Near Future Spacecraft** 
 - **Near Future Launch Vehicles**
 - **Modular Fuel System**
+- **Celestial Harmony** (0.9.3)
 
 ## Supported Mods:
 - **Real Solar System** (switch from Kerbin resources to Earth resources and some other things) 
