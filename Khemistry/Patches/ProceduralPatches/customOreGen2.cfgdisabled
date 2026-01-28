@@ -159,6 +159,22 @@ $Kopernicus:FINAL
 	@name = DummyB
 	!useOnDemand = DELETE
 	!Asteroid,* {}
+	@Body,*
+	{
+		@Properties
+		{
+			&Biomes
+			{
+				Biome
+				{
+					name = FallbackKhemistryBiome
+					displayName = I do not exist
+					value = 1
+					color = 1.0, 1.0, 1.0, 1.0
+				}
+			}
+		}
+	}
 }
 
 // Create a copy of Kopernicus for planets so it can be modified freely without affecting the actual Body list
@@ -169,36 +185,58 @@ $Kopernicus:FINAL
 	!Asteroid,* {}
 }
 
-// Extract all biomes
-@Kopernicus[DummyB]:FINAL:HAS[@Body]  // Access Dummy Kopernicus if has any Bodies
+@Kopernicus[DummyB]:FINAL:HAS[@Body]
 {
-	#@Body,0/Properties/Biomes {}     // Copy biome list
-	@Biomes,-1                        // Access the biomes copied
+	@Body,0:HAS[@Properties:HAS[@Biomes:HAS[@Biome]]]
 	{
-		name = #$Body,0/name$         // Add planet name to biome list
-		@Biome,*                      // Iterate through all biomes
+		%TMPBiomes
 		{
-			planetName = #$../name$   // Add planet name
-			!displayName = DELETE     // Remove unused variable
-			!value = DELETE           // Remove unused variable
-			!color = DELETE           // Remove unused variable
+			Biome
+			{
+				name = #$../../Properties/Biomes/Biome,0/name$
+				planetName = #$../../name$
+			}
 		}
-		!name = DELETE                // Remove no longer needed planet name
+		@Properties
+		{
+			@Biomes
+			{
+				!Biome,0 {}
+			}
+		}
+		MM_PATCH_LOOP {}
 	}
-	!Body,0 {}                        // Delete processed Body
-	MM_PATCH_LOOP {}                  // Patch Rinse Repeat
+	%TMPBiomesList
+	{
+		#../Body,0/TMPBiomes {}
+	}
+	!Body,0 {}
+	MM_PATCH_LOOP {}
 }
 
-// Unpack all biomes to Kopernicus
-@Kopernicus[DummyB]:FINAL:HAS[@Biomes]
+// Unpack all TMPBiomes to Kopernicus
+@Kopernicus[DummyB]:FINAL:HAS[@TMPBiomesList:HAS[@TMPBiomes]]
 {
-	#Biomes,0/Biome,0 {}              // Copy the first biome from the first biome list
-	@Biomes,0                         // Access the first biome list
+	#TMPBiomesList/TMPBiomes,0 {}
+	@TMPBiomesList
 	{
-		!Biome,0 {}                   // Delete the processed biome
+		!TMPBiomes,0 {}
 	}
-	!Biomes,0:HAS[!Biome] {}          // Delete processed biome list if no biomes left
-	MM_PATCH_LOOP {}                  // Patch Rinse Repeat
+	MM_PATCH_LOOP {}
+}
+
+// Remove useless TMPBiomesList
+@Kopernicus[DummyB]:FINAL
+{
+	!TMPBiomesList
+}
+
+// Unpack all Biome from the first TMPBiomes to Kopernicus
+@Kopernicus[DummyB]:FINAL:HAS[@TMPBiomes]
+{
+	#TMPBiomes/Biome,0 {}
+	!TMPBiomes,0 {}
+	MM_PATCH_LOOP {}
 }
 
 ////////// COPY-PASTED ELEMENTS UP NEXT //////////  (Total: 1)
