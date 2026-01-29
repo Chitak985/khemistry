@@ -14,6 +14,7 @@ This mod adds chemistry to KSP by adding a lot of compounds, all periodic table 
 - **Community Resource Pack** (Khemistry removes most of its resources for now but it is vital for the mod's functionality) 
 - **Kopernicus** (used to add custom ores for all planets, mod may break without it)
 - **B9 Part Switch** (used to assign the custom per planet ores to cargo tanks, mod may break without it)
+- **SystemHeat** (used for many things, many ISRU and drills will become unusable)
 
 ## Fully Supported Mods:
 - **Station Parts Expansion Redux** (cargo parts can hold some planet-speciifc resources) 
