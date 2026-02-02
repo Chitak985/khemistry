@@ -159,13 +159,99 @@ $Kopernicus:FINAL
 	@name = DummyB
 	!useOnDemand = DELETE
 	!Asteroid,* {}
+	@Body[Kerbin]  // Stock bodies have biomes in their Template so I extracted them from Kittopia Dumps
+	{
+		@Properties
+		{
+			&Biomes
+			{
+				Value
+				{
+					name = Water // The name of this biome.
+					displayName = Water // The displayed name of the biome. Can be a localization tag.
+					value = 0 // A value that gets multiplied with every amount of science that is returned in the biome.
+					color = 0.215686277,0.384313732,0.670588255,1 // The color of the biome on the biome map.
+				}
+				Value
+				{
+					name = Grasslands // The name of this biome.
+					displayName = Grasslands // The displayed name of the biome. Can be a localization tag.
+					value = 0 // A value that gets multiplied with every amount of science that is returned in the biome.
+					color = 0.513725519,0.737254918,0.180392161,1 // The color of the biome on the biome map.
+				}
+				Value
+				{
+					name = Highlands // The name of this biome.
+					displayName = Highlands // The displayed name of the biome. Can be a localization tag.
+					value = 0 // A value that gets multiplied with every amount of science that is returned in the biome.
+					color = 0.36470589,0.521568656,0.164705887,1 // The color of the biome on the biome map.
+				}
+				Value
+				{
+					name = Shores // The name of this biome.
+					displayName = Shores // The displayed name of the biome. Can be a localization tag.
+					value = 0 // A value that gets multiplied with every amount of science that is returned in the biome.
+					color = 0.980392158,0.949019611,0.717647076,1 // The color of the biome on the biome map.
+				}
+				Value
+				{
+					name = Mountains // The name of this biome.
+					displayName = Mountains // The displayed name of the biome. Can be a localization tag.
+					value = 0 // A value that gets multiplied with every amount of science that is returned in the biome.
+					color = 0.654901981,0.654901981,0.654901981,1 // The color of the biome on the biome map.
+				}
+				Value
+				{
+					name = Deserts // The name of this biome.
+					displayName = Deserts // The displayed name of the biome. Can be a localization tag.
+					value = 0 // A value that gets multiplied with every amount of science that is returned in the biome.
+					color = 0.917647064,0.749019623,0.435294122,1 // The color of the biome on the biome map.
+				}
+				Value
+				{
+					name = Badlands // The name of this biome.
+					displayName = Badlands // The displayed name of the biome. Can be a localization tag.
+					value = 0 // A value that gets multiplied with every amount of science that is returned in the biome.
+					color = 0.592156887,0.309803933,0.137254909,1 // The color of the biome on the biome map.
+				}
+				Value
+				{
+					name = Tundra // The name of this biome.
+					displayName = Tundra // The displayed name of the biome. Can be a localization tag.
+					value = 0 // A value that gets multiplied with every amount of science that is returned in the biome.
+					color = 0.78039217,0.56078434,0.874509811,1 // The color of the biome on the biome map.
+				}
+				Value
+				{
+					name = Ice Caps // The name of this biome.
+					displayName = Ice Caps // The displayed name of the biome. Can be a localization tag.
+					value = 0 // A value that gets multiplied with every amount of science that is returned in the biome.
+					color = 1,1,1,1 // The color of the biome on the biome map.
+				}
+				Value
+				{
+					name = Northern Ice Shelf // The name of this biome.
+					displayName = Northern Ice Shelf // The displayed name of the biome. Can be a localization tag.
+					value = 0 // A value that gets multiplied with every amount of science that is returned in the biome.
+					color = 0.894117653,0.992156863,1,1 // The color of the biome on the biome map.
+				}
+				Value
+				{
+					name = Southern Ice Shelf // The name of this biome.
+					displayName = Southern Ice Shelf // The displayed name of the biome. Can be a localization tag.
+					value = 0 // A value that gets multiplied with every amount of science that is returned in the biome.
+					color = 0.847058833,0.847058833,0.847058833,1 // The color of the biome on the biome map.
+				}
+			}
+		}
+	}
 	@Body,*
 	{
 		@Properties
 		{
 			&Biomes
 			{
-				Biome
+				Value
 				{
 					name = FallbackKhemistryBiome
 					displayName = I do not exist
@@ -187,13 +273,13 @@ $Kopernicus:FINAL
 
 @Kopernicus[DummyB]:FINAL:HAS[@Body]
 {
-	@Body,0:HAS[@Properties:HAS[@Biomes:HAS[@Biome]]]
+	@Body,0:HAS[@Properties:HAS[@Biomes:HAS[@Value]]]
 	{
 		%TMPBiomes
 		{
-			Biome
+			Value
 			{
-				name = #$../../Properties/Biomes/Biome,0/name$
+				name = #$../../Properties/Biomes/Value,0/name$
 				planetName = #$../../name$
 			}
 		}
@@ -201,7 +287,7 @@ $Kopernicus:FINAL
 		{
 			@Biomes
 			{
-				!Biome,0 {}
+				!Value,0 {}
 			}
 		}
 		MM_PATCH_LOOP {}
@@ -231,15 +317,15 @@ $Kopernicus:FINAL
 	!TMPBiomesList
 }
 
-// Unpack all Biome from the first TMPBiomes to Kopernicus
+// Unpack all Value from the first TMPBiomes to Kopernicus
 @Kopernicus[DummyB]:FINAL:HAS[@TMPBiomes]
 {
-	#TMPBiomes/Biome,0 {}
+	#TMPBiomes/Value,0 {}
 	!TMPBiomes,0 {}
 	MM_PATCH_LOOP {}
 }
 
-////////// COPY-PASTED ELEMENTS UP NEXT //////////  (Total: 1)
+////////// COPY-PASTED ELEMENTS UP NEXT //////////  (Total: 2)
 
 // --------------- The following nodes are copy-pasted for each MaxBiomeAndBodyProcessed ---------------
 // ----- BODY REMAINING CHECK -----
@@ -271,8 +357,12 @@ $RESOURCE_DEFINITION[DummyT]:FINAL
 }
 @RESOURCE_DEFINITION[DummyTMP]:FINAL:HAS[#allowed[true]]
 {
-	@name = #$/@Kopernicus[Dummy]/Body,0/name$$/@Kopernicus[DummyB]/Biome,0/name$Soil
-	abbreviation = #$/@Kopernicus[Dummy]/Body,0/name$ $/@Kopernicus[DummyB]/Biome,0/name$ Soil
+	biomeName = #$/@Kopernicus[DummyB]/Value,0/name$
+}
+@RESOURCE_DEFINITION[DummyTMP]:FINAL:HAS[#allowed[true],-biomeName[FallbackKhemistryBiome]]
+{
+	@name = #$/@Kopernicus[Dummy]/Body,0/name$$/@Kopernicus[DummyB]/Value,0/name$Soil
+	abbreviation = #$/@Kopernicus[Dummy]/Body,0/name$ $/@Kopernicus[DummyB]/Value,0/name$ Soil
 }
 !RESOURCE_DEFINITION[DummyTMP]:FINAL {}
 
@@ -300,10 +390,14 @@ $B9_TANK_TYPE[DummyT]:FINAL
 }
 @B9_TANK_TYPE[DummyTMP]:FINAL:HAS[#allowed[true]]
 {
-	@name = #$/@Kopernicus[Dummy]/Body,0/name$$/@Kopernicus[DummyB]/Biome,0/name$Soil
+	biomeName = #$/@Kopernicus[DummyB]/Value,0/name$
+}
+@B9_TANK_TYPE[DummyTMP]:FINAL:HAS[#allowed[true],-biomeName[FallbackKhemistryBiome]]
+{
+	@name = #$/@Kopernicus[Dummy]/Body,0/name$$/@Kopernicus[DummyB]/Value,0/name$Soil
 	@RESOURCE
 	{
-		name = #$/@Kopernicus[Dummy]/Body,0/name$$/@Kopernicus[DummyB]/Biome,0/name$Soil
+		name = #$/@Kopernicus[Dummy]/Body,0/name$$/@Kopernicus[DummyB]/Value,0/name$Soil
 	}
 }
 !B9_TANK_TYPE[DummyTMP]:FINAL {}
@@ -332,10 +426,14 @@ $BIOME_RESOURCE:HAS[#ResourceName[DummyOre]]:FINAL
 	@ResourceName = DummyTMP
 	allowed = #$/@Kopernicus[DummyB]/allowed$
 }
-@BIOME_RESOURCE:HAS[#ResourceName[DummyTMP]&#allowed[true]]:FINAL
+@BIOME_RESOURCE:HAS[#ResourceName[DummyOre]&#allowed[true]]:FINAL
 {
-	@ResourceName = #$/@Kopernicus[DummyB]/Biome,0/name$Soil
-	PlanetName = #$/@Kopernicus[DummyB]/Biome,0/planetName$
+	biomeName = #$/@Kopernicus[DummyB]/Value,0/name$
+}
+@BIOME_RESOURCE:HAS[#ResourceName[DummyTMP]&#allowed[true]&-biomeName[FallbackKhemistryBiome]]:FINAL
+{
+	@ResourceName = #$/@Kopernicus[Dummy]/Body,0/name$$/@Kopernicus[DummyB]/Value,0/name$Soil
+	PlanetName = #$/@Kopernicus[DummyB]/Value,0/planetName$
 }
 !BIOME_RESOURCE[DummyTMP]:FINAL {}
 
@@ -376,12 +474,16 @@ $SPACEDUST_RESOURCE:HAS[#resourceName[DummyAirT]]:FINAL
 }
 @PART[SmallTank,LargeTank,RadialOreTank]:FINAL:HAS[#allowed[true]]
 {
+	biomeName = #$/@Kopernicus[DummyB]/Value,0/name$
+}
+@PART[SmallTank,LargeTank,RadialOreTank]:FINAL:HAS[#allowed[true],-biomeName[FallbackKhemistryBiome]]
+{
 	@MODULE[ModuleB9PartSwitch]
 	{
 		SUBTYPE
 		{
-			name = #$/@Kopernicus[DummyB]/Biome,0/name$Soil
-			tankType = #$/@Kopernicus[DummyB]/Biome,0/name$Soil
+			name = #$/@Kopernicus[Dummy]/Body,0/name$$/@Kopernicus[DummyB]/Value,0/name$Soil
+			tankType = #$/@Kopernicus[Dummy]/Body,0/name$$/@Kopernicus[DummyB]/Value,0/name$Soil
 			title = Raw Soil (see resource)
 		}
 	}
@@ -394,12 +496,16 @@ $SPACEDUST_RESOURCE:HAS[#resourceName[DummyAirT]]:FINAL
 }
 @PART[sspx-cargo-container-25-1,sspx-cargo-container-25-2,sspx-cargo-container-25-3,sspx-cargo-container-375-1,sspx-cargo-container-375-2,sspx-cargo-container-375-3,sspx-cargo-container-radial-huge-1,sspx-cargo-container-radial-huge-2,sspx-cargo-container-radial-medium-1,sspx-cargo-container-radial-medium-2,sspx-cargo-container-radial-medium-3,sspx-cargo-container-radial-small-1,sspx-cargo-container-radial-small-2,sspx-cargo-container-radial-small-3]:FINAL:HAS[#allowed[true]]
 {
+	biomeName = #$/@Kopernicus[DummyB]/Value,0/name$
+}
+@PART[sspx-cargo-container-25-1,sspx-cargo-container-25-2,sspx-cargo-container-25-3,sspx-cargo-container-375-1,sspx-cargo-container-375-2,sspx-cargo-container-375-3,sspx-cargo-container-radial-huge-1,sspx-cargo-container-radial-huge-2,sspx-cargo-container-radial-medium-1,sspx-cargo-container-radial-medium-2,sspx-cargo-container-radial-medium-3,sspx-cargo-container-radial-small-1,sspx-cargo-container-radial-small-2,sspx-cargo-container-radial-small-3]:FINAL:HAS[#allowed[true]-biomeName[FallbackKhemistryBiome]]
+{
 	@MODULE[ModuleB9PartSwitch]
 	{
 		SUBTYPE
 		{
-			name = #$/@Kopernicus[DummyB]/Biome,0/name$Soil
-			tankType = #$/@Kopernicus[DummyB]/Biome,0/name$Soil
+			name = #$/@Kopernicus[Dummy]/Body,0/name$$/@Kopernicus[DummyB]/Value,0/name$Soil
+			tankType = #$/@Kopernicus[Dummy]/Body,0/name$$/@Kopernicus[DummyB]/Value,0/name$Soil
 			title = Raw Soil (see resource)
 		}
 	}
@@ -413,53 +519,62 @@ $SPACEDUST_RESOURCE:HAS[#resourceName[DummyAirT]]:FINAL
 }
 @Kopernicus[DummyB]:FINAL
 {
-	!Biome,0 {}  // Delete the processed Biome
+	!Value,0 {}  // Delete the processed Biome
 	!allowed = DELETE
 }
 
-// Delete all "allowed" attribute
+// Delete all "allowed" and "biomeName" attribute
 @RESOURCE_DEFINITION,*:FINAL
 {
 	!allowed = DELETE
+	!biomeName = DELETE
 }
 @RESOURCE_DEFINITION,*:FINAL
 {
 	!allowed = DELETE
+	!biomeName = DELETE
 }
 @B9_TANK_TYPE,*:FINAL
 {
 	!allowed = DELETE
+	!biomeName = DELETE
 }
 @B9_TANK_TYPE,*:FINAL
 {
 	!allowed = DELETE
+	!biomeName = DELETE
 }
 @PLANETARY_RESOURCE,*:FINAL
 {
 	!allowed = DELETE
+	!biomeName = DELETE
 }
 @PLANETARY_RESOURCE,*:FINAL
 {
 	!allowed = DELETE
+	!biomeName = DELETE
 }
 @SPACEDUST_RESOURCE,*:FINAL
 {
 	!allowed = DELETE
+	!biomeName = DELETE
 }
 @PART[SmallTank,LargeTank,RadialOreTank]:FINAL
 {
 	!allowed = DELETE
+	!biomeName = DELETE
 }
 @PART[sspx-cargo-container-25-1,sspx-cargo-container-25-2,sspx-cargo-container-25-3,sspx-cargo-container-375-1,sspx-cargo-container-375-2,sspx-cargo-container-375-3,sspx-cargo-container-radial-huge-1,sspx-cargo-container-radial-huge-2,sspx-cargo-container-radial-medium-1,sspx-cargo-container-radial-medium-2,sspx-cargo-container-radial-medium-3,sspx-cargo-container-radial-small-1,sspx-cargo-container-radial-small-2,sspx-cargo-container-radial-small-3]:FINAL
 {
 	!allowed = DELETE
+	!biomeName = DELETE
 }
 // --------------------------------------------------------------------------------------------
 
 ////////// COPY-PASTED ELEMENTS END //////////
 
-!Kopernicus[Dummy]:FINAL {}  //Delete the no longer needed safe Body list
-!Kopernicus[DummyB]:FINAL {}  //Delete the no longer needed safe Biome list
+//!Kopernicus[Dummy]:FINAL {}  // Delete the no longer needed safe Body list
+//!Kopernicus[DummyB]:FINAL {}  // Delete the no longer needed safe Biome list
 
 // Delete all resource and tank type definition templates
 !RESOURCE_DEFINITION[DummyT]:FINAL {}
