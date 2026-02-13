@@ -1,8 +1,7 @@
 using System;
 using System.Linq;
 using System.Collections.Generic;
-
-// Everything here is currently taken from FFT, this will be changed ASAP
+using CustomPreLaunchChecks;
 
 namespace KhemistryConstructionOverhaul
 {
@@ -41,5 +40,43 @@ namespace KhemistryConstructionOverhaul
     
     // Add starting resources
     ResourceDict.Add("H2O", 5.0f);
+  }
+
+  [KSPAddon(KSPAddon.Startup.MainMenu, true)]
+  public class KhemistryCPLCChecksRegistrar : MonoBehaviour
+  {
+    public void Awake()
+    {
+      CPLC.RegisterCheck(KhemistryResourceCheckManager.KhemistryResourceTest);
+    }
+  }
+
+  public class KhemistryResourceCheckManager : PreFlightTests.IPreFlightTest
+  {
+    public static int funds { get; set; } = 0; // funds needed to launch
+    private string launchSiteName;
+    private bool allowLaunch = false;
+
+    public bool Test()
+    {
+      return true;
+    }
+
+    public static PreFlightTests.IPreFlightTest GetKhemistryTest(string launchSiteName)
+    {
+      return new KhemistryResourceTest(launchSiteName);
+    }
+
+    public KhemistryResourceTest(string launchSiteName)
+    {
+      if (HighLogic.LoadedScene == GameScenes.EDITOR)
+      {
+        this.launchSiteName = launchSiteName;
+      }
+      else
+      {
+        allowLaunch = true;
+      }
+    }
   }
 }
