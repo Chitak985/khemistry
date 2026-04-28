@@ -5,7 +5,7 @@ using CustomPreLaunchChecks;
 
 namespace KhemistryConstructionOverhaul
 {
-  public class Module : PartModule
+  public class KhemistryPart : PartModule
   {
     // Resource to use when spawning the part
     [KSPField(isPersistant = false)]
@@ -23,7 +23,7 @@ namespace KhemistryConstructionOverhaul
         {
           return ["",true];
         } else {
-          return ["Not enough "+ResourceCostName1+"!",false];
+          return ["Not enough "+ResourceCostName1+"!, you need "+(ResourceCostAmount1 - KhemistryConstructionResourceManager.ResourceDict[ResourceCostName1]).ToString()+" more!",false];
         }
       } else {
         return ["You have never obtained "+ResourceCostName1+"!",false];
@@ -31,7 +31,6 @@ namespace KhemistryConstructionOverhaul
     }
   }
 
-  
   [KSPAddon(KSPAddon.Startup.FlightAndEditor, false)]
   public class KhemistryConstructionResourceManager : MonoBehaviour
   {
