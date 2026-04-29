@@ -1,6 +1,9 @@
 <img src="https://raw.githubusercontent.com/Chitak985/khemistry/refs/heads/main/Khemistry/Flags/Logo.png">
 This mod adds chemistry to KSP by adding a lot of compounds, all periodic table elements, hundreds of alloys, and many other chemical (and not very chemical) resources to the game! Scroll all the way down to see the current resource counts.
 
+## Khemistry Construction Overhaul
+An addon for Khemistry, this mod overhauls VAB construction to require resources! This mod must be installed with Khemistry and makes it play a bigger role than just more complicated ISRU processes. This mod is currently in development and including it as of now (04/29/2026 10:39 AM EST) will do nothing.
+
 ## Known Issues:
 - Far Future Technologies does not work properly with the mod in many ways. 
 - Far Future Technologies replaces one of Khemistry patches and it is fixed by making one of the tanks forced to hold Uranium Oxide Powder and not have multiple variants, which could be problematic for some people. 
@@ -68,18 +71,23 @@ These mods are confirmed to work flawlessly with Khemistry and need no patches t
 - **Connected Living Space (CLS)**
 
 ## Current Resource Counts:
-(As of 01/15/2026, 9:32 AM EST)
+(As of 04/29/2026, 10:39 AM EST)
 
 - 195x Alloys
 - 1x Composite Material
+- 15x Electric Resources (All GT tiers, ULV through MAX)
 - 3x Fuel Assemblies
 - 3x Fuel Pellets
 - 3x Fuel Rods
 - 3x Fuel Resources
 - 1x Impure Resource
 - 15x Isotopes
-- 11x Mixture
+- 12x Mixtures
 - 81x Natural Resources
+- 43x Not So Procedural Resources (these resources will be replaced by procedural generation)
 - All Periodic Table Elements
+- 5x Ores
+- 1x Other Resource (Magnetohydrodynamically Constrained Star Matter, used for sandbox parts)
 - 3x Powders
+- 55x SandLine-related Resources
 - 8x "Snack"s
