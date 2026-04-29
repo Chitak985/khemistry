@@ -2,7 +2,7 @@
 This mod adds chemistry to KSP by adding a lot of compounds, all periodic table elements, hundreds of alloys, and many other chemical (and not very chemical) resources to the game! Scroll all the way down to see the current resource counts.
 
 ## Khemistry Construction Overhaul
-An addon for Khemistry, this mod overhauls VAB construction to require resources! This mod must be installed with Khemistry and makes it play a bigger role than just more complicated ISRU processes. This mod is currently in development and including it as of now (04/29/2026 10:39 AM EST) will do nothing.
+An addon for Khemistry, this mod overhauls VAB construction to require resources! This mod must be installed with Khemistry and makes it play a bigger role than just more complicated ISRU processes. This mod is currently in development and including it as of now (04/29/2026 5:52 PM EST) will break some parts.
 
 ## Known Issues:
 - Far Future Technologies does not work properly with the mod in many ways. 
@@ -71,7 +71,7 @@ These mods are confirmed to work flawlessly with Khemistry and need no patches t
 - **Connected Living Space (CLS)**
 
 ## Current Resource Counts:
-(As of 04/29/2026, 10:39 AM EST)
+(As of 04/29/2026, 5:52 PM EST)
 
 - 195x Alloys
 - 1x Composite Material
