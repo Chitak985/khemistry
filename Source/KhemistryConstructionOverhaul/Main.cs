@@ -1,12 +1,31 @@
 using CustomPreLaunchChecks;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace KhemistryConstructionOverhaul
 {
     public class KhemistryLogger
     {
+        private KhemistryLogger() { }
+        private static KhemistryLogger _instance;
+        private static readonly object _lock = new object();
+        public static KhemistryLogger GetInstance()
+        {
+            if (_instance == null)
+            {
+                lock (_lock)
+                {
+                    if (_instance == null)
+                    {
+                        _instance = new KhemistryLogger();
+                    }
+                }
+            }
+            return _instance;
+        }
+
         public void Log(string n, string func=null)
         {
             if (func != null)
@@ -24,7 +43,7 @@ namespace KhemistryConstructionOverhaul
     public class KhemistryConstructionResourceManager : MonoBehaviour
     {
         // Logger
-        public KhemistryLogger logging = new KhemistryLogger();
+        public KhemistryLogger logging = KhemistryLogger.GetInstance();
         // Stores resources available
         public Dictionary<string, float> ResourceDict = new Dictionary<string, float>();
 
@@ -51,7 +70,7 @@ namespace KhemistryConstructionOverhaul
     public class KhemistryGeneratorPart : PartModule
     {
         // Logger
-        public KhemistryLogger logging = new KhemistryLogger();
+        public KhemistryLogger logging = KhemistryLogger.GetInstance();
         // GameObject pointing to the KhemistryConstructionResourceManager
         GameObject gameObjectMain = GameObject.Find("KhemistryConstructionResourceManager GameObject");
 
@@ -60,22 +79,30 @@ namespace KhemistryConstructionOverhaul
         public float ResourceMaxAmount = 100.0f;
 
         [KSPEvent(guiActive = true, guiActiveEditor = true, guiName = "Send stored resources to the KSC", active = true,
-         groupName = "fusionreactor", groupDisplayName = "Send stored resources to the KSCDisplayName", groupStartCollapsed = false)]
+         groupName = "resourcesending", groupDisplayName = "Resource Sender", groupStartCollapsed = false)]
         public void SendResources()
         {
             logging.Log("Sending resources to the KSC");
             if (HighLogic.LoadedSceneIsFlight)
             {
-                double result = part.RequestResource(PartResourceLibrary.Instance.GetDefinition("H2O").id, ResourceMaxAmount, ResourceFlowMode.STAGE_PRIORITY_FLOW);
-                if (gameObjectMain.GetComponent<KhemistryConstructionResourceManager>().ResourceDict.ContainsKey("H2O"))
+                if (FlightGlobals.ActiveVessel.mainBody.name == FlightGlobals.GetHomeBodyName())
                 {
-                    gameObjectMain.GetComponent<KhemistryConstructionResourceManager>().ResourceDict["H2O"] += (float)result;
-                    logging.Log(result.ToString() + " of H2O added to the dict.", "KhemistryGeneratorPart/SendResources");
+                    double result = part.RequestResource(PartResourceLibrary.Instance.GetDefinition("H2O").id, ResourceMaxAmount, ResourceFlowMode.STAGE_PRIORITY_FLOW);
+                    if (gameObjectMain.GetComponent<KhemistryConstructionResourceManager>().ResourceDict.ContainsKey("H2O"))
+                    {
+                        gameObjectMain.GetComponent<KhemistryConstructionResourceManager>().ResourceDict["H2O"] += (float)result;
+                        logging.Log(result.ToString() + " of H2O added to the dict.", "KhemistryGeneratorPart/SendResources");
+                    }
+                    else
+                    {
+                        gameObjectMain.GetComponent<KhemistryConstructionResourceManager>().ResourceDict.Add("H2O", (float)result);
+                        logging.Log(result.ToString() + " of H2O added to the dict as a new resource.", "KhemistryGeneratorPart/SendResources");
+                    }
                 }
                 else
                 {
-                    gameObjectMain.GetComponent<KhemistryConstructionResourceManager>().ResourceDict.Add("H2O", (float)result);
-                    logging.Log(result.ToString() + " of H2O added to the dict as a new resource.", "KhemistryGeneratorPart/SendResources");
+                    logging.Log("Must send resources while on the home world, error printed.", "KhemistryGeneratorPart/SendResources");
+                    ScreenMessages.PostScreenMessage(new ScreenMessage("You can only send resources to the KSC while landed on the body it is on.", 5.0f, ScreenMessageStyle.UPPER_CENTER));
                 }
             }
             else
@@ -89,17 +116,21 @@ namespace KhemistryConstructionOverhaul
     public class KhemistryPart : PartModule
     {
         // Logger
-        public KhemistryLogger logging = new KhemistryLogger();
+        public KhemistryLogger logging = KhemistryLogger.GetInstance();
         // GameObject pointing to the KhemistryConstructionResourceManager
         GameObject gameObjectMain = GameObject.Find("KhemistryConstructionResourceManager GameObject");
 
-        // Resource to use when spawning the part
-        [KSPField(isPersistant = false)]
-        public string ResourceCostName1 = "H2O";
+        public Dictionary<string, int> ResourceDict;
 
-        // Resource amount to use when spawning the part
-        [KSPField(isPersistant = false)]
-        public float ResourceCostAmount1 = 1.0f;
+        public void OnLoad(ConfigNode node)
+        {
+            // Set up ResourceDict
+            string[] names = node.GetNode("RESOURCE_COST_NAMES").GetValues("name");
+            string[] amountsStr = node.GetNode("RESOURCE_COST_AMOUNTS").GetValues("amount");
+            List<int> amounts = amountsStr.Select(int.Parse).ToList();
+            ResourceDict = names.Zip(amounts, (k, v) => new { k, v })
+                                   .ToDictionary(x => x.k, x => x.v);
+        }
 
         public List<string> BuyCheck()
         {
@@ -109,29 +140,30 @@ namespace KhemistryConstructionOverhaul
                 dict += str+": "+gameObjectMain.GetComponent<KhemistryConstructionResourceManager>().ResourceDict[str].ToString()+", ";
             }
             dict += "}";
-            logging.Log("BuyCheck! Resource is "+ResourceCostName1+" with amount "+ResourceCostAmount1.ToString()+". Dictionary: " + dict, "KhemistryPart/BuyCheck");
             List<string> tmp = new List<string>();
-            if (gameObjectMain.GetComponent<KhemistryConstructionResourceManager>().ResourceDict.ContainsKey(ResourceCostName1))
+            foreach (string resourceName in ResourceDict.Keys)
             {
-                if (gameObjectMain.GetComponent<KhemistryConstructionResourceManager>().ResourceDict[ResourceCostName1] >= ResourceCostAmount1)
+                if (gameObjectMain.GetComponent<KhemistryConstructionResourceManager>().ResourceDict.ContainsKey(resourceName))
                 {
-                    tmp.Add("");
-                    tmp.Add("1");
-                    logging.Log("Part creation success!", "KhemistryPart/BuyCheck");
+                    if (gameObjectMain.GetComponent<KhemistryConstructionResourceManager>().ResourceDict[resourceName] < ResourceDict[resourceName])
+                    {
+                        tmp.Add("Not enough " + resourceName + "!, you need " + (ResourceDict[resourceName] - gameObjectMain.GetComponent<KhemistryConstructionResourceManager>().ResourceDict[resourceName]).ToString() + " more!");
+                        tmp.Add("0");
+                        logging.Log("Not enough of resource!", "KhemistryPart/BuyCheck");
+                        return tmp;
+                    }
                 }
                 else
                 {
-                    tmp.Add("Not enough " + ResourceCostName1 + "!, you need " + (ResourceCostAmount1 - gameObjectMain.GetComponent<KhemistryConstructionResourceManager>().ResourceDict[ResourceCostName1]).ToString() + " more!");
+                    tmp.Add("You have never obtained " + resourceName + "!");
                     tmp.Add("0");
-                    logging.Log("Not enough of resource!", "KhemistryPart/BuyCheck");
+                    logging.Log("Never obtained resource!", "KhemistryPart/BuyCheck");
+                    return tmp;
                 }
             }
-            else
-            {
-                tmp.Add("You have never obtained " + ResourceCostName1 + "!");
-                tmp.Add("0");
-                logging.Log("Never obtained resource!", "KhemistryPart/BuyCheck");
-            }
+            tmp.Add("");
+            tmp.Add("1");
+            logging.Log("Part creation success!", "KhemistryPart/BuyCheck");
             return tmp;
         }
     }
@@ -140,7 +172,7 @@ namespace KhemistryConstructionOverhaul
     public class KhemistryCPLCChecksRegistrar : MonoBehaviour
     {
         // Logger
-        public KhemistryLogger logging = new KhemistryLogger();
+        public KhemistryLogger logging = KhemistryLogger.GetInstance();
         // GameObject pointing to the KhemistryConstructionResourceManager
         GameObject gameObjectMain = GameObject.Find("KhemistryConstructionResourceManager GameObject");
         public void Awake()
@@ -155,7 +187,7 @@ namespace KhemistryConstructionOverhaul
     public class KhemistryResourceCheckManager : PreFlightTests.IPreFlightTest
     {
         // Logger
-        public KhemistryLogger logging = new KhemistryLogger();
+        public KhemistryLogger logging = KhemistryLogger.GetInstance();
         public static int funds { get; set; } = 0; // funds needed to launch
         public string errorMessage = "UNKNOWN ERROR";
 
@@ -196,7 +228,7 @@ namespace KhemistryConstructionOverhaul
 
         public static PreFlightTests.IPreFlightTest GetKhemistryTest(string launchSiteName)
         {
-            // i hate C#
+            // i hate C# (no ref to logging since this is called from a different class)
             //logging.Log("GetKhemistryTest("+ launchSiteName+ ") fired!", "KhemistryResourceCheckManager/GetWarningTitle");
             return new KhemistryResourceCheckManager(launchSiteName);
         }
