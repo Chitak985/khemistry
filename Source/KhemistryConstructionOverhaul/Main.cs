@@ -1,5 +1,4 @@
 using CustomPreLaunchChecks;
-using System;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
@@ -119,35 +118,48 @@ namespace KhemistryConstructionOverhaul
         public KhemistryLogger logging = KhemistryLogger.GetInstance();
         // GameObject pointing to the KhemistryConstructionResourceManager
         GameObject gameObjectMain = GameObject.Find("KhemistryConstructionResourceManager GameObject");
+        KhemistryConstructionResourceManager componentMain = GameObject.Find("KhemistryConstructionResourceManager GameObject").GetComponent<KhemistryConstructionResourceManager>();
 
-        public Dictionary<string, int> ResourceDict;
+        public Dictionary<string, float> ResourceDict;
 
-        public void OnLoad(ConfigNode node)
+        public override void OnLoad(ConfigNode node)
         {
+            logging.Log("OnLoad triggered", "KhemistryPart/OnLoad");
+            base.OnLoad(node);
             // Set up ResourceDict
             string[] names = node.GetNode("RESOURCE_COST_NAMES").GetValues("name");
             string[] amountsStr = node.GetNode("RESOURCE_COST_AMOUNTS").GetValues("amount");
-            List<int> amounts = amountsStr.Select(int.Parse).ToList();
+            List<float> amounts = amountsStr.Select(float.Parse).ToList();
             ResourceDict = names.Zip(amounts, (k, v) => new { k, v })
                                    .ToDictionary(x => x.k, x => x.v);
         }
 
         public List<string> BuyCheck()
         {
-            string dict = "{";
-            foreach (string str in gameObjectMain.GetComponent<KhemistryConstructionResourceManager>().ResourceDict.Keys)
-            {
-                dict += str+": "+gameObjectMain.GetComponent<KhemistryConstructionResourceManager>().ResourceDict[str].ToString()+", ";
-            }
-            dict += "}";
             List<string> tmp = new List<string>();
+
+            if (componentMain.ResourceDict == null)
+            {
+                tmp.Add("A null reference error occured! Info: componentMain.ResourceDict is null.");
+                tmp.Add("0");
+                logging.Log("componentMain.ResourceDict is null!", "KhemistryPart/BuyCheck");
+                return tmp;
+            }
+            if (ResourceDict == null)
+            {
+                tmp.Add("A null reference error occured! Info: ResourceDict is null.");
+                tmp.Add("0");
+                logging.Log("ResourceDict is null!", "KhemistryPart/BuyCheck");
+                return tmp;
+            }
+
             foreach (string resourceName in ResourceDict.Keys)
             {
-                if (gameObjectMain.GetComponent<KhemistryConstructionResourceManager>().ResourceDict.ContainsKey(resourceName))
+                if (componentMain.ResourceDict.ContainsKey(resourceName))
                 {
-                    if (gameObjectMain.GetComponent<KhemistryConstructionResourceManager>().ResourceDict[resourceName] < ResourceDict[resourceName])
+                    if (componentMain.ResourceDict[resourceName] < ResourceDict[resourceName])
                     {
-                        tmp.Add("Not enough " + resourceName + "!, you need " + (ResourceDict[resourceName] - gameObjectMain.GetComponent<KhemistryConstructionResourceManager>().ResourceDict[resourceName]).ToString() + " more!");
+                        tmp.Add("Not enough " + resourceName + "!, you need " + (ResourceDict[resourceName] - componentMain.ResourceDict[resourceName]).ToString() + " more!");
                         tmp.Add("0");
                         logging.Log("Not enough of resource!", "KhemistryPart/BuyCheck");
                         return tmp;
@@ -196,12 +208,17 @@ namespace KhemistryConstructionOverhaul
             logging.Log("Test() fired!");
             foreach (Part part in EditorLogic.fetch.ship.parts)
             {
-                KhemistryPart module = part.FindModuleImplementing<KhemistryPart>();
+                KhemistryPart module = part.partInfo.partPrefab.FindModuleImplementing<KhemistryPart>();
                 if (module == null)
                 {
                     continue;
                 }
                 List<string> tmp = module.BuyCheck();
+                if (tmp == null)
+                {
+                    errorMessage = "A null reference error occured! Info: BuyCheck result for " + part.name+" is null.";
+                    return false;
+                }
                 if (tmp[1] == "0")
                 {
                     errorMessage = tmp[0];
@@ -219,7 +236,7 @@ namespace KhemistryConstructionOverhaul
 
         public string GetWarningDescription() => errorMessage;
         public string GetProceedOption() => null;
-        public string GetAbortOption() => "Abort launch.";
+        public string GetAbortOption() => "Abort launch";
 
         public KhemistryResourceCheckManager(string launchSiteName)
         {
