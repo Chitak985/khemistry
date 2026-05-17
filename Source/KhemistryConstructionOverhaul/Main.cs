@@ -5,75 +5,50 @@ using UnityEngine;
 
 namespace KhemistryConstructionOverhaul
 {
-    public class KhemistryLogger
+    // Single shared singleton: handles logging and resource storage.
+    // KSPAddon with once=true means KSP creates this once at boot and
+    // DontDestroyOnLoad keeps it alive across all scene transitions.
+    [KSPAddon(KSPAddon.Startup.Instantly, true)]
+    public class KCOShared : MonoBehaviour
     {
-        private KhemistryLogger() { }
-        private static KhemistryLogger _instance;
-        private static readonly object _lock = new object();
-        public static KhemistryLogger GetInstance()
-        {
-            if (_instance == null)
-            {
-                lock (_lock)
-                {
-                    if (_instance == null)
-                    {
-                        _instance = new KhemistryLogger();
-                    }
-                }
-            }
-            return _instance;
-        }
+        private static KCOShared _instance;
+        public static KCOShared Instance => _instance;
 
-        public void Log(string n, string func=null)
-        {
-            if (func != null)
-            {
-                Debug.LogError("KhemistryConstructionOverhaul ("+func+") : " + n);
-            }
-            else
-            {
-                Debug.LogError("KhemistryConstructionOverhaul: " + n);
-            }
-        }
-    }
-
-    [KSPAddon(KSPAddon.Startup.Instantly, false)]
-    public class KhemistryConstructionResourceManager : MonoBehaviour
-    {
-        // Logger
-        public KhemistryLogger logging = KhemistryLogger.GetInstance();
-        // Stores resources available
         public Dictionary<string, float> ResourceDict = new Dictionary<string, float>();
 
-        // GameObject pointing to the KhemistryConstructionResourceManager
-        GameObject gameObjectMain;
-
-        public void Start()
+        public void Awake()
         {
-            if (this.gameObject.name != "KhemistryConstructionResourceManager GameObject")
+            // If a duplicate somehow exists, destroy it and keep the first
+            if (_instance != null)
             {
-                gameObjectMain = new GameObject();
-                DontDestroyOnLoad(gameObjectMain);
-                gameObjectMain.AddComponent<KhemistryConstructionResourceManager>();
-                gameObjectMain.name = "KhemistryConstructionResourceManager GameObject";
-
-                if(!gameObjectMain.GetComponent<KhemistryConstructionResourceManager>().ResourceDict.ContainsKey("H2O"))
-                    gameObjectMain.GetComponent<KhemistryConstructionResourceManager>().ResourceDict.Add("H2O", 5.0f);  // Add temporary resources
-
-                logging.Log("Game object created!", "KhemistryConstructionResourceManager/Start");
+                Destroy(gameObject);
+                return;
             }
+            _instance = this;
+            DontDestroyOnLoad(gameObject);
+            Log("KCOShared initialized.", "KCOShared/Awake");
+        }
+
+        public void Log(string message, string func = null)
+        {
+            if (func != null)
+                Debug.Log("KhemistryConstructionOverhaul (" + func + "): " + message);
+            else
+                Debug.Log("KhemistryConstructionOverhaul: " + message);
+        }
+
+        public void LogError(string message, string func = null)
+        {
+            if (func != null)
+                Debug.LogError("KhemistryConstructionOverhaul (" + func + "): " + message);
+            else
+                Debug.LogError("KhemistryConstructionOverhaul: " + message);
         }
     }
 
     public class KhemistryGeneratorPart : PartModule
     {
-        // Logger
-        public KhemistryLogger logging = KhemistryLogger.GetInstance();
-        // GameObject pointing to the KhemistryConstructionResourceManager
-        GameObject gameObjectMain = GameObject.Find("KhemistryConstructionResourceManager GameObject");
-
-        // Maximum resources sendable
+        // Maximum resources sendable per activation
         [KSPField(isPersistant = false)]
         public float ResourceMaxAmount = 100.0f;
 
@@ -81,142 +56,174 @@ namespace KhemistryConstructionOverhaul
          groupName = "resourcesending", groupDisplayName = "Resource Sender", groupStartCollapsed = false)]
         public void SendResources()
         {
-            logging.Log("Sending resources to the KSC");
-            if (HighLogic.LoadedSceneIsFlight)
+            var shared = KCOShared.Instance;
+            if (shared == null)
             {
-                if (FlightGlobals.ActiveVessel.mainBody.name == FlightGlobals.GetHomeBodyName())
-                {
-                    double result = part.RequestResource(PartResourceLibrary.Instance.GetDefinition("H2O").id, ResourceMaxAmount, ResourceFlowMode.STAGE_PRIORITY_FLOW);
-                    if (gameObjectMain.GetComponent<KhemistryConstructionResourceManager>().ResourceDict.ContainsKey("H2O"))
-                    {
-                        gameObjectMain.GetComponent<KhemistryConstructionResourceManager>().ResourceDict["H2O"] += (float)result;
-                        logging.Log(result.ToString() + " of H2O added to the dict.", "KhemistryGeneratorPart/SendResources");
-                    }
-                    else
-                    {
-                        gameObjectMain.GetComponent<KhemistryConstructionResourceManager>().ResourceDict.Add("H2O", (float)result);
-                        logging.Log(result.ToString() + " of H2O added to the dict as a new resource.", "KhemistryGeneratorPart/SendResources");
-                    }
-                }
-                else
-                {
-                    logging.Log("Must send resources while on the home world, error printed.", "KhemistryGeneratorPart/SendResources");
-                    ScreenMessages.PostScreenMessage(new ScreenMessage("You can only send resources to the KSC while landed on the body it is on.", 5.0f, ScreenMessageStyle.UPPER_CENTER));
-                }
+                Debug.LogError("KhemistryConstructionOverhaul: Shared instance is null in SendResources!");
+                return;
             }
-            else
+
+            shared.Log("Sending resources to the KSC", "KhemistryGeneratorPart/SendResources");
+
+            if (!HighLogic.LoadedSceneIsFlight)
             {
-                logging.Log("Attempt to send resources while in the VAB, error printed.", "KhemistryGeneratorPart/SendResources");
+                shared.Log("Attempt to send resources while not in flight, error printed.", "KhemistryGeneratorPart/SendResources");
                 ScreenMessages.PostScreenMessage(new ScreenMessage("This does not work right now.", 5.0f, ScreenMessageStyle.UPPER_CENTER));
+                return;
             }
+
+            if (FlightGlobals.ActiveVessel.mainBody.name != FlightGlobals.GetHomeBodyName())
+            {
+                shared.Log("Must send resources while on the home world.", "KhemistryGeneratorPart/SendResources");
+                ScreenMessages.PostScreenMessage(new ScreenMessage("You can only send resources to the KSC while landed on the body it is on.", 5.0f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+
+            double result = part.RequestResource(PartResourceLibrary.Instance.GetDefinition("H2O").id, ResourceMaxAmount, ResourceFlowMode.STAGE_PRIORITY_FLOW);
+
+            if (shared.ResourceDict.ContainsKey("H2O"))
+                shared.ResourceDict["H2O"] += (float)result;
+            else
+                shared.ResourceDict.Add("H2O", (float)result);
+
+            shared.Log(result + " of H2O added to the ResourceDict.", "KhemistryGeneratorPart/SendResources");
         }
     }
 
     public class KhemistryPart : PartModule
     {
-        // Logger
-        public KhemistryLogger logging = KhemistryLogger.GetInstance();
-        // GameObject pointing to the KhemistryConstructionResourceManager
-        GameObject gameObjectMain = GameObject.Find("KhemistryConstructionResourceManager GameObject");
-        KhemistryConstructionResourceManager componentMain = GameObject.Find("KhemistryConstructionResourceManager GameObject").GetComponent<KhemistryConstructionResourceManager>();
-
+        // Resource costs for this part, populated from the part config
         public Dictionary<string, float> ResourceDict;
 
         public override void OnLoad(ConfigNode node)
         {
-            logging.Log("OnLoad triggered", "KhemistryPart/OnLoad");
             base.OnLoad(node);
-            // Set up ResourceDict
+
+            var shared = KCOShared.Instance;
+            shared?.Log("OnLoad triggered", "KhemistryPart/OnLoad");
+
+            if (!node.HasNode("RESOURCE_COST_NAMES") || !node.HasNode("RESOURCE_COST_AMOUNTS"))
+            {
+                shared?.LogError(
+                    "Part \"" + part.name + "\" has a KhemistryPart module but is missing " +
+                    "RESOURCE_COST_NAMES and/or RESOURCE_COST_AMOUNTS in its config. " +
+                    "This part will be treated as free.",
+                    "KhemistryPart/OnLoad");
+                return;
+            }
+
             string[] names = node.GetNode("RESOURCE_COST_NAMES").GetValues("name");
             string[] amountsStr = node.GetNode("RESOURCE_COST_AMOUNTS").GetValues("amount");
             List<float> amounts = amountsStr.Select(float.Parse).ToList();
+
             ResourceDict = names.Zip(amounts, (k, v) => new { k, v })
-                                   .ToDictionary(x => x.k, x => x.v);
+                                .ToDictionary(x => x.k, x => x.v);
         }
 
+        // Returns ("", "1") on success, or (errorMessage, "0") on failure.
         public List<string> BuyCheck()
         {
-            List<string> tmp = new List<string>();
+            var shared = KCOShared.Instance;
+            var tmp = new List<string>();
 
-            if (componentMain.ResourceDict == null)
+            if (shared == null)
             {
-                tmp.Add("A null reference error occured! Info: componentMain.ResourceDict is null.");
+                tmp.Add("A null reference error occurred! Info: Shared instance is null.");
                 tmp.Add("0");
-                logging.Log("componentMain.ResourceDict is null!", "KhemistryPart/BuyCheck");
+                Debug.LogError("KhemistryConstructionOverhaul: Shared instance is null in BuyCheck!");
+                return tmp;
+            }
+            if (shared.ResourceDict == null)
+            {
+                tmp.Add("A null reference error occurred! Info: shared.ResourceDict is null.");
+                tmp.Add("0");
+                shared.LogError("shared.ResourceDict is null!", "KhemistryPart/BuyCheck");
                 return tmp;
             }
             if (ResourceDict == null)
             {
-                tmp.Add("A null reference error occured! Info: ResourceDict is null.");
+                tmp.Add("A null reference error occurred! Info: part ResourceDict is null.");
                 tmp.Add("0");
-                logging.Log("ResourceDict is null!", "KhemistryPart/BuyCheck");
+                shared.LogError("ResourceDict is null!", "KhemistryPart/BuyCheck");
                 return tmp;
             }
 
             foreach (string resourceName in ResourceDict.Keys)
             {
-                if (componentMain.ResourceDict.ContainsKey(resourceName))
-                {
-                    if (componentMain.ResourceDict[resourceName] < ResourceDict[resourceName])
-                    {
-                        tmp.Add("Not enough " + resourceName + "!, you need " + (ResourceDict[resourceName] - componentMain.ResourceDict[resourceName]).ToString() + " more!");
-                        tmp.Add("0");
-                        logging.Log("Not enough of resource!", "KhemistryPart/BuyCheck");
-                        return tmp;
-                    }
-                }
-                else
+                if (!shared.ResourceDict.ContainsKey(resourceName))
                 {
                     tmp.Add("You have never obtained " + resourceName + "!");
                     tmp.Add("0");
-                    logging.Log("Never obtained resource!", "KhemistryPart/BuyCheck");
+                    shared.Log("Never obtained resource: " + resourceName, "KhemistryPart/BuyCheck");
+                    return tmp;
+                }
+                if (shared.ResourceDict[resourceName] < ResourceDict[resourceName])
+                {
+                    float shortfall = ResourceDict[resourceName] - shared.ResourceDict[resourceName];
+                    tmp.Add("Not enough " + resourceName + "! You need " + shortfall + " more.");
+                    tmp.Add("0");
+                    shared.Log("Not enough of resource: " + resourceName, "KhemistryPart/BuyCheck");
                     return tmp;
                 }
             }
+
             tmp.Add("");
             tmp.Add("1");
-            logging.Log("Part creation success!", "KhemistryPart/BuyCheck");
+            shared.Log("BuyCheck passed for part.", "KhemistryPart/BuyCheck");
             return tmp;
+        }
+
+        // Deducts resources after a successful BuyCheck.
+        public void Buy()
+        {
+            var shared = KCOShared.Instance;
+            if (shared == null || ResourceDict == null) return;
+
+            foreach (var kvp in ResourceDict)
+            {
+                if (shared.ResourceDict.ContainsKey(kvp.Key))
+                {
+                    shared.ResourceDict[kvp.Key] -= kvp.Value;
+                    shared.Log("Deducted " + kvp.Value + " of " + kvp.Key, "KhemistryPart/Buy");
+                }
+            }
         }
     }
 
     [KSPAddon(KSPAddon.Startup.MainMenu, true)]
     public class KhemistryCPLCChecksRegistrar : MonoBehaviour
     {
-        // Logger
-        public KhemistryLogger logging = KhemistryLogger.GetInstance();
-        // GameObject pointing to the KhemistryConstructionResourceManager
-        GameObject gameObjectMain = GameObject.Find("KhemistryConstructionResourceManager GameObject");
         public void Awake()
         {
-            logging.Log("Registering check and adding resource!");
-            if (!gameObjectMain.GetComponent<KhemistryConstructionResourceManager>().ResourceDict.ContainsKey("H2O"))
-                gameObjectMain.GetComponent<KhemistryConstructionResourceManager>().ResourceDict.Add("H2O", 5.0f);  // Add temporary resources
+            var shared = KCOShared.Instance;
+            shared?.Log("Registering pre-launch check.", "KhemistryCPLCChecksRegistrar/Awake");
+
+            // Add temporary H2O for testing if not already present
+            if (shared != null && !shared.ResourceDict.ContainsKey("H2O"))
+                shared.ResourceDict.Add("H2O", 5.0f);
+
             CPLC.RegisterCheck(KhemistryResourceCheckManager.GetKhemistryTest);
         }
     }
 
     public class KhemistryResourceCheckManager : PreFlightTests.IPreFlightTest
     {
-        // Logger
-        public KhemistryLogger logging = KhemistryLogger.GetInstance();
-        public static int funds { get; set; } = 0; // funds needed to launch
         public string errorMessage = "UNKNOWN ERROR";
 
         public bool Test()
         {
-            logging.Log("Test() fired!");
+            var shared = KCOShared.Instance;
+            shared?.Log("Test() fired!", "KhemistryResourceCheckManager/Test");
+
             foreach (Part part in EditorLogic.fetch.ship.parts)
             {
                 KhemistryPart module = part.partInfo.partPrefab.FindModuleImplementing<KhemistryPart>();
-                if (module == null)
-                {
-                    continue;
-                }
+                if (module == null) continue;
+
                 List<string> tmp = module.BuyCheck();
                 if (tmp == null)
                 {
-                    errorMessage = "A null reference error occured! Info: BuyCheck result for " + part.name+" is null.";
+                    errorMessage = "A null reference error occurred! BuyCheck returned null for part: " + part.name;
                     return false;
                 }
                 if (tmp[1] == "0")
@@ -225,28 +232,31 @@ namespace KhemistryConstructionOverhaul
                     return false;
                 }
             }
+
+            // All checks passed — deduct resources
+            foreach (Part part in EditorLogic.fetch.ship.parts)
+            {
+                KhemistryPart module = part.partInfo.partPrefab.FindModuleImplementing<KhemistryPart>();
+                module?.Buy();
+            }
+
             return true;
         }
 
-        public string GetWarningTitle()
-        {
-            logging.Log("Getting warning title", "KhemistryResourceCheckManager/GetWarningTitle");
-            return "Khemistry Resource Check";
-        }
-
+        public string GetWarningTitle() => "Khemistry Resource Check";
         public string GetWarningDescription() => errorMessage;
         public string GetProceedOption() => null;
         public string GetAbortOption() => "Abort launch";
 
         public KhemistryResourceCheckManager(string launchSiteName)
         {
-            logging.Log("Constructor fired!", "KhemistryResourceCheckManager/GetWarningTitle");
+            KCOShared.Instance?.Log(
+                "Constructor fired for site: " + launchSiteName,
+                "KhemistryResourceCheckManager/Constructor");
         }
 
         public static PreFlightTests.IPreFlightTest GetKhemistryTest(string launchSiteName)
         {
-            // i hate C# (no ref to logging since this is called from a different class)
-            //logging.Log("GetKhemistryTest("+ launchSiteName+ ") fired!", "KhemistryResourceCheckManager/GetWarningTitle");
             return new KhemistryResourceCheckManager(launchSiteName);
         }
     }
