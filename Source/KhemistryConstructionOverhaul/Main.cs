@@ -21,11 +21,16 @@ namespace KhemistryConstructionOverhaul
             // If a duplicate somehow exists, destroy it and keep the first
             if (_instance != null)
             {
+                LogError("Another instance of KCOShared was found, self destructing...", "KCOShared/Awake");
                 Destroy(gameObject);
                 return;
             }
             _instance = this;
             DontDestroyOnLoad(gameObject);
+            // Starting resources
+            ResourceDict.Add("CuWiring", 10.0f);       // Copper wires
+            ResourceDict.Add("Sn60Pb40Alloy", 10.0f);  // Soldering
+            ResourceDict.Add("Aluminium6061", 10.0f);  // Simple construction material
             Log("KCOShared initialized.", "KCOShared/Awake");
         }
 
@@ -48,7 +53,7 @@ namespace KhemistryConstructionOverhaul
 
     public class KhemistryGeneratorPart : PartModule
     {
-        // Maximum resources sendable per activation
+        // Maximum amount of a resource sendable per activation
         [KSPField(isPersistant = false)]
         public float ResourceMaxAmount = 100.0f;
 
@@ -63,11 +68,11 @@ namespace KhemistryConstructionOverhaul
                 return;
             }
 
-            shared.Log("Sending resources to the KSC", "KhemistryGeneratorPart/SendResources");
+            shared.Log("SendResources triggered.", "KhemistryGeneratorPart/SendResources");
 
             if (!HighLogic.LoadedSceneIsFlight)
             {
-                shared.Log("Attempt to send resources while not in flight, error printed.", "KhemistryGeneratorPart/SendResources");
+                shared.Log("Attempt to send resources while not in flight.", "KhemistryGeneratorPart/SendResources");
                 ScreenMessages.PostScreenMessage(new ScreenMessage("This does not work right now.", 5.0f, ScreenMessageStyle.UPPER_CENTER));
                 return;
             }
@@ -79,14 +84,109 @@ namespace KhemistryConstructionOverhaul
                 return;
             }
 
-            double result = part.RequestResource(PartResourceLibrary.Instance.GetDefinition("H2O").id, ResourceMaxAmount, ResourceFlowMode.STAGE_PRIORITY_FLOW);
+            // Gather all resources present on the vessel with amount > 0, deduplicated by name
+            var availableResources = FlightGlobals.ActiveVessel.parts
+                .SelectMany(p => p.Resources.Cast<PartResource>())
+                .Where(r => r.amount > 0)
+                .GroupBy(r => r.resourceName)
+                .Select(g => g.Key)
+                .ToList();
 
-            if (shared.ResourceDict.ContainsKey("H2O"))
-                shared.ResourceDict["H2O"] += (float)result;
+            if (availableResources.Count == 0)
+            {
+                shared.Log("No resources available on vessel.", "KhemistryGeneratorPart/SendResources");
+                ScreenMessages.PostScreenMessage(new ScreenMessage("No resources available to send.", 5.0f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+
+            // Build one button per resource inside a scroll list so the dialog
+            // never grows taller than 150px regardless of how many resources exist.
+            // Cancel sits outside the scroll list so it is always visible.
+            // Each button needs an explicit height so the scroll list can calculate
+            // the true content height -- without this it snaps back to the top when scrolling.
+            const float buttonHeight = 30f;
+            var buttons = new List<DialogGUIBase>();
+            foreach (string resourceName in availableResources)
+            {
+                string captured = resourceName; // capture loop variable for the lambda
+                buttons.Add(new DialogGUIButton(
+                    captured,
+                    () => TransferResource(captured),
+                    240f,         // explicit width
+                    buttonHeight, // explicit height so scroll list can measure content correctly
+                    true          // dismiss dialog on click
+                ));
+            }
+
+            // Total content height must be passed explicitly so the scroll list
+            // knows where the content ends and doesn't snap back to the top.
+            // We set size as a property instead of using the extended constructor
+            // to avoid requiring UnityEngine.TextRenderingModule in the project.
+            var layout = new DialogGUIVerticalLayout(
+                buttons.ToArray()
+            );
+
+            var scrollList = new DialogGUIScrollList(
+                new Vector2(250f, 150f),
+                false,
+                true,
+                layout
+            );
+
+            PopupDialog.SpawnPopupDialog(
+                new Vector2(0.5f, 0.5f),
+                new Vector2(0.5f, 0.5f),
+                new MultiOptionDialog(
+                    "KCOResourceSelector",
+                    "Select a resource to send up to " + ResourceMaxAmount + " units of to the KSC:",
+                    "Send Resources",
+                    HighLogic.UISkin,
+                    new Rect(0.5f, 0.5f, 300f, 0f), // 0.5/0.5 = centered, 300px wide, auto height
+                    scrollList,
+                    new DialogGUIButton("Cancel", () => { }, true)
+                ),
+                false,
+                HighLogic.UISkin
+            );
+        }
+
+        // Called when the player picks a resource from the popup
+        private void TransferResource(string resourceName)
+        {
+            var shared = KCOShared.Instance;
+            if (shared == null)
+            {
+                Debug.LogError("KhemistryConstructionOverhaul: Shared instance is null in TransferResource!");
+                return;
+            }
+
+            var def = PartResourceLibrary.Instance.GetDefinition(resourceName);
+            if (def == null)
+            {
+                shared.LogError("Could not find resource definition for: " + resourceName, "KhemistryGeneratorPart/TransferResource");
+                ScreenMessages.PostScreenMessage(new ScreenMessage("Unknown resource: " + resourceName, 5.0f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+
+            // Drain up to ResourceMaxAmount from the whole vessel
+            double taken = part.RequestResource(def.id, ResourceMaxAmount, ResourceFlowMode.ALL_VESSEL);
+
+            if (taken <= 0)
+            {
+                shared.Log("No " + resourceName + " could be drained from the vessel.", "KhemistryGeneratorPart/TransferResource");
+                ScreenMessages.PostScreenMessage(new ScreenMessage("No " + resourceName + " could be transferred.", 5.0f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+
+            if (shared.ResourceDict.ContainsKey(resourceName))
+                shared.ResourceDict[resourceName] += (float)taken;
             else
-                shared.ResourceDict.Add("H2O", (float)result);
+                shared.ResourceDict.Add(resourceName, (float)taken);
 
-            shared.Log(result + " of H2O added to the ResourceDict.", "KhemistryGeneratorPart/SendResources");
+            shared.Log(taken + " of " + resourceName + " transferred to the KSC.", "KhemistryGeneratorPart/TransferResource");
+            ScreenMessages.PostScreenMessage(new ScreenMessage(
+                string.Format("Transferred {0:F2} units of {1} to the KSC.", taken, resourceName),
+                5.0f, ScreenMessageStyle.UPPER_CENTER));
         }
     }
 
@@ -197,11 +297,6 @@ namespace KhemistryConstructionOverhaul
         {
             var shared = KCOShared.Instance;
             shared?.Log("Registering pre-launch check.", "KhemistryCPLCChecksRegistrar/Awake");
-
-            // Add temporary H2O for testing if not already present
-            if (shared != null && !shared.ResourceDict.ContainsKey("H2O"))
-                shared.ResourceDict.Add("H2O", 5.0f);
-
             CPLC.RegisterCheck(KhemistryResourceCheckManager.GetKhemistryTest);
         }
     }
@@ -233,7 +328,7 @@ namespace KhemistryConstructionOverhaul
                 }
             }
 
-            // All checks passed — deduct resources
+            // All checks passed -- deduct resources
             foreach (Part part in EditorLogic.fetch.ship.parts)
             {
                 KhemistryPart module = part.partInfo.partPrefab.FindModuleImplementing<KhemistryPart>();
