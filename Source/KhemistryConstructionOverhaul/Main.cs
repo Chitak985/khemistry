@@ -1,11 +1,13 @@
 using CustomPreLaunchChecks;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 
 namespace KhemistryConstructionOverhaul
 {
-    // Single shared singleton: handles logging and resource storage.
+    // Single shared singleton: handles logging, resource storage, and the
+    // resource selector GUI window.
     // KSPAddon with once=true means KSP creates this once at boot and
     // DontDestroyOnLoad keeps it alive across all scene transitions.
     [KSPAddon(KSPAddon.Startup.Instantly, true)]
@@ -15,6 +17,14 @@ namespace KhemistryConstructionOverhaul
         public static KCOShared Instance => _instance;
 
         public Dictionary<string, float> ResourceDict = new Dictionary<string, float>();
+
+        // Resource selector window state
+        private bool _selectorVisible = false;
+        private Vector2 _selectorScroll = Vector2.zero;
+        private List<string> _selectorResources;
+        private Action<string> _selectorCallback;
+        private Rect _windowRect = new Rect(0, 0, 320, 300);
+        private readonly int _windowId = GUIUtility.GetControlID(FocusType.Passive);
 
         public void Awake()
         {
@@ -30,8 +40,65 @@ namespace KhemistryConstructionOverhaul
             // Starting resources
             ResourceDict.Add("CuWiring", 10.0f);       // Copper wires
             ResourceDict.Add("Sn60Pb40Alloy", 10.0f);  // Soldering
-            ResourceDict.Add("Aluminium6061", 10.0f);  // Simple construction material
+            ResourceDict.Add("Aluminium6061", 10.0f);   // Simple construction material
             Log("KCOShared initialized.", "KCOShared/Awake");
+        }
+
+        // Opens the resource selector window, centered on screen.
+        // onSelect is called with the chosen resource name when the player picks one.
+        public void ShowResourceSelector(List<string> resources, Action<string> onSelect)
+        {
+            _selectorResources = resources;
+            _selectorCallback = onSelect;
+            _selectorScroll = Vector2.zero;
+            _windowRect = new Rect(
+                (Screen.width - _windowRect.width) / 2f,
+                (Screen.height - _windowRect.height) / 2f,
+                _windowRect.width,
+                _windowRect.height
+            );
+            _selectorVisible = true;
+        }
+
+        private void OnGUI()
+        {
+            if (!_selectorVisible) return;
+            _windowRect = GUILayout.Window(
+                _windowId,
+                _windowRect,
+                DrawSelectorWindow,
+                "Send Resources",
+                HighLogic.Skin.window
+            );
+        }
+
+        private void DrawSelectorWindow(int windowId)
+        {
+            GUILayout.Label("Select a resource to send to the KSC:", HighLogic.Skin.label);
+
+            // GUILayout.BeginScrollView is Unity's legacy IMGUI scroller,
+            // compatible with all KSP-supported Unity versions and reliably
+            // handles any number of items without content height issues.
+            _selectorScroll = GUILayout.BeginScrollView(
+                _selectorScroll,
+                HighLogic.Skin.scrollView,
+                GUILayout.Height(180f)
+            );
+            foreach (string res in _selectorResources)
+            {
+                if (GUILayout.Button(res, HighLogic.Skin.button))
+                {
+                    _selectorVisible = false;
+                    _selectorCallback(res);
+                }
+            }
+            GUILayout.EndScrollView();
+
+            if (GUILayout.Button("Cancel", HighLogic.Skin.button))
+                _selectorVisible = false;
+
+            // Allow the player to drag the window around
+            GUI.DragWindow();
         }
 
         public void Log(string message, string func = null)
@@ -99,58 +166,10 @@ namespace KhemistryConstructionOverhaul
                 return;
             }
 
-            // Build one button per resource inside a scroll list so the dialog
-            // never grows taller than 150px regardless of how many resources exist.
-            // Cancel sits outside the scroll list so it is always visible.
-            // Each button needs an explicit height so the scroll list can calculate
-            // the true content height -- without this it snaps back to the top when scrolling.
-            const float buttonHeight = 30f;
-            var buttons = new List<DialogGUIBase>();
-            foreach (string resourceName in availableResources)
-            {
-                string captured = resourceName; // capture loop variable for the lambda
-                buttons.Add(new DialogGUIButton(
-                    captured,
-                    () => TransferResource(captured),
-                    240f,         // explicit width
-                    buttonHeight, // explicit height so scroll list can measure content correctly
-                    true          // dismiss dialog on click
-                ));
-            }
-
-            // Total content height must be passed explicitly so the scroll list
-            // knows where the content ends and doesn't snap back to the top.
-            // We set size as a property instead of using the extended constructor
-            // to avoid requiring UnityEngine.TextRenderingModule in the project.
-            var layout = new DialogGUIVerticalLayout(
-                buttons.ToArray()
-            );
-
-            var scrollList = new DialogGUIScrollList(
-                new Vector2(250f, 150f),
-                false,
-                true,
-                layout
-            );
-
-            PopupDialog.SpawnPopupDialog(
-                new Vector2(0.5f, 0.5f),
-                new Vector2(0.5f, 0.5f),
-                new MultiOptionDialog(
-                    "KCOResourceSelector",
-                    "Select a resource to send up to " + ResourceMaxAmount + " units of to the KSC:",
-                    "Send Resources",
-                    HighLogic.UISkin,
-                    new Rect(0.5f, 0.5f, 300f, 0f), // 0.5/0.5 = centered, 300px wide, auto height
-                    scrollList,
-                    new DialogGUIButton("Cancel", () => { }, true)
-                ),
-                false,
-                HighLogic.UISkin
-            );
+            shared.ShowResourceSelector(availableResources, TransferResource);
         }
 
-        // Called when the player picks a resource from the popup
+        // Called when the player picks a resource from the selector window
         private void TransferResource(string resourceName)
         {
             var shared = KCOShared.Instance;
