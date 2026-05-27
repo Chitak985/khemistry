@@ -148,7 +148,7 @@ namespace Khemistry
             else
             {
                 KShared.Instance?.LogError(
-                    "Part \"" + part.name + "\" has KhemistryFluidCell but no ALLOWED_RESOURCES node.",
+                    "Part \"" + part.name + "\" has KhemistryFluidCell but no ALLOWED_RESOURCES node. This part is now capable of storing anything.",
                     "KhemistryFluidCell/OnLoad");
             }
         }
@@ -180,6 +180,18 @@ namespace Khemistry
         public override void OnStart(StartState state)
         {
             base.OnStart(state);
+
+            // If another instance of this handler is already on the part (caused by KSP
+            // loading both kerbalEVA and kerbalEVAfemale modules onto the same kerbal),
+            // remove this one so only a single handler is ever active.
+            var allHandlers = part.FindModulesImplementing<KhemistryEVAFluidCellHandler>();
+            if (allHandlers.Count > 1 && allHandlers[0] != this)
+            {
+                KShared.Instance?.Log("Duplicate handler found, removing self.", "KhemistryEVAFluidCellHandler/OnStart");
+                part.RemoveModule(this);
+                return;
+            }
+
             _inventory = part.FindModuleImplementing<ModuleInventoryPart>();
             if (_inventory == null)
                 KShared.Instance?.LogError("No ModuleInventoryPart on Kerbal.", "KhemistryEVAFluidCellHandler/OnStart");
