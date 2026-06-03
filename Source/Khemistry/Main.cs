@@ -6,16 +6,12 @@ using UnityEngine;
 
 namespace Khemistry
 {
-    // Single shared singleton: handles logging and the selector GUI window.
-    // KSPAddon with once=true means KSP creates this once at boot and
-    // DontDestroyOnLoad keeps it alive across all scene transitions.
     [KSPAddon(KSPAddon.Startup.Instantly, true)]
     public class KShared : MonoBehaviour
     {
         private static KShared _instance;
         public static KShared Instance => _instance;
 
-        // Selector window state
         private bool _selectorVisible = false;
         private Vector2 _selectorScroll = Vector2.zero;
         private string _selectorTitle = "";
@@ -38,10 +34,6 @@ namespace Khemistry
             Log("KShared initialized.", "KShared/Awake");
         }
 
-        // Opens the selector window centered on screen.
-        // title    - window title bar text
-        // options  - list of strings shown as buttons
-        // onSelect - called with the chosen string when the player picks one
         public void ShowSelector(string title, List<string> options, Action<string> onSelect)
         {
             _selectorTitle = title;
@@ -111,26 +103,19 @@ namespace Khemistry
 
     public class KhemistryFluidCell : PartModule
     {
-        // Maximum amount of a resource the fluid cell can hold, in kilograms
         [KSPField(isPersistant = false)]
         public float ResourceMaxAmount = 100.0f;
 
-        // How far, in meters, the fluid cell can reach when transferring
         [KSPField(isPersistant = false)]
         public float TransferDistance = 10.0f;
 
-        // Persistent storage for whatever is currently held in the cell.
-        // ResourceName == "" means the cell is empty.
         [KSPField(isPersistant = true)]
         public float ResourceAmount = 0.0f;
         [KSPField(isPersistant = true)]
         public string ResourceName = "";
 
-        // Resources this cell is allowed to hold, loaded from ALLOWED_RESOURCES
-        // in the part config. Not a KSPField since it comes from the part definition.
         public HashSet<string> AllowedResources = new HashSet<string>();
 
-        // Read-only display shown in the part GUI
         [KSPField(isPersistant = false, guiActive = true, guiActiveEditor = false, guiName = "Contents")]
         public string ContentsDisplay = "Empty";
 
@@ -162,9 +147,6 @@ namespace Khemistry
         }
     }
 
-    // Patched onto kerbalEVA and kerbalEVAfemale.
-    // Reads and writes fluid cell state directly from the inventory snapshot
-    // so it works correctly with stored (not instantiated) inventory parts.
     public class KhemistryEVAFluidCellHandler : PartModule
     {
         private static readonly HashSet<string> FluidCellPartNames = new HashSet<string>
@@ -174,7 +156,6 @@ namespace Khemistry
 
         private ModuleInventoryPart _inventory;
 
-        // Display field showing contents of all held cells, updated every frame
         [KSPField(isPersistant = false, guiActive = true, guiActiveEditor = false, guiName = "Held Cells")]
         public string CellContentsDisplay = "No cells in inventory";
 
@@ -182,9 +163,6 @@ namespace Khemistry
         {
             base.OnStart(state);
 
-            // If another instance of this handler is already on the part (caused by KSP
-            // loading both kerbalEVA and kerbalEVAfemale modules onto the same kerbal),
-            // remove this one so only a single handler is ever active.
             var allHandlers = part.FindModulesImplementing<KhemistryEVAFluidCellHandler>();
             if (allHandlers.Count > 1 && allHandlers[0] != this)
             {
@@ -208,7 +186,6 @@ namespace Khemistry
                 CellContentsDisplay = "No cells in inventory";
                 return;
             }
-            // Build a summary string: one entry per cell
             var parts = new List<string>();
             for (int i = 0; i < cells.Count; i++)
             {
@@ -222,7 +199,6 @@ namespace Khemistry
             CellContentsDisplay = string.Join("  |  ", parts.ToArray());
         }
 
-        // Returns StoredParts for all fluid cell items currently in the inventory
         private List<StoredPart> GetHeldCellSnapshots()
         {
             var result = new List<StoredPart>();
@@ -236,7 +212,6 @@ namespace Khemistry
             return result;
         }
 
-        // Reads the KhemistryFluidCell module snapshot from a StoredPart
         private ProtoPartModuleSnapshot GetCellModuleSnapshot(StoredPart stored)
         {
             if (stored.snapshot == null) return null;
@@ -249,9 +224,7 @@ namespace Khemistry
         }
 
         private string ReadResourceName(StoredPart stored)
-        {
-            return GetCellModuleSnapshot(stored)?.moduleValues.GetValue("ResourceName") ?? "";
-        }
+            => GetCellModuleSnapshot(stored)?.moduleValues.GetValue("ResourceName") ?? "";
 
         private float ReadResourceAmount(StoredPart stored)
         {
@@ -259,50 +232,35 @@ namespace Khemistry
             return val != null ? float.Parse(val) : 0f;
         }
 
-        // Reads non-persistent fields from the part prefab since they aren't in the snapshot
         private float ReadMaxAmount(string partName)
-        {
-            return PartLoader.getPartInfoByName(partName)?.partPrefab
+            => PartLoader.getPartInfoByName(partName)?.partPrefab
                 .FindModuleImplementing<KhemistryFluidCell>()?.ResourceMaxAmount ?? 100f;
-        }
 
         private float ReadTransferDistance(string partName)
-        {
-            return PartLoader.getPartInfoByName(partName)?.partPrefab
+            => PartLoader.getPartInfoByName(partName)?.partPrefab
                 .FindModuleImplementing<KhemistryFluidCell>()?.TransferDistance ?? 10f;
-        }
 
         private HashSet<string> ReadAllowedResources(string partName)
-        {
-            return PartLoader.getPartInfoByName(partName)?.partPrefab
+            => PartLoader.getPartInfoByName(partName)?.partPrefab
                 .FindModuleImplementing<KhemistryFluidCell>()?.AllowedResources
                 ?? new HashSet<string>();
-        }
 
         private void WriteResourceName(StoredPart stored, string name)
-        {
-            GetCellModuleSnapshot(stored)?.moduleValues.SetValue("ResourceName", name);
-        }
+            => GetCellModuleSnapshot(stored)?.moduleValues.SetValue("ResourceName", name);
 
         private void WriteResourceAmount(StoredPart stored, float amount)
-        {
-            GetCellModuleSnapshot(stored)?.moduleValues.SetValue("ResourceAmount", amount.ToString("F4"));
-        }
+            => GetCellModuleSnapshot(stored)?.moduleValues.SetValue("ResourceAmount", amount.ToString("F4"));
 
-        // Returns all parts within range of the Kerbal across all loaded vessels,
-        // excluding the Kerbal's own part
         private List<Part> GetPartsInRange(float range)
         {
             var result = new List<Part>();
             foreach (Vessel v in FlightGlobals.VesselsLoaded)
-            {
                 foreach (Part p in v.parts)
                 {
                     if (p == this.part) continue;
                     if (Vector3.Distance(this.part.transform.position, p.transform.position) <= range)
                         result.Add(p);
                 }
-            }
             return result;
         }
 
@@ -321,9 +279,7 @@ namespace Khemistry
             }
 
             if (cells.Count == 1)
-            {
                 ShowPartSelectorForSend(cells[0]);
-            }
             else
             {
                 var labels = cells.Select((c, i) =>
@@ -359,7 +315,6 @@ namespace Khemistry
 
             var targetParts = new Dictionary<string, Part>();
             foreach (Part p in GetPartsInRange(range))
-            {
                 foreach (PartResource pr in p.Resources)
                 {
                     if (pr.resourceName != resourceName) continue;
@@ -370,7 +325,6 @@ namespace Khemistry
                         targetParts.Add(label, p);
                     break;
                 }
-            }
 
             if (targetParts.Count == 0)
             {
@@ -384,7 +338,6 @@ namespace Khemistry
                 Part target = targetParts[label];
                 var def = PartResourceLibrary.Instance.GetDefinition(resourceName);
                 if (def == null) return;
-
                 PartResource targetResource = target.Resources.Get(def.id);
                 if (targetResource == null) return;
 
@@ -393,15 +346,8 @@ namespace Khemistry
                 targetResource.amount += pushed;
 
                 float newAmount = resourceAmount - (float)pushed;
-                if (newAmount <= 0.001f)
-                {
-                    WriteResourceName(stored, "");
-                    WriteResourceAmount(stored, 0f);
-                }
-                else
-                {
-                    WriteResourceAmount(stored, newAmount);
-                }
+                if (newAmount <= 0.001f) { WriteResourceName(stored, ""); WriteResourceAmount(stored, 0f); }
+                else WriteResourceAmount(stored, newAmount);
 
                 shared.Log(pushed + " of " + resourceName + " pushed into " + target.partInfo.title, "KhemistryEVAFluidCellHandler/EVASendResources");
                 ScreenMessages.PostScreenMessage(new ScreenMessage(
@@ -425,9 +371,7 @@ namespace Khemistry
             }
 
             if (cells.Count == 1)
-            {
                 ShowPartSelectorForTake(cells[0]);
-            }
             else
             {
                 var labels = cells.Select((c, i) =>
@@ -464,17 +408,13 @@ namespace Khemistry
             }
 
             float spaceRemaining = maxAmount - currentAmount;
-
             var optionParts = new Dictionary<string, Part>();
             var optionResources = new Dictionary<string, string>();
 
             foreach (Part p in GetPartsInRange(range))
-            {
                 foreach (PartResource pr in p.Resources)
                 {
                     if (pr.amount <= 0) continue;
-                    // If cell already holds something, only accept more of the same resource.
-                    // Otherwise filter by the allowed resources list from the config.
                     if (!string.IsNullOrEmpty(currentResource) && pr.resourceName != currentResource) continue;
                     if (string.IsNullOrEmpty(currentResource) && allowed.Count > 0 && !allowed.Contains(pr.resourceName)) continue;
 
@@ -486,7 +426,6 @@ namespace Khemistry
                         optionResources.Add(label, pr.resourceName);
                     }
                 }
-            }
 
             if (optionParts.Count == 0)
             {
@@ -503,7 +442,6 @@ namespace Khemistry
                 string resourceName = optionResources[label];
                 var def = PartResourceLibrary.Instance.GetDefinition(resourceName);
                 if (def == null) return;
-
                 PartResource sourceResource = source.Resources.Get(def.id);
                 if (sourceResource == null) return;
 
@@ -519,45 +457,27 @@ namespace Khemistry
             });
         }
     }
-    // Degrades the maximum capacity of a resource on this part linearly over time.
-    // The resource node must already exist on the part in the config — this module
-    // only overrides maxAmount at runtime. Timewarp-safe: uses universal time to
-    // calculate elapsed time so degradation continues correctly at any warp rate.
-    //
-    // Sample MODULE node:
-    // MODULE
-    // {
-    //     name = KhemistryDegradingBattery
-    //     ResourceName = ElectricCharge
-    //     DegradeTime = 60.0
-    // }
+
     public class KhemistryDegradingBattery : PartModule
     {
-        // The resource whose maxAmount will degrade over time
         [KSPField(isPersistant = false)]
         public string ResourceName = "ElectricCharge";
 
-        // How long, in minutes, until maxAmount reaches zero
         [KSPField(isPersistant = false)]
         public double DegradeTime = -1.0;
 
-        // The original maxAmount read from the resource node on first load.
-        // Persisted so the linear calculation stays correct after save/load.
         [KSPField(isPersistant = true)]
         public double OriginalMaxAmount = -1.0;
 
-        // Universal time (seconds) when this part first came to life.
-        // Persisted so elapsed time survives save/load and scene changes.
         [KSPField(isPersistant = true)]
         public double StartTime = -1.0;
 
-        // Read-only display showing current capacity percentage and time until 0%
         [KSPField(isPersistant = false, guiActive = true, guiActiveEditor = false, guiName = "Battery Health",
          groupName = "batterydeg", groupDisplayName = "Battery Health", groupStartCollapsed = false)]
         public string HealthDisplay = "Battery Life: 100%";
 
-        [KSPField(isPersistant = false, guiActive = true, guiActiveEditor = false, guiName = "Battery Health",
-         groupName = "batterydeg", groupDisplayName = "Battery Health", groupStartCollapsed = false)]
+        [KSPField(isPersistant = false, guiActive = true, guiActiveEditor = false, guiName = "Time Remaining",
+         groupName = "batterydeg")]
         public string HealthTimeDisplay = "Time until 0% battery life: Battery cannot degrade.";
 
         public override void OnStart(StartState state)
@@ -573,11 +493,8 @@ namespace Khemistry
                 return;
             }
 
-            // First time this part has ever been started — record the baseline values
-            if (OriginalMaxAmount < 0)
-                OriginalMaxAmount = resource.maxAmount;
-            if (StartTime < 0)
-                StartTime = Planetarium.GetUniversalTime();
+            if (OriginalMaxAmount < 0) OriginalMaxAmount = resource.maxAmount;
+            if (StartTime < 0) StartTime = Planetarium.GetUniversalTime();
 
             ApplyDegradation(resource);
         }
@@ -591,30 +508,22 @@ namespace Khemistry
 
         private void ApplyDegradation(PartResource resource)
         {
-            if (DegradeTime > 0)
-            {
-                double elapsedSeconds = Planetarium.GetUniversalTime() - StartTime;
-                double degradeSeconds = DegradeTime * 60.0;
+            if (DegradeTime <= 0) return;
 
-                // Linear interpolation: capacity goes from OriginalMaxAmount to 0
-                // over degradeSeconds. Clamped so it never goes below 0.
-                double fraction = Math.Max(0.0, 1.0 - (elapsedSeconds / degradeSeconds));
-                double newMax = OriginalMaxAmount * fraction;
+            double elapsedSeconds = Planetarium.GetUniversalTime() - StartTime;
+            double degradeSeconds = DegradeTime * 60.0;
+            double fraction = Math.Max(0.0, 1.0 - (elapsedSeconds / degradeSeconds));
+            double newMax = OriginalMaxAmount * fraction;
 
-                resource.maxAmount = newMax;
+            resource.maxAmount = newMax;
+            if (resource.amount > resource.maxAmount)
+                resource.amount = resource.maxAmount;
 
-                // Clamp current amount so it never exceeds the shrinking max
-                if (resource.amount > resource.maxAmount)
-                    resource.amount = resource.maxAmount;
-
-                HealthDisplay = "Battery Life: " + (fraction * 100.0).ToString() + "%";
-                HealthTimeDisplay = "Time until 0 % battery life: " + (DegradeTime - elapsedSeconds).ToString() + " seconds";
-            }
+            HealthDisplay = string.Format("Battery Life: {0:F1}%", fraction * 100.0);
+            double remaining = Math.Max(0, degradeSeconds - elapsedSeconds);
+            HealthTimeDisplay = string.Format("Time until 0%: {0:F0}s", remaining);
         }
     }
-
-
-    // ── Data classes ──────────────────────────────────────────────────────────
 
     public class KhemistryResourceInfo
     {
@@ -646,10 +555,6 @@ namespace Khemistry
         public List<KhemistryRecipeIO> outputs = new List<KhemistryRecipeIO>();
     }
 
-    // ── Data Loader ───────────────────────────────────────────────────────────
-    // Runs once at the main menu, by which point ModuleManager has finished
-    // patching and both GameDatabase and PartResourceLibrary are fully populated.
-
     [KSPAddon(KSPAddon.Startup.MainMenu, true)]
     public class KhemistryLibraryLoader : MonoBehaviour
     {
@@ -667,9 +572,6 @@ namespace Khemistry
         {
             KShared.Instance?.Log("Loading resource and recipe library...", "KhemistryLibraryLoader/LoadData");
 
-            // Build a description lookup from every RESOURCE_DEFINITION node in GameDatabase.
-            // PartResourceDefinition doesn't parse custom values like khemistryDescription,
-            // so we read them directly from the raw config nodes.
             var descriptions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (ConfigNode node in GameDatabase.Instance.GetConfigNodes("RESOURCE_DEFINITION"))
             {
@@ -679,7 +581,6 @@ namespace Khemistry
                     descriptions[resName] = desc;
             }
 
-            // Load every resource from PartResourceLibrary and sort alphanumerically by displayName
             Resources = new List<KhemistryResourceInfo>();
             foreach (PartResourceDefinition def in PartResourceLibrary.Instance.resourceDefinitions)
             {
@@ -702,8 +603,6 @@ namespace Khemistry
             Resources.Sort((a, b) =>
                 string.Compare(a.displayName, b.displayName, StringComparison.OrdinalIgnoreCase));
 
-            // Scan every PART node in GameDatabase for ModuleResourceConverter modules.
-            // GameDatabase gives us the post-MM-patched config, so we see all patched recipes.
             Recipes = new List<KhemistryRecipeInfo>();
             foreach (ConfigNode partNode in GameDatabase.Instance.GetConfigNodes("PART"))
             {
@@ -746,48 +645,34 @@ namespace Khemistry
         }
     }
 
-    // ── GUI ───────────────────────────────────────────────────────────────────
-    // Three independent draggable windows:
-    //   Main   — searchable resource list, opened by the toolbar button
-    //   Detail — per-resource details, opens when a resource is clicked
-    //   Recipe — filtered recipe list, opens from the detail window buttons
-
     [KSPAddon(KSPAddon.Startup.MainMenu, true)]
     public class KhemistryLibraryGUI : MonoBehaviour
     {
-        // Use plain integers to avoid calling GUIUtility.GetControlID outside OnGUI
         private const int MainWindowId = 856201;
         private const int DetailWindowId = 856202;
         private const int RecipeWindowId = 856203;
 
-        // Visibility flags
         private bool _mainVisible = false;
         private bool _detailVisible = false;
         private bool _recipeVisible = false;
 
-        // Window rects — initialized in Awake once screen dimensions are known
         private Rect _mainRect;
         private Rect _detailRect;
         private Rect _recipeRect;
 
-        // Main window state
         private string _searchText = "";
         private Vector2 _mainScroll = Vector2.zero;
 
-        // Detail window state
         private KhemistryResourceInfo _selectedResource;
         private Vector2 _detailScroll = Vector2.zero;
 
-        // Recipe window state
         private List<KhemistryRecipeInfo> _filteredRecipes;
         private string _recipeTitle = "";
         private Vector2 _recipeScroll = Vector2.zero;
 
-        // Toolbar button
         private ApplicationLauncherButton _toolbarButton;
         private Texture2D _buttonTexture;
 
-        // GUIStyles — created inside OnGUI on first call so HighLogic.Skin is ready
         private GUIStyle _wrapLabel;
         private GUIStyle _centeredLabel;
         private GUIStyle _boldLabel;
@@ -804,7 +689,6 @@ namespace Khemistry
             _detailRect = new Rect(sw * 0.63f, sh * 0.1f, detailW, 560f);
             _recipeRect = new Rect(sw * 0.05f, sh * 0.1f, 900f, 500f);
 
-            // Create a simple flat blue toolbar icon without needing an external texture file
             _buttonTexture = new Texture2D(38, 38, TextureFormat.RGBA32, false);
             Color icon = new Color(0.25f, 0.60f, 0.90f, 1f);
             Color[] pixels = new Color[38 * 38];
@@ -836,10 +720,7 @@ namespace Khemistry
             );
         }
 
-        private void OnLauncherDestroyed()
-        {
-            _toolbarButton = null;
-        }
+        private void OnLauncherDestroyed() { _toolbarButton = null; }
 
         private void EnsureStyles()
         {
@@ -861,18 +742,14 @@ namespace Khemistry
                 _recipeRect = GUILayout.Window(RecipeWindowId, _recipeRect, DrawRecipeWindow, _recipeTitle, HighLogic.Skin.window);
         }
 
-        // ── Main Window ───────────────────────────────────────────────────────
-
         private void DrawMainWindow(int id)
         {
-            // X button
             GUILayout.BeginHorizontal();
             GUILayout.FlexibleSpace();
             if (GUILayout.Button("X", HighLogic.Skin.button, GUILayout.Width(28)))
                 _mainVisible = false;
             GUILayout.EndHorizontal();
 
-            // Full-width search bar
             GUILayout.BeginHorizontal();
             GUILayout.Label("Search:", HighLogic.Skin.label, GUILayout.Width(55));
             _searchText = GUILayout.TextField(_searchText, HighLogic.Skin.textField);
@@ -880,7 +757,6 @@ namespace Khemistry
 
             GUILayout.Space(4);
 
-            // Column headers
             GUILayout.BeginHorizontal();
             GUILayout.Label("Name", _boldLabel, GUILayout.Width(230));
             GUILayout.Label("Abbreviation", _boldLabel, GUILayout.Width(120));
@@ -916,8 +792,6 @@ namespace Khemistry
             GUI.DragWindow();
         }
 
-        // ── Detail Window ─────────────────────────────────────────────────────
-
         private void OpenDetailWindow(KhemistryResourceInfo res)
         {
             _selectedResource = res;
@@ -930,7 +804,6 @@ namespace Khemistry
             KhemistryResourceInfo res = _selectedResource;
             float labelW = Screen.width / 3f - 60f;
 
-            // Title row: wrapping displayName + X button
             GUILayout.BeginHorizontal();
             GUILayout.Label(res.displayName, _boldLabel, GUILayout.Width(labelW - 35f));
             if (GUILayout.Button("X", HighLogic.Skin.button, GUILayout.Width(28)))
@@ -942,10 +815,7 @@ namespace Khemistry
 
             GUILayout.Space(4);
 
-            // Centered description
-            string desc = string.IsNullOrEmpty(res.description)
-                ? "No description available."
-                : res.description;
+            string desc = string.IsNullOrEmpty(res.description) ? "No description available." : res.description;
             GUILayout.Label(desc, _centeredLabel, GUILayout.Width(labelW));
 
             GUILayout.Space(8);
@@ -962,23 +832,17 @@ namespace Khemistry
 
             GUILayout.Space(6);
 
-            // Density / volume description
             string densityLine;
-            if (Approx(res.density, 0.001f) && Approx(res.volume, 1f))
-                densityLine = "1 unit = 1 kilogram";
-            else if (Approx(res.density, 1f) && Approx(res.volume, 1f))
-                densityLine = "1 unit = 1 ton";
-            else if (Approx(res.density, 0.000001f) && Approx(res.volume, 1f))
-                densityLine = "1 unit = 1 gram";
-            else
-                densityLine = string.Format(
+            if (Approx(res.density, 0.001f) && Approx(res.volume, 1f)) densityLine = "1 unit = 1 kilogram";
+            else if (Approx(res.density, 1f) && Approx(res.volume, 1f)) densityLine = "1 unit = 1 ton";
+            else if (Approx(res.density, 0.000001f) && Approx(res.volume, 1f)) densityLine = "1 unit = 1 gram";
+            else densityLine = string.Format(
                     "This resource has special density and volume parameters. " +
                     "Every unit of this resource weighs {0:F6} kilograms and each internal " +
                     "volume unit is filled by {1} of this resource.",
                     res.density * 1000.0, res.volume);
 
             GUILayout.Label(densityLine, _wrapLabel, GUILayout.Width(labelW));
-
             GUILayout.EndScrollView();
 
             GUILayout.Space(6);
@@ -999,11 +863,8 @@ namespace Khemistry
             GUILayout.EndHorizontal();
         }
 
-        // Approximate float equality with a 1% relative tolerance plus epsilon
         private static bool Approx(float a, float b)
             => Math.Abs(a - b) < Math.Abs(b) * 0.01f + 1e-9f;
-
-        // ── Recipe Window ─────────────────────────────────────────────────────
 
         private void OpenRecipeWindow(string resourceName, bool isInput)
         {
@@ -1022,14 +883,12 @@ namespace Khemistry
 
         private void DrawRecipeWindow(int id)
         {
-            // X button
             GUILayout.BeginHorizontal();
             GUILayout.FlexibleSpace();
             if (GUILayout.Button("X", HighLogic.Skin.button, GUILayout.Width(28)))
                 _recipeVisible = false;
             GUILayout.EndHorizontal();
 
-            // Column headers
             GUILayout.BeginHorizontal();
             GUILayout.Label("Name", _boldLabel, GUILayout.Width(200));
             GUILayout.Label("Produces heat?", _boldLabel, GUILayout.Width(100));
@@ -1049,69 +908,36 @@ namespace Khemistry
                 {
                     GUILayout.BeginHorizontal();
 
-                    // Name + part title stacked vertically in one column
                     GUILayout.BeginVertical(GUILayout.Width(200));
                     GUILayout.Label(recipe.converterName, _boldLabel);
                     GUILayout.Label("(" + recipe.partTitle + ")", _wrapLabel);
                     GUILayout.EndVertical();
 
-                    // Generates heat
-                    GUILayout.Label(recipe.generatesHeat ? "Yes" : "No",
-                        HighLogic.Skin.label, GUILayout.Width(100));
+                    GUILayout.Label(recipe.generatesHeat ? "Yes" : "No", HighLogic.Skin.label, GUILayout.Width(100));
 
-                    // Inputs — each on its own line, each a clickable button
                     GUILayout.BeginVertical(GUILayout.Width(270));
-                    if (recipe.inputs.Count == 0)
-                    {
-                        GUILayout.Label("-", _wrapLabel);
-                    }
-                    else
-                    {
-                        foreach (KhemistryRecipeIO input in recipe.inputs)
+                    if (recipe.inputs.Count == 0) GUILayout.Label("-", _wrapLabel);
+                    else foreach (KhemistryRecipeIO input in recipe.inputs)
                         {
                             string btnLabel = string.Format("{0:G4}x {1}/sec", input.ratio, input.resourceName);
                             KhemistryResourceInfo inputRes = FindResource(input.resourceName);
-                            if (inputRes != null)
-                            {
-                                if (GUILayout.Button(btnLabel, HighLogic.Skin.button))
-                                    OpenDetailWindow(inputRes);
-                            }
-                            else
-                            {
-                                GUILayout.Label(btnLabel, _wrapLabel);
-                            }
+                            if (inputRes != null) { if (GUILayout.Button(btnLabel, HighLogic.Skin.button)) OpenDetailWindow(inputRes); }
+                            else GUILayout.Label(btnLabel, _wrapLabel);
                         }
-                    }
                     GUILayout.EndVertical();
 
-                    // Outputs — same pattern as inputs
                     GUILayout.BeginVertical(GUILayout.Width(270));
-                    if (recipe.outputs.Count == 0)
-                    {
-                        GUILayout.Label("-", _wrapLabel);
-                    }
-                    else
-                    {
-                        foreach (KhemistryRecipeIO output in recipe.outputs)
+                    if (recipe.outputs.Count == 0) GUILayout.Label("-", _wrapLabel);
+                    else foreach (KhemistryRecipeIO output in recipe.outputs)
                         {
                             string btnLabel = string.Format("{0:G4}x {1}/sec", output.ratio, output.resourceName);
                             KhemistryResourceInfo outputRes = FindResource(output.resourceName);
-                            if (outputRes != null)
-                            {
-                                if (GUILayout.Button(btnLabel, HighLogic.Skin.button))
-                                    OpenDetailWindow(outputRes);
-                            }
-                            else
-                            {
-                                GUILayout.Label(btnLabel, _wrapLabel);
-                            }
+                            if (outputRes != null) { if (GUILayout.Button(btnLabel, HighLogic.Skin.button)) OpenDetailWindow(outputRes); }
+                            else GUILayout.Label(btnLabel, _wrapLabel);
                         }
-                    }
                     GUILayout.EndVertical();
 
                     GUILayout.EndHorizontal();
-
-                    // Divider between recipes
                     GUILayout.Box("", GUILayout.Height(1), GUILayout.ExpandWidth(true));
                 }
             }
@@ -1124,6 +950,840 @@ namespace Khemistry
         {
             if (!KhemistryLibraryLoader.IsLoaded) return null;
             return KhemistryLibraryLoader.Resources.FirstOrDefault(r => r.name == name);
+        }
+    }
+
+    /* Example config node
+MODULE
+{
+	name = KhemistryAdvancedStorage
+    storageType = multiShared  // Can be type or storageType. "single" stores one resource, "multi" stores multiple and can be configured, "multiShared" stores multiple all at the same time
+	maximumResources = 1000.0  // Maximum resources it can hold in total. This will be shared for multiShare types but per-resource for others.
+	chargingRequired = true    // Does the container need to be charged to be used
+	passiveConsumption = true  // Does the container have a passive consumption
+	maxInputRate = 10.0        // Maximum transfer rate to the container. Do not include if you want it to be unlimited
+	maxOutputRate = 10.0       // Maximum transfer rate from the container. Do not include if you want it to be unlimited
+	chargeRate = 50.0          // Percent per second to fill charge (50 = 2 seconds to full). Not required if charging is disabled
+	chargeDecayRate = 5.0      // Percent per second to lose charge when storage can no longer charge. Not required if charging is disabled
+    filledUnpoweredResult = boiloff,1         // What will happen if the storage is not on but has a resource. Possible options are listed below
+    passiveUnsatisfiedResult = destroy,500    // What will happen if the storage cannot consume resources as part of passive consumption. Possible options are listed below
+                                              // off = The container will turn off
+                                              // void = All resources will be voided
+                                              // destroy,50 = The part will blow up with the specified power
+                                              // boiloff,1 = All resources will slowly (or not) disappear at the specified amount per second.
+                                              // Note that boiloff can only be applied to filledUnpoweredResult because passiveUnsatisfiedResult is only checked once and the container turns off.
+                                              // Also the fields can have double quotes (") around them but that is not recommended to do.
+
+	SUPPORTED_RESOURCES        // Resource the container supports and can hold at the same time.
+	{                          // More than one entry with single type will error out and remove all after the first one.
+		name = LiquidFuel      // If it isn't present, the part will error out and the storage will not show up.
+		name = Oxidizer
+		name = MonoPropellant
+	}
+
+	PASSIVE_CON_NAMES          // Resources used for passive consumption. Not required if passive consumption is disabled
+	{
+		name = ElectricCharge
+	}
+	PASSIVE_CON_AMOUNTS        // Amount of each resource used for passive consumption (per second). Not required if passive consumption is disabled
+	{
+		amount = 0.5
+	}
+
+	CHARGE_CON_NAMES           // Resources used for charge consumption. Not required if charging is disabled
+	{
+		name = ElectricCharge
+	}
+	CHARGE_CON_AMOUNTS         // Amount of each resource used for charge consumption (per second). Not required if charging is disabled
+	{
+		amount = 5.0
+	}
+}
+    */
+    public class KhemistryAdvancedStorage : PartModule
+    {
+        // ── Config fields (KSPFields) ────────────────────────────────────────────────
+
+        [KSPField(isPersistant = false)]
+        public string storageType = "single";   // "single", "multi", "multiShared"
+
+        [KSPField(isPersistant = false)]
+        public float maximumResources = 1000f;
+
+        [KSPField(isPersistant = false)]
+        public bool chargingRequired = false;
+
+        [KSPField(isPersistant = false)]
+        public bool passiveConsumption = false;
+
+        [KSPField(isPersistant = false)]
+        public float maxInputRate = -1f;        // units per second, -1 = unlimited (not enforced yet)
+
+        [KSPField(isPersistant = false)]
+        public float maxOutputRate = -1f;       // units per second, -1 = unlimited (not enforced yet)
+
+        [KSPField(isPersistant = false)]
+        public float chargeRate = 0f;           // percent per second
+
+        [KSPField(isPersistant = false)]
+        public float chargeDecayRate = 0f;      // percent per second
+
+        // ── Persistent runtime state ────────────────────────────────────────────────
+
+        public enum StorageState { Off, Charging, On }
+
+        [KSPField(isPersistant = true)]
+        public float chargePercent = 0f;
+
+        [KSPField(isPersistant = true)]
+        public StorageState state = StorageState.Off;
+
+        [KSPField(isPersistant = true)]
+        public string activeResource = "";
+
+        // ── Display fields ─────────────────────────────────────────────────────────
+
+        [KSPField(isPersistant = false, guiActive = true, guiActiveEditor = true,
+                  guiName = "Contents", groupName = "khemistryadvstorage",
+                  groupDisplayName = "Khemistry Container", groupStartCollapsed = false)]
+        public string contentsDisplay = "Empty";
+
+        [KSPField(isPersistant = false, guiActive = true, guiActiveEditor = true,
+                  guiName = "Volume Used", groupName = "khemistryadvstorage")]
+        public string volumeDisplay = "0 / 0";
+
+        [KSPField(isPersistant = false, guiActive = true, guiActiveEditor = false,
+                  guiName = "Charge", groupName = "khemistryadvstorage")]
+        public string chargeDisplay = "Charge: N/A";
+
+        [KSPField(isPersistant = false, guiActive = true, guiActiveEditor = false,
+                  guiName = "State", groupName = "khemistryadvstorage")]
+        public string stateDisplay = "State: Off";
+
+        [KSPField(isPersistant = false, guiActive = true, guiActiveEditor = false,
+                  guiName = "Active Resource", groupName = "khemistryadvstorage")]
+        public string activeResourceDisplay = "Active: (none)";
+
+        // ── Internal config data ───────────────────────────────────────────────────
+
+        private readonly List<string> _supportedResources = new List<string>();
+
+        private readonly List<string> _passiveNames = new List<string>();
+        private readonly List<float> _passiveAmounts = new List<float>();
+
+        private readonly List<string> _chargeNames = new List<string>();
+        private readonly List<float> _chargeAmounts = new List<float>();
+
+        // Parsed consequence configs
+        private enum ConsequenceType { Off, Void, Destroy, Boiloff }
+
+        private struct ConsequenceConfig
+        {
+            public ConsequenceType type;
+            public float value;   // explosion power for Destroy; rate/sec for Boiloff
+        }
+
+        private ConsequenceConfig _passiveUnsatisfiedResult;  // fires once per unsatisfied run
+        private ConsequenceConfig _filledUnpoweredResult;     // fires every 0.1 s when unpowered+filled
+
+        // For blocking transfers while not On
+        private readonly Dictionary<string, double> _frozenAmounts = new Dictionary<string, double>();
+
+        // Consequence state
+        private bool _passiveUnsatisfiedFired = false;   // re-arms when consumption succeeds
+        private double _filledUnpoweredAccum = 0.0;     // time accumulator for 0.1 s ticks
+
+        private bool _fatalConfigError = false;
+
+        // ── UI Events ──────────────────────────────────────────────────────────────
+
+        [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Enable Charging",
+                  groupName = "khemistryadvstorage")]
+        public void EnableCharging()
+        {
+            if (!chargingRequired) return;
+            if (state == StorageState.On) return;
+            state = StorageState.Charging;
+            KShared.Instance?.Log("Charging enabled.", "KhemistryAdvancedStorage/EnableCharging");
+        }
+
+        [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Disable Charging",
+                  groupName = "khemistryadvstorage", active = false)]
+        public void DisableCharging()
+        {
+            if (!chargingRequired) return;
+            if (state != StorageState.Charging) return;
+            state = StorageState.Off;
+            KShared.Instance?.Log("Charging disabled.", "KhemistryAdvancedStorage/DisableCharging");
+        }
+
+        [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Turn on container",
+                  groupName = "khemistryadvstorage", active = false)]
+        public void TurnOnContainer()
+        {
+            if (chargingRequired && chargePercent < 100f)
+            {
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "Container must be fully charged before turning on.", 5f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+            state = StorageState.On;
+            _passiveUnsatisfiedFired = false;
+            KShared.Instance?.Log("Container turned ON.", "KhemistryAdvancedStorage/TurnOnContainer");
+        }
+
+        [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Turn off container",
+                  groupName = "khemistryadvstorage", active = false)]
+        public void TurnOffContainer()
+        {
+            state = StorageState.Off;
+            KShared.Instance?.Log("Container turned OFF.", "KhemistryAdvancedStorage/TurnOffContainer");
+        }
+
+        [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Select resource",
+                  groupName = "khemistryadvstorage", active = false)]
+        public void SelectResource()
+        {
+            if (storageType != "multi") return;
+
+            if (!string.IsNullOrEmpty(activeResource))
+            {
+                var def = PartResourceLibrary.Instance.GetDefinition(activeResource);
+                if (def != null)
+                {
+                    PartResource pr = part.Resources.Get(def.id);
+                    if (pr != null && pr.amount >= 1.0)
+                    {
+                        ScreenMessages.PostScreenMessage(new ScreenMessage(
+                            "Container must be nearly empty to switch resource.", 5f, ScreenMessageStyle.UPPER_CENTER));
+                        return;
+                    }
+                    if (pr != null) pr.amount = 0.0;
+                }
+            }
+
+            if (_supportedResources.Count == 0)
+            {
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "No supported resources configured.", 5f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+
+            var shared = KShared.Instance;
+            if (shared == null)
+            {
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "KShared not available.", 5f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+
+            shared.ShowSelector("Select active resource", new List<string>(_supportedResources), label =>
+            {
+                activeResource = label;
+                KShared.Instance?.Log("Active resource set to " + activeResource,
+                    "KhemistryAdvancedStorage/SelectResource");
+                ZeroNonActiveResources();
+            });
+        }
+
+        // ── Lifecycle ──────────────────────────────────────────────────────────────
+
+        public override void OnStart(StartState state)
+        {
+            base.OnStart(state);
+
+            _fatalConfigError = false;
+            LoadConfigFromPartInfo();
+
+            if (_fatalConfigError)
+            {
+                foreach (BaseEvent e in Events) e.active = false;
+                contentsDisplay = "ERROR: see log";
+                return;
+            }
+
+            EnsureResourcesExistOnPart();
+            SnapshotFrozenAmounts();
+            _passiveUnsatisfiedFired = false;
+            _filledUnpoweredAccum = 0.0;
+            UpdateUI();
+        }
+
+        public override void OnLoad(ConfigNode node)
+        {
+            base.OnLoad(node);
+        }
+
+        public void FixedUpdate()
+        {
+            if (!HighLogic.LoadedSceneIsFlight) return;
+            if (vessel == null || part == null) return;
+            if (_fatalConfigError) return;
+
+            double dt = TimeWarp.fixedDeltaTime;
+
+            HandleCharging(dt);
+            HandlePassiveConsumption(dt);
+            HandleTransferBlocking();
+            HandleFilledUnpowered(dt);
+            EnforceCapacity();
+            UpdateUI();
+        }
+
+        public override void OnUpdate()
+        {
+            if (_fatalConfigError) return;
+            UpdateUI();
+        }
+
+        // ── Config loading ─────────────────────────────────────────────────────────
+
+        private void LoadConfigFromPartInfo()
+        {
+            if (part.partInfo?.partConfig == null)
+            {
+                KShared.Instance?.LogError("partInfo.partConfig is null!",
+                    "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
+                _fatalConfigError = true;
+                return;
+            }
+
+            ConfigNode moduleNode = null;
+            foreach (ConfigNode n in part.partInfo.partConfig.GetNodes("MODULE"))
+            {
+                if (n.GetValue("name") == "KhemistryAdvancedStorage") { moduleNode = n; break; }
+            }
+
+            if (moduleNode == null)
+            {
+                KShared.Instance?.LogError("Could not find MODULE node in partConfig!",
+                    "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
+                _fatalConfigError = true;
+                return;
+            }
+
+            // SUPPORTED_RESOURCES — required
+            _supportedResources.Clear();
+            if (!moduleNode.HasNode("SUPPORTED_RESOURCES"))
+            {
+                KShared.Instance?.LogError(
+                    "Part \"" + part.name + "\" has KhemistryAdvancedStorage but no SUPPORTED_RESOURCES node. This module will not load.",
+                    "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
+                _fatalConfigError = true;
+                return;
+            }
+            foreach (string n in moduleNode.GetNode("SUPPORTED_RESOURCES").GetValues("name"))
+                _supportedResources.Add(n.Trim());
+            if (_supportedResources.Count == 0)
+            {
+                KShared.Instance?.LogError(
+                    "Part \"" + part.name + "\" has KhemistryAdvancedStorage with an empty SUPPORTED_RESOURCES node. This module will not load.",
+                    "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
+                _fatalConfigError = true;
+                return;
+            }
+
+            // Scalar fields
+            storageType = moduleNode.GetValue("storageType") ?? moduleNode.GetValue("type") ?? "single";
+
+            float tmp;
+            if (float.TryParse(moduleNode.GetValue("maximumResources"), out tmp)) maximumResources = tmp;
+            maxInputRate = float.TryParse(moduleNode.GetValue("maxInputRate"), out tmp) ? tmp : -1f;
+            maxOutputRate = float.TryParse(moduleNode.GetValue("maxOutputRate"), out tmp) ? tmp : -1f;
+            if (float.TryParse(moduleNode.GetValue("chargeRate"), out tmp)) chargeRate = tmp;
+            if (float.TryParse(moduleNode.GetValue("chargeDecayRate"), out tmp)) chargeDecayRate = tmp;
+
+            bool tmpB;
+            if (bool.TryParse(moduleNode.GetValue("chargingRequired"), out tmpB)) chargingRequired = tmpB;
+            if (bool.TryParse(moduleNode.GetValue("passiveConsumption"), out tmpB)) passiveConsumption = tmpB;
+
+            // Consequence configs
+            _passiveUnsatisfiedResult = ParseConsequence(
+                moduleNode.GetValue("passiveUnsatisfiedResult"), allowBoiloff: false,
+                "passiveUnsatisfiedResult", "off");
+
+            _filledUnpoweredResult = ParseConsequence(
+                moduleNode.GetValue("filledUnpoweredResult"), allowBoiloff: true,
+                "filledUnpoweredResult", "off");
+
+            // PASSIVE_CON_NAMES / PASSIVE_CON_AMOUNTS
+            _passiveNames.Clear();
+            _passiveAmounts.Clear();
+            if (passiveConsumption)
+            {
+                if (moduleNode.HasNode("PASSIVE_CON_NAMES"))
+                    foreach (string n in moduleNode.GetNode("PASSIVE_CON_NAMES").GetValues("name"))
+                        _passiveNames.Add(n.Trim());
+                if (moduleNode.HasNode("PASSIVE_CON_AMOUNTS"))
+                    foreach (string a in moduleNode.GetNode("PASSIVE_CON_AMOUNTS").GetValues("amount"))
+                    { if (float.TryParse(a, out tmp)) _passiveAmounts.Add(tmp); }
+                if (_passiveNames.Count != _passiveAmounts.Count)
+                    KShared.Instance?.LogError("PASSIVE_CON_NAMES and PASSIVE_CON_AMOUNTS length mismatch.",
+                        "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
+            }
+
+            // CHARGE_CON_NAMES / CHARGE_CON_AMOUNTS
+            _chargeNames.Clear();
+            _chargeAmounts.Clear();
+            if (chargingRequired)
+            {
+                if (moduleNode.HasNode("CHARGE_CON_NAMES"))
+                    foreach (string n in moduleNode.GetNode("CHARGE_CON_NAMES").GetValues("name"))
+                        _chargeNames.Add(n.Trim());
+                if (moduleNode.HasNode("CHARGE_CON_AMOUNTS"))
+                    foreach (string a in moduleNode.GetNode("CHARGE_CON_AMOUNTS").GetValues("amount"))
+                    { if (float.TryParse(a, out tmp)) _chargeAmounts.Add(tmp); }
+                if (_chargeNames.Count != _chargeAmounts.Count)
+                    KShared.Instance?.LogError("CHARGE_CON_NAMES and CHARGE_CON_AMOUNTS length mismatch.",
+                        "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
+            }
+
+            // Active resource defaults
+            if ((storageType == "single" || storageType == "multi") && string.IsNullOrEmpty(activeResource))
+                if (_supportedResources.Count > 0) activeResource = _supportedResources[0];
+
+            if (storageType == "single" && _supportedResources.Count > 1)
+            {
+                KShared.Instance?.LogError(
+                    "storageType=single but multiple SUPPORTED_RESOURCES defined; only first will be used.",
+                    "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
+                string keep = _supportedResources[0];
+                _supportedResources.Clear();
+                _supportedResources.Add(keep);
+                activeResource = keep;
+            }
+
+            KShared.Instance?.Log(
+                string.Format("Config loaded. storageType={0}, max={1}, chargingRequired={2}, passiveConsumption={3}, passiveUnsatisfiedResult={4}, filledUnpoweredResult={5}",
+                    storageType, maximumResources, chargingRequired, passiveConsumption,
+                    _passiveUnsatisfiedResult.type, _filledUnpoweredResult.type),
+                "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
+        }
+
+        /// <summary>
+        /// Parses "off", "void", "destroy,10", "boiloff,1.5" into a ConsequenceConfig.
+        /// Falls back to the specified default if the raw value is null/invalid.
+        /// </summary>
+        private ConsequenceConfig ParseConsequence(string raw, bool allowBoiloff, string fieldName, string fallback)
+        {
+            // KSP config values may include surrounding quotes when the cfg uses = "value" syntax; strip them.
+            string src = string.IsNullOrEmpty(raw) ? fallback : raw.Trim().Trim('"').Trim().ToLower();
+
+            if (src == "off") return new ConsequenceConfig { type = ConsequenceType.Off };
+            if (src == "void") return new ConsequenceConfig { type = ConsequenceType.Void };
+
+            if (src.StartsWith("destroy,"))
+            {
+                float v;
+                if (float.TryParse(src.Substring(8), out v))
+                    return new ConsequenceConfig { type = ConsequenceType.Destroy, value = v };
+                KShared.Instance?.LogError("Could not parse destroy power in " + fieldName + "=\"" + raw + "\". Defaulting to off.",
+                    "KhemistryAdvancedStorage/ParseConsequence");
+                return new ConsequenceConfig { type = ConsequenceType.Off };
+            }
+
+            if (allowBoiloff && src.StartsWith("boiloff,"))
+            {
+                float v;
+                if (float.TryParse(src.Substring(8), out v))
+                    return new ConsequenceConfig { type = ConsequenceType.Boiloff, value = v };
+                KShared.Instance?.LogError("Could not parse boiloff rate in " + fieldName + "=\"" + raw + "\". Defaulting to off.",
+                    "KhemistryAdvancedStorage/ParseConsequence");
+                return new ConsequenceConfig { type = ConsequenceType.Off };
+            }
+
+            KShared.Instance?.LogError("Unknown consequence value " + fieldName + "=\"" + raw + "\". Defaulting to off.",
+                "KhemistryAdvancedStorage/ParseConsequence");
+            return new ConsequenceConfig { type = ConsequenceType.Off };
+        }
+
+        // ── Resource setup ──────────────────────────────────────────────────────────
+
+        private void EnsureResourcesExistOnPart()
+        {
+            foreach (string resName in _supportedResources)
+            {
+                var def = PartResourceLibrary.Instance.GetDefinition(resName);
+                if (def == null)
+                {
+                    KShared.Instance?.LogError("Unknown resource \"" + resName + "\" in SUPPORTED_RESOURCES.",
+                        "KhemistryAdvancedStorage/EnsureResourcesExistOnPart");
+                    continue;
+                }
+
+                PartResource existing = part.Resources.Get(def.id);
+                if (existing == null)
+                {
+                    ConfigNode node = new ConfigNode("RESOURCE");
+                    node.AddValue("name", resName);
+                    node.AddValue("amount", 0.0);
+                    node.AddValue("maxAmount", maximumResources);
+                    part.AddResource(node);
+                }
+                else
+                {
+                    existing.maxAmount = maximumResources;
+                    if (existing.amount < 0.0) existing.amount = 0.0;
+                }
+            }
+
+            if (storageType == "multi")
+                ZeroNonActiveResources();
+        }
+
+        private void ZeroNonActiveResources()
+        {
+            foreach (PartResource pr in part.Resources)
+            {
+                if (!_supportedResources.Contains(pr.resourceName)) continue;
+                if (!string.IsNullOrEmpty(activeResource) && pr.resourceName != activeResource)
+                    pr.amount = 0.0;
+            }
+        }
+
+        // ── Charging logic ─────────────────────────────────────────────────────────
+
+        private void HandleCharging(double dt)
+        {
+            if (!chargingRequired) return;
+
+            if (state == StorageState.Off)
+            {
+                // Container is off — charge decays passively
+                if (chargeDecayRate > 0f)
+                {
+                    chargePercent -= chargeDecayRate * (float)dt;
+                    if (chargePercent < 0f) chargePercent = 0f;
+                }
+                return;
+            }
+
+            if (state != StorageState.Charging) return;
+
+            // Already full — flip to On
+            if (chargePercent >= 100f)
+            {
+                chargePercent = 100f;
+                state = StorageState.On;
+                KShared.Instance?.Log("Container fully charged, now ON.",
+                    "KhemistryAdvancedStorage/HandleCharging");
+                return;
+            }
+
+            bool satisfied = ConsumeVesselResources(_chargeNames, _chargeAmounts, dt);
+            if (satisfied)
+            {
+                chargePercent += chargeRate * (float)dt;
+                if (chargePercent > 100f) chargePercent = 100f;
+            }
+            else
+            {
+                // Can't get charge resources — decay if configured
+                if (chargeDecayRate > 0f)
+                {
+                    chargePercent -= chargeDecayRate * (float)dt;
+                    if (chargePercent < 0f) chargePercent = 0f;
+                }
+            }
+        }
+
+        // ── Passive consumption ────────────────────────────────────────────────────
+
+        private void HandlePassiveConsumption(double dt)
+        {
+            if (!passiveConsumption) return;
+
+            // Only attempt to draw resources when the container is actually running.
+            // We still check the consequence even after an "off" result has dropped state
+            // out of On, so consumption and consequence are handled separately.
+            if (state == StorageState.On)
+            {
+                bool satisfied = ConsumeVesselResources(_passiveNames, _passiveAmounts, dt);
+                if (satisfied)
+                {
+                    // Re-arm so a future failure can trigger the consequence again.
+                    _passiveUnsatisfiedFired = false;
+                    return;
+                }
+            }
+
+            // Not On, or consumption failed. Only apply consequence if the container
+            // actually has something stored — empty containers don't need protecting.
+            if (!HasAnyStoredResources()) return;
+
+            if (!_passiveUnsatisfiedFired)
+            {
+                _passiveUnsatisfiedFired = true;
+                ApplyConsequence(_passiveUnsatisfiedResult, "passiveUnsatisfiedResult");
+            }
+        }
+
+        // ── Filled-unpowered consequence ───────────────────────────────────────────
+
+        private void HandleFilledUnpowered(double dt)
+        {
+            // "Unpowered" means the container is not On
+            if (state == StorageState.On) return;
+
+            // Only applies when there is actually something stored
+            if (!HasAnyStoredResources()) return;
+
+            _filledUnpoweredAccum += dt;
+
+            // Fire every 0.1 seconds
+            while (_filledUnpoweredAccum >= 0.1)
+            {
+                _filledUnpoweredAccum -= 0.1;
+                ApplyConsequence(_filledUnpoweredResult, "filledUnpoweredResult", tickDt: 0.1);
+            }
+        }
+
+        // ── Consequence execution ──────────────────────────────────────────────────
+
+        /// <summary>
+        /// Executes a consequence. tickDt is only used by Boiloff (the value in config is per second;
+        /// we receive a 0.1 s tick so we apply value * 0.1 per call).
+        /// </summary>
+        private void ApplyConsequence(ConsequenceConfig cfg, string source, double tickDt = 0.0)
+        {
+            switch (cfg.type)
+            {
+                case ConsequenceType.Off:
+                    break;  // Do nothing
+
+                case ConsequenceType.Void:
+                    KShared.Instance?.Log("Voiding all stored resources (" + source + ").",
+                        "KhemistryAdvancedStorage/ApplyConsequence");
+                    foreach (PartResource pr in part.Resources)
+                    {
+                        if (_supportedResources.Contains(pr.resourceName))
+                            pr.amount = 0.0;
+                    }
+                    break;
+
+                case ConsequenceType.Destroy:
+                    KShared.Instance?.Log(
+                        string.Format("Destroying part with power {0:F1} ({1}).", cfg.value, source),
+                        "KhemistryAdvancedStorage/ApplyConsequence");
+                    part.explode();
+                    break;
+
+                case ConsequenceType.Boiloff:
+                    // cfg.value is loss per second; tickDt is 0.1 s, so loss per tick = cfg.value * tickDt
+                    ApplyBoiloff(cfg.value * (float)tickDt, source);
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// Reduces stored resources by a flat amount per tick, distributed proportionally
+        /// across all resources that currently have any amount. Works correctly for all
+        /// storage types:
+        ///   single / multi   — only the active resource has any amount, so it drains alone.
+        ///   multiShared      — all resources drain proportionally to their current fill.
+        /// </summary>
+        private void ApplyBoiloff(float amountPerTick, string source)
+        {
+            // Collect resources that currently hold something
+            var filled = new List<PartResource>();
+            double total = 0.0;
+            foreach (PartResource pr in part.Resources)
+            {
+                if (!_supportedResources.Contains(pr.resourceName)) continue;
+                if (pr.amount > 0.0) { filled.Add(pr); total += pr.amount; }
+            }
+            if (filled.Count == 0 || total <= 0.0) return;
+
+            double toDrain = Math.Min(amountPerTick, total);
+
+            foreach (PartResource pr in filled)
+            {
+                double share = (pr.amount / total) * toDrain;
+                pr.amount = Math.Max(0.0, pr.amount - share);
+                // Update the freeze snapshot so HandleTransferBlocking doesn't revert the drain next tick.
+                _frozenAmounts[pr.resourceName] = pr.amount;
+            }
+
+            KShared.Instance?.Log(
+                string.Format("Boiloff: drained {0:F4} units ({1}).", toDrain, source),
+                "KhemistryAdvancedStorage/ApplyBoiloff");
+        }
+
+        // ── Vessel resource consumption ────────────────────────────────────────────
+
+        /// <summary>
+        /// Pulls the given resources from the vessel network. Returns true only if every
+        /// resource was fully satisfied. Refunds all pulled resources if any fall short
+        /// (all-or-nothing semantics).
+        /// </summary>
+        private bool ConsumeVesselResources(List<string> names, List<float> amounts, double dt)
+        {
+            if (names.Count == 0 || amounts.Count == 0) return true;
+            if (names.Count != amounts.Count) return false;
+
+            var pulled = new List<double>(names.Count);
+            bool allSatisfied = true;
+
+            for (int i = 0; i < names.Count; i++)
+            {
+                float rate = amounts[i];
+                if (rate <= 0f) { pulled.Add(0.0); continue; }
+
+                var def = PartResourceLibrary.Instance.GetDefinition(names[i]);
+                if (def == null)
+                {
+                    KShared.Instance?.LogError("Unknown resource \"" + names[i] + "\" in consumption list.",
+                        "KhemistryAdvancedStorage/ConsumeVesselResources");
+                    pulled.Add(0.0);
+                    allSatisfied = false;
+                    continue;
+                }
+
+                double needed = rate * dt;
+                double got = part.RequestResource(names[i], needed);
+                pulled.Add(got);
+
+                // Allow a small tolerance (0.1% of needed)
+                if (got < needed * 0.999)
+                    allSatisfied = false;
+            }
+
+            if (!allSatisfied)
+            {
+                // Refund everything that was pulled
+                for (int i = 0; i < names.Count; i++)
+                    if (pulled[i] > 0.0)
+                        part.RequestResource(names[i], -pulled[i]);
+                return false;
+            }
+
+            return true;
+        }
+
+        // ── Helpers ────────────────────────────────────────────────────────────────
+
+        private bool HasAnyStoredResources()
+        {
+            foreach (PartResource pr in part.Resources)
+                if (_supportedResources.Contains(pr.resourceName) && pr.amount > 0.0)
+                    return true;
+            return false;
+        }
+
+        // ── Transfer blocking while not On ────────────────────────────────────────
+
+        private void SnapshotFrozenAmounts()
+        {
+            _frozenAmounts.Clear();
+            foreach (PartResource pr in part.Resources)
+            {
+                if (!_supportedResources.Contains(pr.resourceName)) continue;
+                _frozenAmounts[pr.resourceName] = pr.amount;
+            }
+        }
+
+        private void HandleTransferBlocking()
+        {
+            bool shouldFreeze =
+                (chargingRequired && state != StorageState.On) ||
+                (!chargingRequired && state == StorageState.Off);
+
+            foreach (PartResource pr in part.Resources)
+            {
+                if (!_supportedResources.Contains(pr.resourceName)) continue;
+
+                if (!shouldFreeze)
+                {
+                    _frozenAmounts[pr.resourceName] = pr.amount;
+                }
+                else
+                {
+                    double frozen;
+                    if (_frozenAmounts.TryGetValue(pr.resourceName, out frozen))
+                        pr.amount = frozen;
+                    else
+                        _frozenAmounts[pr.resourceName] = pr.amount;
+                }
+            }
+        }
+
+        // ── Capacity enforcement ───────────────────────────────────────────────────
+
+        private void EnforceCapacity()
+        {
+            // Clamp negatives first
+            foreach (PartResource pr in part.Resources)
+                if (pr.amount < 0.0) pr.amount = 0.0;
+
+            if (storageType == "multiShared")
+            {
+                double total = 0.0;
+                var list = new List<PartResource>();
+                foreach (PartResource pr in part.Resources)
+                {
+                    if (!_supportedResources.Contains(pr.resourceName)) continue;
+                    list.Add(pr);
+                    total += pr.amount;
+                }
+
+                if (total > maximumResources && total > 0.0)
+                {
+                    double scale = maximumResources / total;
+                    foreach (PartResource pr in list) pr.amount *= scale;
+                }
+
+                foreach (PartResource pr in list) pr.maxAmount = maximumResources;
+            }
+            else
+            {
+                foreach (PartResource pr in part.Resources)
+                {
+                    if (!_supportedResources.Contains(pr.resourceName)) continue;
+                    pr.amount = Math.Min(pr.amount, maximumResources);
+                    pr.amount = Math.Max(pr.amount, 0.0);
+                    pr.maxAmount = maximumResources;
+                }
+
+                if (storageType == "multi")
+                    ZeroNonActiveResources();
+            }
+        }
+
+        // ── UI updates ─────────────────────────────────────────────────────────────
+
+        private void UpdateUI()
+        {
+            double total = 0.0;
+            var parts = new List<string>();
+
+            foreach (PartResource pr in part.Resources)
+            {
+                if (!_supportedResources.Contains(pr.resourceName)) continue;
+                if (pr.amount > 0.0)
+                {
+                    parts.Add(string.Format("{0}: {1:F2}", pr.resourceName, pr.amount));
+                    total += pr.amount;
+                }
+            }
+
+            contentsDisplay = parts.Count == 0 ? "Empty" : string.Join(", ", parts.ToArray());
+            volumeDisplay = string.Format("{0:F2} / {1:F2}", total, maximumResources);
+
+            chargeDisplay = chargingRequired
+                ? string.Format("Charge: {0:F1}%", chargePercent)
+                : "Charge: N/A";
+
+            stateDisplay = "State: " + state.ToString();
+
+            activeResourceDisplay = (storageType == "single" || storageType == "multi")
+                ? (string.IsNullOrEmpty(activeResource) ? "Active: (none)" : "Active: " + activeResource)
+                : "Active: (multiShared)";
+
+            Events["EnableCharging"].active = chargingRequired && state != StorageState.Charging && state != StorageState.On;
+            Events["DisableCharging"].active = chargingRequired && state == StorageState.Charging;
+            Events["TurnOnContainer"].active = state != StorageState.On;
+            Events["TurnOffContainer"].active = state == StorageState.On;
+            Events["SelectResource"].active = storageType == "multi";
         }
     }
 }
