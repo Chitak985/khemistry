@@ -1786,4 +1786,717 @@ MODULE
             Events["SelectResource"].active = storageType == "multi";
         }
     }
+    // Advanced ISRU module with a variety of features
+    /* Sample config:
+MODULE
+{
+    name = KhemistryAdvancedISRU
+    ConverterName = Collect Earth Air             // Converter name, must be unique
+    StartActionName = Start collecting Earth Air  // Button name for starting the converter
+    StopActionName = Stop collecting Earth Air    // Button name for stopping the converter
+    planetCondition = Earth                       // Converter can only operate on this planet. Do not include if can work anywhere
+    biomeCondition = Cool Deserts                 // Converter can only operate in this biome. Do not include if no planetCondition or can work anywhere on that planet
+    altitudeMaxCondition = 10000                  // Maximum altitude from sea level this ISRU can operate at. Requires altitudeMinCondition, do not include if no altitude restrictions
+    altitudeMinCondition = 0                      // Minimum altitude from sea level this ISRU can operate at. Requires altitudeMaxCondition, do not include if no altitude restrictions
+    situationCondition = Landed                   // Converter can only operate in this situation. Possible values are Landed, Splashed, FlyingLow, FlyingHigh, SpaceLow, SpaceHigh, SubOrbital. Do not include the value to ignore this condition.
+    powerfailResource = LVEnergy                  // If this resource runs out, the part will powerfail. Must be an INPUT_RESOURCE. Do not include to disable powerfails.
+    powerfailResult = EXPLODE,10                  // The result if a powerfail occurs. Can be "EXPLODE,n", "MAINT", or "STOP". Requires powerfailResource to be set and valid.
+                                                  // EXPLODE will explode the part with power n, MAINT will require an Engineer kerbal to come fix it, and STOP will just shut down the part.
+    INPUT_RESOURCE
+    {
+        ResourceName = LVEnergy
+        Ratio = 2
+        FlowMode = STAGE_PRIORITY_FLOW
+    }
+    OUTPUT_RESOURCE
+    {
+        ResourceName = EarthAir
+        Ratio = 1
+        DumpExcess = false
+    }
+}
+    */
+    public class KhemistryAdvancedISRU : PartModule
+    {
+        // ── Basic converter info ───────────────────────────────────────────────────
+
+        [KSPField(isPersistant = false)]
+        public string ConverterName = "Converter";
+
+        [KSPField(isPersistant = false)]
+        public string StartActionName = "Start Converter";
+
+        [KSPField(isPersistant = false)]
+        public string StopActionName = "Stop Converter";
+
+        // ── Persistent state ───────────────────────────────────────────────────────
+
+        [KSPField(isPersistant = true)]
+        public bool isRunning = false;
+
+        [KSPField(isPersistant = true)]
+        public bool needsMaintenance = false;
+
+        // ── Status display ─────────────────────────────────────────────────────────
+
+        [KSPField(isPersistant = false, guiActive = true, guiActiveEditor = false,
+                  guiName = "Status", groupName = "khemistryisru",
+                  groupDisplayName = "Khemistry ISRU", groupStartCollapsed = false)]
+        public string statusDisplay = "Stopped";
+
+        // ── Internal data structures ───────────────────────────────────────────────
+
+        private struct ResourceInput
+        {
+            public string resourceName;
+            public double ratio;
+            public ResourceFlowMode flowMode;
+        }
+
+        private struct ResourceOutput
+        {
+            public string resourceName;
+            public double ratio;
+            public bool dumpExcess;
+        }
+
+        private enum SituationCondition
+        {
+            Any, Landed, Splashed, FlyingLow, FlyingHigh, SpaceLow, SpaceHigh, SubOrbital
+        }
+
+        private enum PowerfailResult { None, Stop, Explode, Maint }
+
+        private readonly List<ResourceInput> _inputs = new List<ResourceInput>();
+        private readonly List<ResourceOutput> _outputs = new List<ResourceOutput>();
+
+        // Conditions
+        private string _planetCondition = null;
+        private string _biomeCondition = null;
+        private double _altMin = double.MinValue;
+        private double _altMax = double.MaxValue;
+        private SituationCondition _situationCondition = SituationCondition.Any;
+
+        // Powerfail
+        private string _powerfailResource = null;
+        private PowerfailResult _powerfailResult = PowerfailResult.None;
+        private float _powerfailExplosionPower = 0f;
+
+        // Runtime
+        private bool _fatalConfigError = false;
+        private double _outputWarnCooldown = 0.0;   // seconds until next output-full message is allowed
+
+        // ── Events ─────────────────────────────────────────────────────────────────
+
+        [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Start Converter",
+                  groupName = "khemistryisru")]
+        public void StartConverter()
+        {
+            if (needsMaintenance)
+            {
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "Converter \"" + ConverterName + "\": Requires maintenance before starting.",
+                    5f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+            isRunning = true;
+            KShared.Instance?.Log("Converter \"" + ConverterName + "\" started.", "KhemistryAdvancedISRU/StartConverter");
+            UpdateEventVisibility();
+        }
+
+        [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Stop Converter",
+                  groupName = "khemistryisru", active = false)]
+        public void StopConverter()
+        {
+            isRunning = false;
+            KShared.Instance?.Log("Converter \"" + ConverterName + "\" stopped.", "KhemistryAdvancedISRU/StopConverter");
+            UpdateEventVisibility();
+        }
+
+        // Maintenance requires an Engineer on EVA within 5 m
+        [KSPEvent(guiActive = false, guiActiveEditor = false, guiName = "Perform Maintenance",
+                  groupName = "khemistryisru",
+                  externalToEVAOnly = true, guiActiveUnfocused = true, unfocusedRange = 5f)]
+        public void PerformMaintenance()
+        {
+            ProtoCrewMember kerbal = FlightGlobals.ActiveVessel
+                ?.GetVesselCrew()
+                ?.FirstOrDefault();
+
+            if (kerbal == null || kerbal.trait != "Engineer")
+            {
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "Converter \"" + ConverterName + "\": Maintenance requires an Engineer.",
+                    5f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+
+            needsMaintenance = false;
+            KShared.Instance?.Log("Converter \"" + ConverterName + "\" maintenance completed by " + kerbal.name + ".",
+                "KhemistryAdvancedISRU/PerformMaintenance");
+            ScreenMessages.PostScreenMessage(new ScreenMessage(
+                "Converter \"" + ConverterName + "\": Maintenance complete.",
+                5f, ScreenMessageStyle.UPPER_CENTER));
+            UpdateEventVisibility();
+        }
+
+        // ── KSP Actions ────────────────────────────────────────────────────────────
+
+        [KSPAction("Start Converter")]
+        public void StartConverterAction(KSPActionParam param) => StartConverter();
+
+        [KSPAction("Stop Converter")]
+        public void StopConverterAction(KSPActionParam param) => StopConverter();
+
+        // ── Lifecycle ──────────────────────────────────────────────────────────────
+
+        public override void OnStart(StartState state)
+        {
+            base.OnStart(state);
+
+            // Apply localized action/event names from config
+            Events["StartConverter"].guiName = StartActionName;
+            Events["StopConverter"].guiName = StopActionName;
+            Actions["StartConverterAction"].guiName = StartActionName;
+            Actions["StopConverterAction"].guiName = StopActionName;
+
+            _fatalConfigError = false;
+            _outputWarnCooldown = 0.0;
+
+            LoadConfigFromPartInfo();
+
+            if (_fatalConfigError)
+            {
+                foreach (BaseEvent e in Events) e.active = false;
+                statusDisplay = "ERROR: see log";
+                return;
+            }
+
+            UpdateEventVisibility();
+        }
+
+        public void FixedUpdate()
+        {
+            if (!HighLogic.LoadedSceneIsFlight) return;
+            if (vessel == null || part == null) return;
+            if (_fatalConfigError) return;
+
+            double dt = TimeWarp.fixedDeltaTime;
+            _outputWarnCooldown = Math.Max(0.0, _outputWarnCooldown - dt);
+
+            // Not running or blocked by maintenance
+            if (!isRunning || needsMaintenance)
+            {
+                statusDisplay = needsMaintenance ? "Needs maintenance" : "Stopped";
+                UpdateEventVisibility();
+                return;
+            }
+
+            // Check environmental conditions
+            string conditionReason;
+            if (!CheckConditions(out conditionReason))
+            {
+                statusDisplay = "Inactive: " + conditionReason;
+                UpdateEventVisibility();
+                return;
+            }
+
+            // Check output space for all non-dump outputs before consuming anything
+            string blockedResource = CheckOutputSpace(dt);
+            if (blockedResource != null)
+            {
+                if (_outputWarnCooldown <= 0.0)
+                {
+                    ScreenMessages.PostScreenMessage(new ScreenMessage(
+                        string.Format("Converter \"{0}\": No output space for {1}, converter paused!",
+                            ConverterName, blockedResource),
+                        5f, ScreenMessageStyle.UPPER_CENTER));
+                    _outputWarnCooldown = 5.0;
+                }
+                statusDisplay = "Paused: " + blockedResource + " full";
+                UpdateEventVisibility();
+                return;
+            }
+
+            // Check whether the designated powerfail resource is about to run short.
+            // We do this BEFORE the all-or-nothing consume so we know which resource
+            // caused the failure if ConsumeInputs returns false.
+            bool powerfailShort = false;
+            if (!string.IsNullOrEmpty(_powerfailResource))
+            {
+                double pfNeeded = GetInputRatio(_powerfailResource) * dt;
+                double pfAvailable = GetVesselResourceAmount(_powerfailResource);
+                if (pfAvailable < pfNeeded * 0.999)
+                    powerfailShort = true;
+            }
+
+            // All-or-nothing input consumption
+            if (!ConsumeInputs(dt))
+            {
+                if (powerfailShort)
+                {
+                    ScreenMessages.PostScreenMessage(new ScreenMessage(
+                        string.Format("Converter \"{0}\": Powerfailed due to lack of {1}!",
+                            ConverterName, _powerfailResource),
+                        8f, ScreenMessageStyle.UPPER_CENTER));
+                    TriggerPowerfail();
+                }
+                else
+                {
+                    statusDisplay = "Insufficient resources";
+                }
+                UpdateEventVisibility();
+                return;
+            }
+
+            // Produce outputs
+            ProduceOutputs(dt);
+            statusDisplay = "Running";
+            UpdateEventVisibility();
+        }
+
+        // ── Config loading ─────────────────────────────────────────────────────────
+
+        private void LoadConfigFromPartInfo()
+        {
+            if (part.partInfo?.partConfig == null)
+            {
+                KShared.Instance?.LogError("partInfo.partConfig is null!",
+                    "KhemistryAdvancedISRU/LoadConfigFromPartInfo");
+                _fatalConfigError = true;
+                return;
+            }
+
+            // Multiple KhemistryAdvancedISRU modules can exist on one part; match by ConverterName.
+            // KSP loads KSPFields (including ConverterName) before calling OnStart, so this is safe.
+            ConfigNode moduleNode = null;
+            foreach (ConfigNode n in part.partInfo.partConfig.GetNodes("MODULE"))
+            {
+                if (n.GetValue("name") != "KhemistryAdvancedISRU") continue;
+                if (n.GetValue("ConverterName") == ConverterName) { moduleNode = n; break; }
+            }
+
+            if (moduleNode == null)
+            {
+                KShared.Instance?.LogError(
+                    "Could not find MODULE KhemistryAdvancedISRU with ConverterName=\"" + ConverterName + "\" in partConfig!",
+                    "KhemistryAdvancedISRU/LoadConfigFromPartInfo");
+                _fatalConfigError = true;
+                return;
+            }
+
+            // INPUT_RESOURCE nodes
+            _inputs.Clear();
+            foreach (ConfigNode inputNode in moduleNode.GetNodes("INPUT_RESOURCE"))
+            {
+                string resName = inputNode.GetValue("ResourceName");
+                if (string.IsNullOrEmpty(resName)) continue;
+
+                double ratio = 0.0;
+                double.TryParse(inputNode.GetValue("Ratio"), out ratio);
+
+                ResourceFlowMode flowMode = ResourceFlowMode.ALL_VESSEL;
+                string flowStr = inputNode.GetValue("FlowMode");
+                if (!string.IsNullOrEmpty(flowStr))
+                {
+                    ResourceFlowMode parsed;
+                    if (Enum.TryParse(flowStr.Trim(), true, out parsed))
+                        flowMode = parsed;
+                    else
+                        KShared.Instance?.LogError(
+                            "Converter \"" + ConverterName + "\": Unknown FlowMode \"" + flowStr + "\" for " + resName + ", defaulting to ALL_VESSEL.",
+                            "KhemistryAdvancedISRU/LoadConfigFromPartInfo");
+                }
+
+                _inputs.Add(new ResourceInput { resourceName = resName, ratio = ratio, flowMode = flowMode });
+            }
+
+            // OUTPUT_RESOURCE nodes
+            _outputs.Clear();
+            foreach (ConfigNode outputNode in moduleNode.GetNodes("OUTPUT_RESOURCE"))
+            {
+                string resName = outputNode.GetValue("ResourceName");
+                if (string.IsNullOrEmpty(resName)) continue;
+
+                double ratio = 0.0;
+                double.TryParse(outputNode.GetValue("Ratio"), out ratio);
+
+                bool dumpExcess = false;
+                bool.TryParse(outputNode.GetValue("DumpExcess"), out dumpExcess);
+
+                _outputs.Add(new ResourceOutput { resourceName = resName, ratio = ratio, dumpExcess = dumpExcess });
+            }
+
+            if (_inputs.Count == 0 && _outputs.Count == 0)
+                KShared.Instance?.LogError(
+                    "Converter \"" + ConverterName + "\" has no INPUT_RESOURCE or OUTPUT_RESOURCE nodes — it will do nothing.",
+                    "KhemistryAdvancedISRU/LoadConfigFromPartInfo");
+
+            // planetCondition
+            _planetCondition = NullIfEmpty(moduleNode.GetValue("planetCondition"));
+
+            // biomeCondition — only valid when planetCondition is also set
+            _biomeCondition = NullIfEmpty(moduleNode.GetValue("biomeCondition"));
+            if (_biomeCondition != null && _planetCondition == null)
+            {
+                KShared.Instance?.LogError(
+                    "Converter \"" + ConverterName + "\": biomeCondition is set but planetCondition is not — biomeCondition will be ignored.",
+                    "KhemistryAdvancedISRU/LoadConfigFromPartInfo");
+                _biomeCondition = null;
+            }
+
+            // altitudeMinCondition / altitudeMaxCondition
+            _altMin = double.MinValue;
+            _altMax = double.MaxValue;
+            double altTmp;
+            if (double.TryParse(moduleNode.GetValue("altitudeMinCondition"), out altTmp)) _altMin = altTmp;
+            if (double.TryParse(moduleNode.GetValue("altitudeMaxCondition"), out altTmp)) _altMax = altTmp;
+
+            // situationCondition
+            _situationCondition = SituationCondition.Any;
+            string sitStr = NullIfEmpty(moduleNode.GetValue("situationCondition"));
+            if (sitStr != null)
+            {
+                // Tolerate the "FlyindHigh" typo mentioned in the spec
+                if (sitStr.Equals("FlyindHigh", StringComparison.OrdinalIgnoreCase))
+                    sitStr = "FlyingHigh";
+
+                SituationCondition parsed;
+                if (Enum.TryParse(sitStr, true, out parsed))
+                    _situationCondition = parsed;
+                else
+                    KShared.Instance?.LogError(
+                        "Converter \"" + ConverterName + "\": Unknown situationCondition \"" + sitStr + "\" — condition ignored.",
+                        "KhemistryAdvancedISRU/LoadConfigFromPartInfo");
+            }
+
+            // powerfailResource / powerfailResult
+            _powerfailResource = null;
+            _powerfailResult = PowerfailResult.None;
+            _powerfailExplosionPower = 0f;
+
+            string pfRes = NullIfEmpty(moduleNode.GetValue("powerfailResource"));
+            string pfResultRaw = NullIfEmpty(moduleNode.GetValue("powerfailResult"));
+
+            if (pfRes != null)
+            {
+                // Validate: must be one of our INPUT_RESOURCE names
+                bool found = false;
+                foreach (ResourceInput inp in _inputs)
+                    if (inp.resourceName.Equals(pfRes, StringComparison.OrdinalIgnoreCase)) { found = true; break; }
+
+                if (!found)
+                {
+                    KShared.Instance?.LogError(
+                        "Converter \"" + ConverterName + "\": powerfailResource \"" + pfRes + "\" is not a defined INPUT_RESOURCE — powerfail disabled.",
+                        "KhemistryAdvancedISRU/LoadConfigFromPartInfo");
+                }
+                else
+                {
+                    _powerfailResource = pfRes;
+
+                    if (pfResultRaw == null)
+                    {
+                        // Spec: "nothing happens" — PowerfailResult.None is correct
+                        _powerfailResult = PowerfailResult.None;
+                    }
+                    else
+                    {
+                        string pfResult = pfResultRaw.Trim().Trim('"').ToUpper();
+
+                        if (pfResult == "STOP")
+                        {
+                            _powerfailResult = PowerfailResult.Stop;
+                        }
+                        else if (pfResult == "MAINT")
+                        {
+                            _powerfailResult = PowerfailResult.Maint;
+                        }
+                        else if (pfResult.StartsWith("EXPLODE,"))
+                        {
+                            float power;
+                            if (float.TryParse(pfResult.Substring(8), out power))
+                            {
+                                _powerfailResult = PowerfailResult.Explode;
+                                _powerfailExplosionPower = power;
+                            }
+                            else
+                            {
+                                KShared.Instance?.LogError(
+                                    "Converter \"" + ConverterName + "\": Could not parse EXPLODE power \"" + pfResultRaw + "\" — defaulting to STOP.",
+                                    "KhemistryAdvancedISRU/LoadConfigFromPartInfo");
+                                _powerfailResult = PowerfailResult.Stop;
+                            }
+                        }
+                        else
+                        {
+                            KShared.Instance?.LogError(
+                                "Converter \"" + ConverterName + "\": Unknown powerfailResult \"" + pfResultRaw + "\" — defaulting to STOP.",
+                                "KhemistryAdvancedISRU/LoadConfigFromPartInfo");
+                            _powerfailResult = PowerfailResult.Stop;
+                        }
+                    }
+                }
+            }
+            else if (pfResultRaw != null)
+            {
+                // powerfailResult defined without powerfailResource — per spec, log error and ignore
+                KShared.Instance?.LogError(
+                    "Converter \"" + ConverterName + "\": powerfailResult is set but powerfailResource is not — powerfailResult ignored.",
+                    "KhemistryAdvancedISRU/LoadConfigFromPartInfo");
+            }
+
+            KShared.Instance?.Log(
+                string.Format("Converter \"{0}\" loaded: {1} inputs, {2} outputs, planet={3}, biome={4}, alt=[{5},{6}], sit={7}, powerfail={8}/{9}",
+                    ConverterName, _inputs.Count, _outputs.Count,
+                    _planetCondition ?? "any", _biomeCondition ?? "any",
+                    _altMin == double.MinValue ? "any" : _altMin.ToString("F0"),
+                    _altMax == double.MaxValue ? "any" : _altMax.ToString("F0"),
+                    _situationCondition,
+                    _powerfailResource ?? "none", _powerfailResult),
+                "KhemistryAdvancedISRU/LoadConfigFromPartInfo");
+        }
+
+        // ── Condition checking ─────────────────────────────────────────────────────
+
+        private bool CheckConditions(out string reason)
+        {
+            reason = null;
+
+            // Planet
+            if (_planetCondition != null)
+            {
+                string currentBody = vessel.mainBody?.name ?? "";
+                if (!currentBody.Equals(_planetCondition, StringComparison.OrdinalIgnoreCase))
+                {
+                    reason = "wrong body (" + currentBody + ")";
+                    return false;
+                }
+
+                // Biome — only checked when planet already matched
+                if (_biomeCondition != null)
+                {
+                    string currentBiome = ScienceUtil.GetExperimentBiome(
+                        vessel.mainBody, vessel.latitude, vessel.longitude);
+                    if (!currentBiome.Equals(_biomeCondition, StringComparison.OrdinalIgnoreCase))
+                    {
+                        reason = "wrong biome (" + currentBiome + ")";
+                        return false;
+                    }
+                }
+            }
+
+            // Altitude
+            double alt = vessel.altitude;
+            if (_altMin != double.MinValue && alt < _altMin)
+            {
+                reason = string.Format("below min altitude ({0:F0} m)", _altMin);
+                return false;
+            }
+            if (_altMax != double.MaxValue && alt > _altMax)
+            {
+                reason = string.Format("above max altitude ({0:F0} m)", _altMax);
+                return false;
+            }
+
+            // Situation
+            if (_situationCondition != SituationCondition.Any && !CheckSituation())
+            {
+                reason = "wrong situation (" + vessel.situation + ")";
+                return false;
+            }
+
+            return true;
+        }
+
+        private bool CheckSituation()
+        {
+            Vessel.Situations sit = vessel.situation;
+            CelestialBody body = vessel.mainBody;
+            double alt = vessel.altitude;
+
+            switch (_situationCondition)
+            {
+                case SituationCondition.Landed:
+                    return sit == Vessel.Situations.LANDED || sit == Vessel.Situations.PRELAUNCH;
+
+                case SituationCondition.Splashed:
+                    return sit == Vessel.Situations.SPLASHED;
+
+                case SituationCondition.FlyingLow:
+                    return sit == Vessel.Situations.FLYING
+                        && body != null && alt < body.scienceValues.flyingAltitudeThreshold;
+
+                case SituationCondition.FlyingHigh:
+                    return sit == Vessel.Situations.FLYING
+                        && body != null && alt >= body.scienceValues.flyingAltitudeThreshold;
+
+                case SituationCondition.SpaceLow:
+                    return (sit == Vessel.Situations.ORBITING || sit == Vessel.Situations.SUB_ORBITAL)
+                        && body != null && alt < body.scienceValues.spaceAltitudeThreshold;
+
+                case SituationCondition.SpaceHigh:
+                    return (sit == Vessel.Situations.ORBITING
+                         || sit == Vessel.Situations.SUB_ORBITAL
+                         || sit == Vessel.Situations.ESCAPING)
+                        && body != null && alt >= body.scienceValues.spaceAltitudeThreshold;
+
+                case SituationCondition.SubOrbital:
+                    return sit == Vessel.Situations.SUB_ORBITAL;
+
+                default:
+                    return true;
+            }
+        }
+
+        // ── Output space check ─────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Returns the resource name of the first non-dump output that has no space in the vessel,
+        /// or null if all outputs can be satisfied.
+        /// </summary>
+        private string CheckOutputSpace(double dt)
+        {
+            foreach (ResourceOutput output in _outputs)
+            {
+                if (output.dumpExcess) continue;
+                double needed = output.ratio * dt;
+                if (needed <= 0.0) continue;
+                if (GetVesselResourceSpace(output.resourceName) < needed * 0.001)
+                    return output.resourceName;
+            }
+            return null;
+        }
+
+        // ── Vessel resource helpers ────────────────────────────────────────────────
+
+        private double GetVesselResourceSpace(string resourceName)
+        {
+            double space = 0.0;
+            foreach (Part p in vessel.parts)
+                foreach (PartResource pr in p.Resources)
+                    if (pr.resourceName == resourceName && pr.flowState)
+                        space += pr.maxAmount - pr.amount;
+            return space;
+        }
+
+        private double GetVesselResourceAmount(string resourceName)
+        {
+            double total = 0.0;
+            foreach (Part p in vessel.parts)
+                foreach (PartResource pr in p.Resources)
+                    if (pr.resourceName == resourceName && pr.flowState)
+                        total += pr.amount;
+            return total;
+        }
+
+        private double GetInputRatio(string resourceName)
+        {
+            foreach (ResourceInput inp in _inputs)
+                if (inp.resourceName.Equals(resourceName, StringComparison.OrdinalIgnoreCase))
+                    return inp.ratio;
+            return 0.0;
+        }
+
+        // ── Resource consumption / production ──────────────────────────────────────
+
+        /// <summary>
+        /// Attempts to consume all inputs for this tick (all-or-nothing).
+        /// Refunds everything already pulled if any input comes up short.
+        /// </summary>
+        private bool ConsumeInputs(double dt)
+        {
+            // Track (resourceName, flowMode, amountPulled) so we can refund using the same flow mode
+            var pulled = new List<(string name, ResourceFlowMode mode, double amount)>(_inputs.Count);
+            bool allSatisfied = true;
+
+            foreach (ResourceInput inp in _inputs)
+            {
+                if (inp.ratio <= 0.0)
+                {
+                    pulled.Add((inp.resourceName, inp.flowMode, 0.0));
+                    continue;
+                }
+
+                double needed = inp.ratio * dt;
+                double got = part.RequestResource(inp.resourceName, needed, inp.flowMode);
+                pulled.Add((inp.resourceName, inp.flowMode, got));
+
+                if (got < needed * 0.999)
+                    allSatisfied = false;
+            }
+
+            if (!allSatisfied)
+            {
+                foreach (var entry in pulled)
+                    if (entry.amount > 0.0)
+                        part.RequestResource(entry.name, -entry.amount, entry.mode);
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Adds all output resources to the vessel. Non-dump outputs that are full were
+        /// already caught by CheckOutputSpace before we got here.
+        /// </summary>
+        private void ProduceOutputs(double dt)
+        {
+            foreach (ResourceOutput output in _outputs)
+            {
+                if (output.ratio <= 0.0) continue;
+                // Negative demand = add resources to the vessel
+                part.RequestResource(output.resourceName, -(output.ratio * dt), ResourceFlowMode.ALL_VESSEL);
+            }
+        }
+
+        // ── Powerfail ──────────────────────────────────────────────────────────────
+
+        private void TriggerPowerfail()
+        {
+            KShared.Instance?.Log(
+                "Converter \"" + ConverterName + "\" powerfailed. Result: " + _powerfailResult,
+                "KhemistryAdvancedISRU/TriggerPowerfail");
+
+            switch (_powerfailResult)
+            {
+                case PowerfailResult.None:
+                    // Nothing happens beyond skipping this tick
+                    break;
+
+                case PowerfailResult.Stop:
+                    isRunning = false;
+                    statusDisplay = "Stopped (powerfail)";
+                    break;
+
+                case PowerfailResult.Maint:
+                    isRunning = false;
+                    needsMaintenance = true;
+                    statusDisplay = "Needs maintenance";
+                    ScreenMessages.PostScreenMessage(new ScreenMessage(
+                        "Converter \"" + ConverterName + "\": Requires maintenance by an Engineer.",
+                        8f, ScreenMessageStyle.UPPER_CENTER));
+                    break;
+
+                case PowerfailResult.Explode:
+                    part.explode();
+                    break;
+            }
+        }
+
+        // ── Helpers ────────────────────────────────────────────────────────────────
+
+        private static string NullIfEmpty(string s)
+            => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+
+        // ── Event / action visibility ──────────────────────────────────────────────
+
+        private void UpdateEventVisibility()
+        {
+            Events["StartConverter"].active = !isRunning && !needsMaintenance;
+            Events["StopConverter"].active = isRunning;
+            Events["PerformMaintenance"].active = needsMaintenance;
+        }
+    }
 }
