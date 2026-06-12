@@ -4,14 +4,146 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 
+// NOTES:
+// Deposit generation does not save biomes as they aren't needed anywhere other than placing the deposit at the correct position
+
 namespace Khemistry
 {
+    // Stores underground deposit data
+    public class KhemistryUDeposit
+    {
+        public Vector2 position { get; set; }  // In latitude, longitude format
+        public float depthStart { get; set; }  // In meters
+        public float depth { get; set; }  // In meters
+        public string resource { get; set; }  // Internal name of a resource
+        public string planet { get; set; }  // Planet the resource is on
+
+        public KhemistryUDeposit(KShared kinst, string planet, string requiredBiome, float depthStart, float depth, string resource, float latOverride=-12345, float lonOverride = -12345)
+        {
+            // Set values to make sure everything works
+            this.planet = planet;
+            this.depthStart = depthStart;
+            this.depth = depth;
+            this.resource = resource;
+
+            // Generate position
+            if ((int)latOverride == -12345 || (int)lonOverride == -12345)  // If either of them are not set, calculate as normal
+            {
+                position = new Vector2((float)(kinst.rand.NextDouble() * 180) - 90, (float)(kinst.rand.NextDouble() * 360) - 180);
+                if (requiredBiome != null)  // If it is null, any biome is supported
+                {
+                    // Just keep randomizing the deposit until it hits the right biome
+                    while (kinst.getBiomeNameFromLatLon(planet, position) != requiredBiome)
+                        position = new Vector2((float)(kinst.rand.NextDouble() * 180) - 90, (float)(kinst.rand.NextDouble() * 360) - 180);
+                }
+            }
+            else  // If both are set, ignore requiredBiome and override the position
+            {
+                position = new Vector2(latOverride, lonOverride);
+            }
+        }
+    }
+    // Stores surface deposit data
+    // Because a surface deposit extends into the ground, there is an underground deposit as well
+    public class KhemistryGDeposit
+    {
+        public Vector2 position { get; set; }  // In latitude, longitude format
+        public float depth { get; set; }  // In meters
+        public string resource { get; set; }  // Internal name of a resource
+        public string planet { get; set; }  // Planet the resource is on
+        public KhemistryUDeposit pairGDeposit { get; set; }  // Underground deposit right under the surface one
+        
+        public Dictionary<string,string> resource_undergroundResourcePairs = new Dictionary<string,string>();
+
+        public void populateResourcePairs()
+        {
+            resource_undergroundResourcePairs.Clear();
+            resource_undergroundResourcePairs.Add("Glacial Sulfide Ore", "Nickel Sulfide Ore");
+            KShared.Instance?.Log("Successfully populated the surfaceResource-groundResource pairs.", "KhemistryGDeposit/getUndergroundPairResource");
+        }
+
+        public string getUndergroundPairResource(string resource)
+        {
+            if(resource_undergroundResourcePairs.ContainsKey(resource))
+                return resource_undergroundResourcePairs[resource];
+            else
+                KShared.Instance?.LogError(resource + " does not have an underground counterpart, returning it as the underground resouce.", "KhemistryGDeposit/getUndergroundPairResource");
+            return resource;
+        }
+
+        public KhemistryGDeposit(KShared kinst, string planet, string requiredBiome, float depth, string resource)
+        {
+            // Set values to make sure everything works
+            this.planet = planet;
+            this.depth = depth;
+            this.resource = resource;
+
+            // Generate position
+            position = new Vector2((float)(kinst.rand.NextDouble() * 180) - 90, (float)(kinst.rand.NextDouble() * 360) - 180);
+            if (requiredBiome != null)  // If it is null, any biome is supported
+            {
+                // Just keep randomizing the deposit until it hits the right biome
+                while (kinst.getBiomeNameFromLatLon(planet, position) != requiredBiome)
+                    position = new Vector2((float)(kinst.rand.NextDouble() * 180) - 90, (float)(kinst.rand.NextDouble() * 360) - 180);
+            }
+
+            // Create the underground pair of the surface deposit, giving it the counterpart resource and overriding the position to the surface deposit's position
+            // The biome is not passed here because the override will ignore it anyway
+            pairGDeposit = new KhemistryUDeposit(kinst, planet, null, 100.0f, 50.0f, getUndergroundPairResource(resource), position[0], position[1]);
+        }
+    }
+
+    [KSPAddon(KSPAddon.Startup.MainMenu, true)]
+    public class KSharedMainMenu : MonoBehaviour
+    {
+        private static KSharedMainMenu _instance;
+        public static KSharedMainMenu Instance => _instance;
+
+        public KShared kinst;
+
+        public void Awake()
+        {
+            // Get the KShared instance
+            kinst = KShared.Instance;
+            if (kinst == null)
+            {
+                Debug.Log("Khemistry (KSharedMainMenu/Awake): No KShared.Instance and Khemistry is about to have a bad time");
+            }
+
+            // Get instance of itself and check for duplicates
+            if (_instance != null)
+            {
+                kinst.LogError("Another instance of KSharedMainMenu was found, self destructing...", "KSharedMainMenu/Awake");
+                Destroy(gameObject);
+                return;
+            }
+            _instance = this;
+
+            // Remotely populate the CBody list with biomes once in the main menu
+            kinst.celestialBodies = FlightGlobals.Bodies.Select(b => b.bodyName).ToList();
+
+            // Remotely populating everything in KShared from here since it's easier
+            // Underground deposit creation
+            kinst.Log("Creating underground deposits...", "KSharedMainMenu/Awake");
+            kinst.undergroundDeposits.Add("Eeloo", new KhemistryUDeposit(kinst, "Eeloo", null, 100.0f, 50.0f, "Infinity Catalyst"));  // idk lol
+            kinst.Log("Created " + kinst.undergroundDeposits.Count().ToString() + " underground deposits.", "KSharedMainMenu/Awake");
+
+            // Surface deposit creation
+            kinst.Log("Creating underground deposits...", "KSharedMainMenu/Awake");
+            for (int i = 0; i < kinst.rand.Next(20,40); i++)
+                kinst.surfaceDeposits.Add("Kerbin", new KhemistryGDeposit(kinst, "Kerbin", "Tundra", 50.0f, "Glacial Sulfide Ore"));
+            kinst.Log("Created " + kinst.surfaceDeposits.Count().ToString() + " surface deposits.", "KSharedMainMenu/Awake");
+        }
+    }
+
+    // Shared class for GUI things and deposits
     [KSPAddon(KSPAddon.Startup.Instantly, true)]
     public class KShared : MonoBehaviour
     {
         private static KShared _instance;
         public static KShared Instance => _instance;
 
+        // values idk
         private bool _selectorVisible = false;
         private Vector2 _selectorScroll = Vector2.zero;
         private string _selectorTitle = "";
@@ -20,8 +152,21 @@ namespace Khemistry
         private Rect _windowRect = new Rect(0, 0, 320, 300);
         private int _windowId;
 
+        // Deposit dictionaries, stored as {planet: depositClass}
+        public Dictionary<string, KhemistryUDeposit> undergroundDeposits = new Dictionary<string, KhemistryUDeposit>();
+        public Dictionary<string, KhemistryGDeposit> surfaceDeposits = new Dictionary<string, KhemistryGDeposit>();
+
+        // Shared random class
+        public System.Random rand = new System.Random();
+        // Shared celestial body list, remotely populated from KSharedMainMenu when the game ends up at the main menu
+        public List<string> celestialBodies = new List<string>();
+
+        // Helper function to get a biome name from position on a body
+        public string getBiomeNameFromLatLon(string planet, Vector2 pos) => FlightGlobals.GetBodyByName(planet).BiomeMap.GetAtt(pos[0], pos[1]).name;
+
         public void Awake()
         {
+            // Initialization
             if (_instance != null)
             {
                 LogError("Another instance of KShared was found, self destructing...", "KShared/Awake");
@@ -144,317 +289,6 @@ namespace Khemistry
             ContentsDisplay = string.IsNullOrEmpty(ResourceName)
                 ? "Empty"
                 : string.Format("{0}: {1:F2} / {2:F2} kg", ResourceName, ResourceAmount, ResourceMaxAmount);
-        }
-    }
-
-    public class KhemistryEVAFluidCellHandler : PartModule
-    {
-        private static readonly HashSet<string> FluidCellPartNames = new HashSet<string>
-        {
-            "NameConverterRadial"
-        };
-
-        private ModuleInventoryPart _inventory;
-
-        [KSPField(isPersistant = false, guiActive = true, guiActiveEditor = false, guiName = "Held Cells")]
-        public string CellContentsDisplay = "No cells in inventory";
-
-        public override void OnStart(StartState state)
-        {
-            base.OnStart(state);
-
-            var allHandlers = part.FindModulesImplementing<KhemistryEVAFluidCellHandler>();
-            if (allHandlers.Count > 1 && allHandlers[0] != this)
-            {
-                KShared.Instance?.Log("Duplicate handler found, removing self.", "KhemistryEVAFluidCellHandler/OnStart");
-                part.RemoveModule(this);
-                return;
-            }
-
-            _inventory = part.FindModuleImplementing<ModuleInventoryPart>();
-            if (_inventory == null)
-                KShared.Instance?.LogError("No ModuleInventoryPart on Kerbal.", "KhemistryEVAFluidCellHandler/OnStart");
-            else
-                KShared.Instance?.Log("OnStart fired, inventory found.", "KhemistryEVAFluidCellHandler/OnStart");
-        }
-
-        public override void OnUpdate()
-        {
-            var cells = GetHeldCellSnapshots();
-            if (cells.Count == 0)
-            {
-                CellContentsDisplay = "No cells in inventory";
-                return;
-            }
-            var parts = new List<string>();
-            for (int i = 0; i < cells.Count; i++)
-            {
-                string resName = ReadResourceName(cells[i]);
-                float resAmount = ReadResourceAmount(cells[i]);
-                float maxAmount = ReadMaxAmount(cells[i].partName);
-                parts.Add(string.IsNullOrEmpty(resName)
-                    ? string.Format("Cell {0}: Empty", i + 1)
-                    : string.Format("Cell {0}: {1} {2:F1}/{3:F1} kg", i + 1, resName, resAmount, maxAmount));
-            }
-            CellContentsDisplay = string.Join("  |  ", parts.ToArray());
-        }
-
-        private List<StoredPart> GetHeldCellSnapshots()
-        {
-            var result = new List<StoredPart>();
-            if (_inventory == null) return result;
-            for (int i = 0; i < _inventory.storedParts.Count; i++)
-            {
-                StoredPart stored = _inventory.storedParts.At(i);
-                if (FluidCellPartNames.Contains(stored.partName))
-                    result.Add(stored);
-            }
-            return result;
-        }
-
-        private ProtoPartModuleSnapshot GetCellModuleSnapshot(StoredPart stored)
-        {
-            if (stored.snapshot == null) return null;
-            foreach (ProtoPartModuleSnapshot moduleSnap in stored.snapshot.modules)
-            {
-                if (moduleSnap.moduleName == "KhemistryFluidCell")
-                    return moduleSnap;
-            }
-            return null;
-        }
-
-        private string ReadResourceName(StoredPart stored)
-            => GetCellModuleSnapshot(stored)?.moduleValues.GetValue("ResourceName") ?? "";
-
-        private float ReadResourceAmount(StoredPart stored)
-        {
-            string val = GetCellModuleSnapshot(stored)?.moduleValues.GetValue("ResourceAmount");
-            return val != null ? float.Parse(val) : 0f;
-        }
-
-        private float ReadMaxAmount(string partName)
-            => PartLoader.getPartInfoByName(partName)?.partPrefab
-                .FindModuleImplementing<KhemistryFluidCell>()?.ResourceMaxAmount ?? 100f;
-
-        private float ReadTransferDistance(string partName)
-            => PartLoader.getPartInfoByName(partName)?.partPrefab
-                .FindModuleImplementing<KhemistryFluidCell>()?.TransferDistance ?? 10f;
-
-        private HashSet<string> ReadAllowedResources(string partName)
-            => PartLoader.getPartInfoByName(partName)?.partPrefab
-                .FindModuleImplementing<KhemistryFluidCell>()?.AllowedResources
-                ?? new HashSet<string>();
-
-        private void WriteResourceName(StoredPart stored, string name)
-            => GetCellModuleSnapshot(stored)?.moduleValues.SetValue("ResourceName", name);
-
-        private void WriteResourceAmount(StoredPart stored, float amount)
-            => GetCellModuleSnapshot(stored)?.moduleValues.SetValue("ResourceAmount", amount.ToString("F4"));
-
-        private List<Part> GetPartsInRange(float range)
-        {
-            var result = new List<Part>();
-            foreach (Vessel v in FlightGlobals.VesselsLoaded)
-                foreach (Part p in v.parts)
-                {
-                    if (p == this.part) continue;
-                    if (Vector3.Distance(this.part.transform.position, p.transform.position) <= range)
-                        result.Add(p);
-                }
-            return result;
-        }
-
-        [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Transfer from cell to nearby part",
-         groupName = "fluidcelleva", groupDisplayName = "Fluid Cells", groupStartCollapsed = false)]
-        public void EVASendResources()
-        {
-            var shared = KShared.Instance;
-            if (shared == null) { Debug.LogError("Khemistry: KShared null in EVASendResources!"); return; }
-
-            var cells = GetHeldCellSnapshots();
-            if (cells.Count == 0)
-            {
-                ScreenMessages.PostScreenMessage(new ScreenMessage("No fluid cells in inventory.", 5.0f, ScreenMessageStyle.UPPER_CENTER));
-                return;
-            }
-
-            if (cells.Count == 1)
-                ShowPartSelectorForSend(cells[0]);
-            else
-            {
-                var labels = cells.Select((c, i) =>
-                {
-                    string resName = ReadResourceName(c);
-                    float resAmount = ReadResourceAmount(c);
-                    float maxAmount = ReadMaxAmount(c.partName);
-                    return string.IsNullOrEmpty(resName)
-                        ? string.Format("Cell {0}: Empty", i + 1)
-                        : string.Format("Cell {0}: {1} {2:F1}/{3:F1} kg", i + 1, resName, resAmount, maxAmount);
-                }).ToList();
-
-                shared.ShowSelector("Which cell to send from?", labels, label =>
-                {
-                    int index = labels.IndexOf(label);
-                    if (index >= 0) ShowPartSelectorForSend(cells[index]);
-                });
-            }
-        }
-
-        private void ShowPartSelectorForSend(StoredPart stored)
-        {
-            var shared = KShared.Instance;
-            string resourceName = ReadResourceName(stored);
-            float resourceAmount = ReadResourceAmount(stored);
-            float range = ReadTransferDistance(stored.partName);
-
-            if (string.IsNullOrEmpty(resourceName) || resourceAmount <= 0)
-            {
-                ScreenMessages.PostScreenMessage(new ScreenMessage("That cell is empty.", 5.0f, ScreenMessageStyle.UPPER_CENTER));
-                return;
-            }
-
-            var targetParts = new Dictionary<string, Part>();
-            foreach (Part p in GetPartsInRange(range))
-                foreach (PartResource pr in p.Resources)
-                {
-                    if (pr.resourceName != resourceName) continue;
-                    if (pr.amount >= pr.maxAmount) continue;
-                    string label = string.Format("{0} / {1}  (space: {2:F1} kg)",
-                        p.vessel.vesselName, p.partInfo.title, pr.maxAmount - pr.amount);
-                    if (!targetParts.ContainsKey(label))
-                        targetParts.Add(label, p);
-                    break;
-                }
-
-            if (targetParts.Count == 0)
-            {
-                ScreenMessages.PostScreenMessage(new ScreenMessage(
-                    "No nearby parts can accept " + resourceName + ".", 5.0f, ScreenMessageStyle.UPPER_CENTER));
-                return;
-            }
-
-            shared.ShowSelector("Send " + resourceName + " to...", targetParts.Keys.ToList(), label =>
-            {
-                Part target = targetParts[label];
-                var def = PartResourceLibrary.Instance.GetDefinition(resourceName);
-                if (def == null) return;
-                PartResource targetResource = target.Resources.Get(def.id);
-                if (targetResource == null) return;
-
-                double space = targetResource.maxAmount - targetResource.amount;
-                double pushed = Math.Min(resourceAmount, space);
-                targetResource.amount += pushed;
-
-                float newAmount = resourceAmount - (float)pushed;
-                if (newAmount <= 0.001f) { WriteResourceName(stored, ""); WriteResourceAmount(stored, 0f); }
-                else WriteResourceAmount(stored, newAmount);
-
-                shared.Log(pushed + " of " + resourceName + " pushed into " + target.partInfo.title, "KhemistryEVAFluidCellHandler/EVASendResources");
-                ScreenMessages.PostScreenMessage(new ScreenMessage(
-                    string.Format("Transferred {0:F2} kg of {1}.", pushed, resourceName),
-                    5.0f, ScreenMessageStyle.UPPER_CENTER));
-            });
-        }
-
-        [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Transfer from nearby part to cell",
-         groupName = "fluidcelleva", groupDisplayName = "Fluid Cells", groupStartCollapsed = false)]
-        public void EVATakeResources()
-        {
-            var shared = KShared.Instance;
-            if (shared == null) { Debug.LogError("Khemistry: KShared null in EVATakeResources!"); return; }
-
-            var cells = GetHeldCellSnapshots();
-            if (cells.Count == 0)
-            {
-                ScreenMessages.PostScreenMessage(new ScreenMessage("No fluid cells in inventory.", 5.0f, ScreenMessageStyle.UPPER_CENTER));
-                return;
-            }
-
-            if (cells.Count == 1)
-                ShowPartSelectorForTake(cells[0]);
-            else
-            {
-                var labels = cells.Select((c, i) =>
-                {
-                    string resName = ReadResourceName(c);
-                    float resAmount = ReadResourceAmount(c);
-                    float maxAmount = ReadMaxAmount(c.partName);
-                    return string.IsNullOrEmpty(resName)
-                        ? string.Format("Cell {0}: Empty", i + 1)
-                        : string.Format("Cell {0}: {1} {2:F1}/{3:F1} kg", i + 1, resName, resAmount, maxAmount);
-                }).ToList();
-
-                shared.ShowSelector("Which cell to fill?", labels, label =>
-                {
-                    int index = labels.IndexOf(label);
-                    if (index >= 0) ShowPartSelectorForTake(cells[index]);
-                });
-            }
-        }
-
-        private void ShowPartSelectorForTake(StoredPart stored)
-        {
-            var shared = KShared.Instance;
-            string currentResource = ReadResourceName(stored);
-            float currentAmount = ReadResourceAmount(stored);
-            float maxAmount = ReadMaxAmount(stored.partName);
-            float range = ReadTransferDistance(stored.partName);
-            HashSet<string> allowed = ReadAllowedResources(stored.partName);
-
-            if (currentAmount >= maxAmount)
-            {
-                ScreenMessages.PostScreenMessage(new ScreenMessage("That cell is full.", 5.0f, ScreenMessageStyle.UPPER_CENTER));
-                return;
-            }
-
-            float spaceRemaining = maxAmount - currentAmount;
-            var optionParts = new Dictionary<string, Part>();
-            var optionResources = new Dictionary<string, string>();
-
-            foreach (Part p in GetPartsInRange(range))
-                foreach (PartResource pr in p.Resources)
-                {
-                    if (pr.amount <= 0) continue;
-                    if (!string.IsNullOrEmpty(currentResource) && pr.resourceName != currentResource) continue;
-                    if (string.IsNullOrEmpty(currentResource) && allowed.Count > 0 && !allowed.Contains(pr.resourceName)) continue;
-
-                    string label = string.Format("{0} / {1}  ({2}: {3:F1} kg)",
-                        p.vessel.vesselName, p.partInfo.title, pr.resourceName, pr.amount);
-                    if (!optionParts.ContainsKey(label))
-                    {
-                        optionParts.Add(label, p);
-                        optionResources.Add(label, pr.resourceName);
-                    }
-                }
-
-            if (optionParts.Count == 0)
-            {
-                string msg = string.IsNullOrEmpty(currentResource)
-                    ? "No allowed resources found within range."
-                    : "No nearby parts have " + currentResource + ".";
-                ScreenMessages.PostScreenMessage(new ScreenMessage(msg, 5.0f, ScreenMessageStyle.UPPER_CENTER));
-                return;
-            }
-
-            shared.ShowSelector("Take resources from...", optionParts.Keys.ToList(), label =>
-            {
-                Part source = optionParts[label];
-                string resourceName = optionResources[label];
-                var def = PartResourceLibrary.Instance.GetDefinition(resourceName);
-                if (def == null) return;
-                PartResource sourceResource = source.Resources.Get(def.id);
-                if (sourceResource == null) return;
-
-                double taken = Math.Min(sourceResource.amount, spaceRemaining);
-                sourceResource.amount -= taken;
-                WriteResourceName(stored, resourceName);
-                WriteResourceAmount(stored, currentAmount + (float)taken);
-
-                shared.Log(taken + " of " + resourceName + " taken from " + source.partInfo.title, "KhemistryEVAFluidCellHandler/EVATakeResources");
-                ScreenMessages.PostScreenMessage(new ScreenMessage(
-                    string.Format("Received {0:F2} kg of {1}.", taken, resourceName),
-                    5.0f, ScreenMessageStyle.UPPER_CENTER));
-            });
         }
     }
 
@@ -1802,6 +1636,13 @@ MODULE
     powerfailResource = LVEnergy                  // If this resource runs out, the part will powerfail. Must be an INPUT_RESOURCE. Do not include to disable powerfails.
     powerfailResult = EXPLODE,10                  // The result if a powerfail occurs. Can be "EXPLODE,n", "MAINT", or "STOP". Requires powerfailResource to be set and valid.
                                                   // EXPLODE will explode the part with power n, MAINT will require an Engineer kerbal to come fix it, and STOP will just shut down the part.
+    manualOperation = true                        // false by default; enables manual cycle mode
+    manualRequiresStartup = false                 // true by default; if false, no Start/Stop, just Execute Cycle
+    startStopShowRules = EVA+PAW                  // "PAW" default; controls Start/Stop button visibility
+    manualShowRules = EVA                         // "PAW" default; controls Execute Cycle button visibility
+    maxInteractionDistance = 5.0                  // 10.0 default; applies to all EVA-visible buttons
+    recipeGroup = myGroup                         // null by default; enforces one-active-at-a-time per group. If null, the converter does not have a group.
+
     INPUT_RESOURCE
     {
         ResourceName = LVEnergy
@@ -1816,26 +1657,23 @@ MODULE
     }
 }
     */
-    public class KhemistryAdvancedISRU : PartModule
+    // ── Base class ─────────────────────────────────────────────────────────────────
+    // Contains all shared config, cycle logic, and helpers.
+    // KhemistryAdvancedISRU and KhemistryEVAAdvancedISRU both extend this.
+    // ──────────────────────────────────────────────────────────────────────────────
+
+    public abstract class KhemistryAdvancedISRUBase : PartModule
     {
         // ── Basic converter info ───────────────────────────────────────────────────
 
-        [KSPField(isPersistant = false)]
-        public string ConverterName = "Converter";
-
-        [KSPField(isPersistant = false)]
-        public string StartActionName = "Start Converter";
-
-        [KSPField(isPersistant = false)]
-        public string StopActionName = "Stop Converter";
+        [KSPField(isPersistant = false)] public string ConverterName = "Converter";
+        [KSPField(isPersistant = false)] public string StartActionName = "Start Converter";
+        [KSPField(isPersistant = false)] public string StopActionName = "Stop Converter";
 
         // ── Persistent state ───────────────────────────────────────────────────────
 
-        [KSPField(isPersistant = true)]
-        public bool isRunning = false;
-
-        [KSPField(isPersistant = true)]
-        public bool needsMaintenance = false;
+        [KSPField(isPersistant = true)] public bool isRunning = false;
+        [KSPField(isPersistant = true)] public bool needsMaintenance = false;
 
         // ── Status display ─────────────────────────────────────────────────────────
 
@@ -1846,245 +1684,122 @@ MODULE
 
         // ── Internal data structures ───────────────────────────────────────────────
 
-        private struct ResourceInput
+        protected struct ResourceInput
         {
             public string resourceName;
             public double ratio;
             public ResourceFlowMode flowMode;
         }
 
-        private struct ResourceOutput
+        protected struct ResourceOutput
         {
             public string resourceName;
             public double ratio;
             public bool dumpExcess;
         }
 
-        private enum SituationCondition
+        protected enum SituationCondition
         {
             Any, Landed, Splashed, FlyingLow, FlyingHigh, SpaceLow, SpaceHigh, SubOrbital
         }
 
-        private enum PowerfailResult { None, Stop, Explode, Maint }
+        protected enum PowerfailResult { None, Stop, Explode, Maint }
 
-        private readonly List<ResourceInput> _inputs = new List<ResourceInput>();
-        private readonly List<ResourceOutput> _outputs = new List<ResourceOutput>();
+        protected readonly List<ResourceInput> _inputs = new List<ResourceInput>();
+        protected readonly List<ResourceOutput> _outputs = new List<ResourceOutput>();
 
         // Conditions
-        private string _planetCondition = null;
-        private string _biomeCondition = null;
-        private double _altMin = double.MinValue;
-        private double _altMax = double.MaxValue;
-        private SituationCondition _situationCondition = SituationCondition.Any;
+        protected string _planetCondition = null;
+        protected string _biomeCondition = null;
+        protected double _altMin = double.MinValue;
+        protected double _altMax = double.MaxValue;
+        protected SituationCondition _situationCondition = SituationCondition.Any;
 
         // Powerfail
-        private string _powerfailResource = null;
-        private PowerfailResult _powerfailResult = PowerfailResult.None;
-        private float _powerfailExplosionPower = 0f;
+        protected string _powerfailResource = null;
+        protected PowerfailResult _powerfailResult = PowerfailResult.None;
+        protected float _powerfailExplosionPower = 0f;
+
+        // Manual operation config
+        protected bool _manualOperation = false;
+        protected bool _manualRequiresStartup = true;
+
+        // Show rules
+        protected bool _startStopShowPAW = true;
+        protected bool _startStopShowEVA = false;
+        protected bool _manualShowPAW = true;
+        protected bool _manualShowEVA = false;
+
+        // Interaction distance
+        protected float _maxInteractionDistance = 10f;
+
+        // Recipe group
+        protected string _recipeGroup = null;
+
+        // Computed display name
+        protected string _displayName = "Converter";
 
         // Runtime
-        private bool _fatalConfigError = false;
-        private double _outputWarnCooldown = 0.0;   // seconds until next output-full message is allowed
-
-        // ── Events ─────────────────────────────────────────────────────────────────
-
-        [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Start Converter",
-                  groupName = "khemistryisru")]
-        public void StartConverter()
-        {
-            if (needsMaintenance)
-            {
-                ScreenMessages.PostScreenMessage(new ScreenMessage(
-                    "Converter \"" + ConverterName + "\": Requires maintenance before starting.",
-                    5f, ScreenMessageStyle.UPPER_CENTER));
-                return;
-            }
-            isRunning = true;
-            KShared.Instance?.Log("Converter \"" + ConverterName + "\" started.", "KhemistryAdvancedISRU/StartConverter");
-            UpdateEventVisibility();
-        }
-
-        [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Stop Converter",
-                  groupName = "khemistryisru", active = false)]
-        public void StopConverter()
-        {
-            isRunning = false;
-            KShared.Instance?.Log("Converter \"" + ConverterName + "\" stopped.", "KhemistryAdvancedISRU/StopConverter");
-            UpdateEventVisibility();
-        }
-
-        // Maintenance requires an Engineer on EVA within 5 m
-        [KSPEvent(guiActive = false, guiActiveEditor = false, guiName = "Perform Maintenance",
-                  groupName = "khemistryisru",
-                  externalToEVAOnly = true, guiActiveUnfocused = true, unfocusedRange = 5f)]
-        public void PerformMaintenance()
-        {
-            ProtoCrewMember kerbal = FlightGlobals.ActiveVessel
-                ?.GetVesselCrew()
-                ?.FirstOrDefault();
-
-            if (kerbal == null || kerbal.trait != "Engineer")
-            {
-                ScreenMessages.PostScreenMessage(new ScreenMessage(
-                    "Converter \"" + ConverterName + "\": Maintenance requires an Engineer.",
-                    5f, ScreenMessageStyle.UPPER_CENTER));
-                return;
-            }
-
-            needsMaintenance = false;
-            KShared.Instance?.Log("Converter \"" + ConverterName + "\" maintenance completed by " + kerbal.name + ".",
-                "KhemistryAdvancedISRU/PerformMaintenance");
-            ScreenMessages.PostScreenMessage(new ScreenMessage(
-                "Converter \"" + ConverterName + "\": Maintenance complete.",
-                5f, ScreenMessageStyle.UPPER_CENTER));
-            UpdateEventVisibility();
-        }
-
-        // ── KSP Actions ────────────────────────────────────────────────────────────
-
-        [KSPAction("Start Converter")]
-        public void StartConverterAction(KSPActionParam param) => StartConverter();
-
-        [KSPAction("Stop Converter")]
-        public void StopConverterAction(KSPActionParam param) => StopConverter();
-
-        // ── Lifecycle ──────────────────────────────────────────────────────────────
-
-        public override void OnStart(StartState state)
-        {
-            base.OnStart(state);
-
-            // Apply localized action/event names from config
-            Events["StartConverter"].guiName = StartActionName;
-            Events["StopConverter"].guiName = StopActionName;
-            Actions["StartConverterAction"].guiName = StartActionName;
-            Actions["StopConverterAction"].guiName = StopActionName;
-
-            _fatalConfigError = false;
-            _outputWarnCooldown = 0.0;
-
-            LoadConfigFromPartInfo();
-
-            if (_fatalConfigError)
-            {
-                foreach (BaseEvent e in Events) e.active = false;
-                statusDisplay = "ERROR: see log";
-                return;
-            }
-
-            UpdateEventVisibility();
-        }
-
-        public void FixedUpdate()
-        {
-            if (!HighLogic.LoadedSceneIsFlight) return;
-            if (vessel == null || part == null) return;
-            if (_fatalConfigError) return;
-
-            double dt = TimeWarp.fixedDeltaTime;
-            _outputWarnCooldown = Math.Max(0.0, _outputWarnCooldown - dt);
-
-            // Not running or blocked by maintenance
-            if (!isRunning || needsMaintenance)
-            {
-                statusDisplay = needsMaintenance ? "Needs maintenance" : "Stopped";
-                UpdateEventVisibility();
-                return;
-            }
-
-            // Check environmental conditions
-            string conditionReason;
-            if (!CheckConditions(out conditionReason))
-            {
-                statusDisplay = "Inactive: " + conditionReason;
-                UpdateEventVisibility();
-                return;
-            }
-
-            // Check output space for all non-dump outputs before consuming anything
-            string blockedResource = CheckOutputSpace(dt);
-            if (blockedResource != null)
-            {
-                if (_outputWarnCooldown <= 0.0)
-                {
-                    ScreenMessages.PostScreenMessage(new ScreenMessage(
-                        string.Format("Converter \"{0}\": No output space for {1}, converter paused!",
-                            ConverterName, blockedResource),
-                        5f, ScreenMessageStyle.UPPER_CENTER));
-                    _outputWarnCooldown = 5.0;
-                }
-                statusDisplay = "Paused: " + blockedResource + " full";
-                UpdateEventVisibility();
-                return;
-            }
-
-            // Check whether the designated powerfail resource is about to run short.
-            // We do this BEFORE the all-or-nothing consume so we know which resource
-            // caused the failure if ConsumeInputs returns false.
-            bool powerfailShort = false;
-            if (!string.IsNullOrEmpty(_powerfailResource))
-            {
-                double pfNeeded = GetInputRatio(_powerfailResource) * dt;
-                double pfAvailable = GetVesselResourceAmount(_powerfailResource);
-                if (pfAvailable < pfNeeded * 0.999)
-                    powerfailShort = true;
-            }
-
-            // All-or-nothing input consumption
-            if (!ConsumeInputs(dt))
-            {
-                if (powerfailShort)
-                {
-                    ScreenMessages.PostScreenMessage(new ScreenMessage(
-                        string.Format("Converter \"{0}\": Powerfailed due to lack of {1}!",
-                            ConverterName, _powerfailResource),
-                        8f, ScreenMessageStyle.UPPER_CENTER));
-                    TriggerPowerfail();
-                }
-                else
-                {
-                    statusDisplay = "Insufficient resources";
-                }
-                UpdateEventVisibility();
-                return;
-            }
-
-            // Produce outputs
-            ProduceOutputs(dt);
-            statusDisplay = "Running";
-            UpdateEventVisibility();
-        }
+        protected bool _fatalConfigError = false;
+        protected double _outputWarnCooldown = 0.0;
 
         // ── Config loading ─────────────────────────────────────────────────────────
 
-        private void LoadConfigFromPartInfo()
+        /// <summary>
+        /// Finds and returns the MODULE config node for this converter from partConfig.
+        /// Matches on both module class name and ConverterName to support multiple
+        /// converters per part. Pass the expected module name (e.g. "KhemistryAdvancedISRU"
+        /// or "KhemistryEVAAdvancedISRU").
+        /// </summary>
+        protected ConfigNode FindModuleConfigNode(string moduleName)
         {
-            if (part.partInfo?.partConfig == null)
+            ConfigNode result = null;
+
+            // Try partInfo first (works for normal parts)
+            if (part.partInfo?.partConfig != null)
             {
-                KShared.Instance?.LogError("partInfo.partConfig is null!",
-                    "KhemistryAdvancedISRU/LoadConfigFromPartInfo");
-                _fatalConfigError = true;
-                return;
+                foreach (ConfigNode n in part.partInfo.partConfig.GetNodes("MODULE"))
+                {
+                    if (n.GetValue("name") != moduleName) continue;
+                    if (n.GetValue("ConverterName") == ConverterName) { result = n; break; }
+                }
             }
 
-            // Multiple KhemistryAdvancedISRU modules can exist on one part; match by ConverterName.
-            // KSP loads KSPFields (including ConverterName) before calling OnStart, so this is safe.
-            ConfigNode moduleNode = null;
-            foreach (ConfigNode n in part.partInfo.partConfig.GetNodes("MODULE"))
+            if (result != null) return result;
+
+            // Fallback: search GameDatabase directly (required for kerbalEVA parts
+            // whose partInfo.partConfig is null or does not contain the expected node)
+            string targetPartName = part.partInfo?.name ?? part.name;
+            foreach (ConfigNode partNode in GameDatabase.Instance.GetConfigNodes("PART"))
             {
-                if (n.GetValue("name") != "KhemistryAdvancedISRU") continue;
-                if (n.GetValue("ConverterName") == ConverterName) { moduleNode = n; break; }
+                string nodeName = partNode.GetValue("name") ?? "";
+                int slash = nodeName.LastIndexOf('/');
+                if (slash >= 0) nodeName = nodeName.Substring(slash + 1);
+                if (!nodeName.Equals(targetPartName, StringComparison.OrdinalIgnoreCase)) continue;
+
+                foreach (ConfigNode n in partNode.GetNodes("MODULE"))
+                {
+                    if (n.GetValue("name") != moduleName) continue;
+                    if (n.GetValue("ConverterName") == ConverterName) { result = n; break; }
+                }
+                if (result != null) break;
             }
 
-            if (moduleNode == null)
-            {
+            if (result == null)
                 KShared.Instance?.LogError(
-                    "Could not find MODULE KhemistryAdvancedISRU with ConverterName=\"" + ConverterName + "\" in partConfig!",
-                    "KhemistryAdvancedISRU/LoadConfigFromPartInfo");
-                _fatalConfigError = true;
-                return;
-            }
+                    "Could not find MODULE " + moduleName + " with ConverterName=\"" + ConverterName
+                    + "\" in partConfig or GameDatabase!",
+                    moduleName + "/FindModuleConfigNode");
 
+            return result;
+        }
+
+        /// <summary>
+        /// Populates all shared fields from a MODULE config node.
+        /// Called by subclasses in their own LoadConfigFromPartInfo after finding the node.
+        /// </summary>
+        protected void LoadSharedConfig(ConfigNode moduleNode, string moduleName)
+        {
             // INPUT_RESOURCE nodes
             _inputs.Clear();
             foreach (ConfigNode inputNode in moduleNode.GetNodes("INPUT_RESOURCE"))
@@ -2105,7 +1820,7 @@ MODULE
                     else
                         KShared.Instance?.LogError(
                             "Converter \"" + ConverterName + "\": Unknown FlowMode \"" + flowStr + "\" for " + resName + ", defaulting to ALL_VESSEL.",
-                            "KhemistryAdvancedISRU/LoadConfigFromPartInfo");
+                            moduleName + "/LoadSharedConfig");
                 }
 
                 _inputs.Add(new ResourceInput { resourceName = resName, ratio = ratio, flowMode = flowMode });
@@ -2130,18 +1845,16 @@ MODULE
             if (_inputs.Count == 0 && _outputs.Count == 0)
                 KShared.Instance?.LogError(
                     "Converter \"" + ConverterName + "\" has no INPUT_RESOURCE or OUTPUT_RESOURCE nodes — it will do nothing.",
-                    "KhemistryAdvancedISRU/LoadConfigFromPartInfo");
+                    moduleName + "/LoadSharedConfig");
 
-            // planetCondition
+            // planetCondition / biomeCondition
             _planetCondition = NullIfEmpty(moduleNode.GetValue("planetCondition"));
-
-            // biomeCondition — only valid when planetCondition is also set
             _biomeCondition = NullIfEmpty(moduleNode.GetValue("biomeCondition"));
             if (_biomeCondition != null && _planetCondition == null)
             {
                 KShared.Instance?.LogError(
-                    "Converter \"" + ConverterName + "\": biomeCondition is set but planetCondition is not — biomeCondition will be ignored.",
-                    "KhemistryAdvancedISRU/LoadConfigFromPartInfo");
+                    "Converter \"" + ConverterName + "\": biomeCondition set without planetCondition — biomeCondition ignored.",
+                    moduleName + "/LoadSharedConfig");
                 _biomeCondition = null;
             }
 
@@ -2157,17 +1870,15 @@ MODULE
             string sitStr = NullIfEmpty(moduleNode.GetValue("situationCondition"));
             if (sitStr != null)
             {
-                // Tolerate the "FlyindHigh" typo mentioned in the spec
                 if (sitStr.Equals("FlyindHigh", StringComparison.OrdinalIgnoreCase))
                     sitStr = "FlyingHigh";
-
                 SituationCondition parsed;
                 if (Enum.TryParse(sitStr, true, out parsed))
                     _situationCondition = parsed;
                 else
                     KShared.Instance?.LogError(
                         "Converter \"" + ConverterName + "\": Unknown situationCondition \"" + sitStr + "\" — condition ignored.",
-                        "KhemistryAdvancedISRU/LoadConfigFromPartInfo");
+                        moduleName + "/LoadSharedConfig");
             }
 
             // powerfailResource / powerfailResult
@@ -2180,7 +1891,6 @@ MODULE
 
             if (pfRes != null)
             {
-                // Validate: must be one of our INPUT_RESOURCE names
                 bool found = false;
                 foreach (ResourceInput inp in _inputs)
                     if (inp.resourceName.Equals(pfRes, StringComparison.OrdinalIgnoreCase)) { found = true; break; }
@@ -2189,21 +1899,14 @@ MODULE
                 {
                     KShared.Instance?.LogError(
                         "Converter \"" + ConverterName + "\": powerfailResource \"" + pfRes + "\" is not a defined INPUT_RESOURCE — powerfail disabled.",
-                        "KhemistryAdvancedISRU/LoadConfigFromPartInfo");
+                        moduleName + "/LoadSharedConfig");
                 }
                 else
                 {
                     _powerfailResource = pfRes;
-
-                    if (pfResultRaw == null)
-                    {
-                        // Spec: "nothing happens" — PowerfailResult.None is correct
-                        _powerfailResult = PowerfailResult.None;
-                    }
-                    else
+                    if (pfResultRaw != null)
                     {
                         string pfResult = pfResultRaw.Trim().Trim('"').ToUpper();
-
                         if (pfResult == "STOP")
                         {
                             _powerfailResult = PowerfailResult.Stop;
@@ -2224,7 +1927,7 @@ MODULE
                             {
                                 KShared.Instance?.LogError(
                                     "Converter \"" + ConverterName + "\": Could not parse EXPLODE power \"" + pfResultRaw + "\" — defaulting to STOP.",
-                                    "KhemistryAdvancedISRU/LoadConfigFromPartInfo");
+                                    moduleName + "/LoadSharedConfig");
                                 _powerfailResult = PowerfailResult.Stop;
                             }
                         }
@@ -2232,7 +1935,7 @@ MODULE
                         {
                             KShared.Instance?.LogError(
                                 "Converter \"" + ConverterName + "\": Unknown powerfailResult \"" + pfResultRaw + "\" — defaulting to STOP.",
-                                "KhemistryAdvancedISRU/LoadConfigFromPartInfo");
+                                moduleName + "/LoadSharedConfig");
                             _powerfailResult = PowerfailResult.Stop;
                         }
                     }
@@ -2240,44 +1943,149 @@ MODULE
             }
             else if (pfResultRaw != null)
             {
-                // powerfailResult defined without powerfailResource — per spec, log error and ignore
                 KShared.Instance?.LogError(
-                    "Converter \"" + ConverterName + "\": powerfailResult is set but powerfailResource is not — powerfailResult ignored.",
-                    "KhemistryAdvancedISRU/LoadConfigFromPartInfo");
+                    "Converter \"" + ConverterName + "\": powerfailResult set without powerfailResource — powerfailResult ignored.",
+                    moduleName + "/LoadSharedConfig");
             }
 
+            // manualOperation / manualRequiresStartup
+            _manualOperation = false;
+            _manualRequiresStartup = true;
+            bool tmpB;
+            if (bool.TryParse(moduleNode.GetValue("manualOperation"), out tmpB)) _manualOperation = tmpB;
+            if (bool.TryParse(moduleNode.GetValue("manualRequiresStartup"), out tmpB)) _manualRequiresStartup = tmpB;
+
+            // startStopShowRules / manualShowRules
+            ParseShowRule(
+                NullIfEmpty(moduleNode.GetValue("startStopShowRules")) ?? "PAW",
+                out _startStopShowPAW, out _startStopShowEVA,
+                "startStopShowRules", moduleName);
+
+            ParseShowRule(
+                NullIfEmpty(moduleNode.GetValue("manualShowRules")) ?? "PAW",
+                out _manualShowPAW, out _manualShowEVA,
+                "manualShowRules", moduleName);
+
+            // maxInteractionDistance
+            _maxInteractionDistance = 10f;
+            float distTmp;
+            if (float.TryParse(moduleNode.GetValue("maxInteractionDistance"), out distTmp))
+                _maxInteractionDistance = distTmp;
+
+            // recipeGroup
+            _recipeGroup = NullIfEmpty(moduleNode.GetValue("recipeGroup"));
+
             KShared.Instance?.Log(
-                string.Format("Converter \"{0}\" loaded: {1} inputs, {2} outputs, planet={3}, biome={4}, alt=[{5},{6}], sit={7}, powerfail={8}/{9}",
+                string.Format("Converter \"{0}\" loaded: {1} inputs, {2} outputs, manual={3}, requiresStartup={4}, group={5}",
                     ConverterName, _inputs.Count, _outputs.Count,
-                    _planetCondition ?? "any", _biomeCondition ?? "any",
-                    _altMin == double.MinValue ? "any" : _altMin.ToString("F0"),
-                    _altMax == double.MaxValue ? "any" : _altMax.ToString("F0"),
-                    _situationCondition,
-                    _powerfailResource ?? "none", _powerfailResult),
-                "KhemistryAdvancedISRU/LoadConfigFromPartInfo");
+                    _manualOperation, _manualRequiresStartup, _recipeGroup ?? "none"),
+                moduleName + "/LoadSharedConfig");
+        }
+
+        // ── Show rule parser ───────────────────────────────────────────────────────
+
+        protected void ParseShowRule(string raw, out bool showPAW, out bool showEVA,
+            string fieldName, string moduleName)
+        {
+            string val = raw.Trim().Trim('"').ToUpper();
+            switch (val)
+            {
+                case "PAW":
+                    showPAW = true; showEVA = false; break;
+                case "EVA":
+                    showPAW = false; showEVA = true; break;
+                case "EVA+PAW":
+                case "PAW+EVA":
+                    showPAW = true; showEVA = true; break;
+                default:
+                    KShared.Instance?.LogError(
+                        "Converter \"" + ConverterName + "\": Unknown " + fieldName + " value \"" + raw + "\" — defaulting to PAW.",
+                        moduleName + "/ParseShowRule");
+                    showPAW = true; showEVA = false; break;
+            }
+        }
+
+        // ── Shared cycle logic ─────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Runs one converter cycle against the given contextPart's vessel.
+        /// For KhemistryAdvancedISRU this is always `this.part`.
+        /// For KhemistryEVAAdvancedISRU (called from KhemistryKerbal) this is the
+        /// Kerbal's part, so resources are drawn from/pushed to the Kerbal's vessel.
+        /// </summary>
+        public void RunOneCycle(Part contextPart, double dt)
+        {
+            string conditionReason;
+            if (!CheckConditions(contextPart.vessel, out conditionReason))
+            {
+                statusDisplay = "Inactive: " + conditionReason;
+                return;
+            }
+
+            string blockedResource = CheckOutputSpace(contextPart.vessel, dt);
+            if (blockedResource != null)
+            {
+                if (_outputWarnCooldown <= 0.0)
+                {
+                    ScreenMessages.PostScreenMessage(new ScreenMessage(
+                        string.Format("Converter \"{0}\": No output space for {1}, converter paused!",
+                            _displayName, blockedResource),
+                        5f, ScreenMessageStyle.UPPER_CENTER));
+                    _outputWarnCooldown = 5.0;
+                }
+                statusDisplay = "Paused: " + blockedResource + " full";
+                return;
+            }
+
+            bool powerfailShort = false;
+            if (_powerfailResource != null)
+            {
+                double pfNeeded = GetInputRatio(_powerfailResource) * dt;
+                double pfAvailable = GetVesselResourceAmount(contextPart.vessel, _powerfailResource);
+                if (pfAvailable < pfNeeded * 0.999)
+                    powerfailShort = true;
+            }
+
+            if (!ConsumeInputs(contextPart, dt))
+            {
+                if (powerfailShort)
+                {
+                    ScreenMessages.PostScreenMessage(new ScreenMessage(
+                        string.Format("Converter \"{0}\": Powerfailed due to lack of {1}!",
+                            _displayName, _powerfailResource),
+                        8f, ScreenMessageStyle.UPPER_CENTER));
+                    TriggerPowerfail(contextPart);
+                }
+                else
+                {
+                    statusDisplay = "Insufficient resources";
+                }
+                return;
+            }
+
+            ProduceOutputs(contextPart, dt);
+            statusDisplay = _manualOperation ? "Waiting for manual cycle" : "Running";
         }
 
         // ── Condition checking ─────────────────────────────────────────────────────
 
-        private bool CheckConditions(out string reason)
+        protected bool CheckConditions(Vessel v, out string reason)
         {
             reason = null;
 
-            // Planet
             if (_planetCondition != null)
             {
-                string currentBody = vessel.mainBody?.name ?? "";
+                string currentBody = v.mainBody?.name ?? "";
                 if (!currentBody.Equals(_planetCondition, StringComparison.OrdinalIgnoreCase))
                 {
                     reason = "wrong body (" + currentBody + ")";
                     return false;
                 }
 
-                // Biome — only checked when planet already matched
                 if (_biomeCondition != null)
                 {
                     string currentBiome = ScienceUtil.GetExperimentBiome(
-                        vessel.mainBody, vessel.latitude, vessel.longitude);
+                        v.mainBody, v.latitude, v.longitude);
                     if (!currentBiome.Equals(_biomeCondition, StringComparison.OrdinalIgnoreCase))
                     {
                         reason = "wrong biome (" + currentBiome + ")";
@@ -2286,8 +2094,7 @@ MODULE
                 }
             }
 
-            // Altitude
-            double alt = vessel.altitude;
+            double alt = v.altitude;
             if (_altMin != double.MinValue && alt < _altMin)
             {
                 reason = string.Format("below min altitude ({0:F0} m)", _altMin);
@@ -2299,51 +2106,43 @@ MODULE
                 return false;
             }
 
-            // Situation
-            if (_situationCondition != SituationCondition.Any && !CheckSituation())
+            if (_situationCondition != SituationCondition.Any && !CheckSituation(v))
             {
-                reason = "wrong situation (" + vessel.situation + ")";
+                reason = "wrong situation (" + v.situation + ")";
                 return false;
             }
 
             return true;
         }
 
-        private bool CheckSituation()
+        protected bool CheckSituation(Vessel v)
         {
-            Vessel.Situations sit = vessel.situation;
-            CelestialBody body = vessel.mainBody;
-            double alt = vessel.altitude;
+            Vessel.Situations sit = v.situation;
+            CelestialBody body = v.mainBody;
+            double alt = v.altitude;
 
             switch (_situationCondition)
             {
                 case SituationCondition.Landed:
                     return sit == Vessel.Situations.LANDED || sit == Vessel.Situations.PRELAUNCH;
-
                 case SituationCondition.Splashed:
                     return sit == Vessel.Situations.SPLASHED;
-
                 case SituationCondition.FlyingLow:
                     return sit == Vessel.Situations.FLYING
                         && body != null && alt < body.scienceValues.flyingAltitudeThreshold;
-
                 case SituationCondition.FlyingHigh:
                     return sit == Vessel.Situations.FLYING
                         && body != null && alt >= body.scienceValues.flyingAltitudeThreshold;
-
                 case SituationCondition.SpaceLow:
                     return (sit == Vessel.Situations.ORBITING || sit == Vessel.Situations.SUB_ORBITAL)
                         && body != null && alt < body.scienceValues.spaceAltitudeThreshold;
-
                 case SituationCondition.SpaceHigh:
                     return (sit == Vessel.Situations.ORBITING
                          || sit == Vessel.Situations.SUB_ORBITAL
                          || sit == Vessel.Situations.ESCAPING)
                         && body != null && alt >= body.scienceValues.spaceAltitudeThreshold;
-
                 case SituationCondition.SubOrbital:
                     return sit == Vessel.Situations.SUB_ORBITAL;
-
                 default:
                     return true;
             }
@@ -2351,18 +2150,14 @@ MODULE
 
         // ── Output space check ─────────────────────────────────────────────────────
 
-        /// <summary>
-        /// Returns the resource name of the first non-dump output that has no space in the vessel,
-        /// or null if all outputs can be satisfied.
-        /// </summary>
-        private string CheckOutputSpace(double dt)
+        protected string CheckOutputSpace(Vessel v, double dt)
         {
             foreach (ResourceOutput output in _outputs)
             {
                 if (output.dumpExcess) continue;
                 double needed = output.ratio * dt;
                 if (needed <= 0.0) continue;
-                if (GetVesselResourceSpace(output.resourceName) < needed * 0.001)
+                if (GetVesselResourceSpace(v, output.resourceName) < needed * 0.001)
                     return output.resourceName;
             }
             return null;
@@ -2370,27 +2165,27 @@ MODULE
 
         // ── Vessel resource helpers ────────────────────────────────────────────────
 
-        private double GetVesselResourceSpace(string resourceName)
+        protected double GetVesselResourceSpace(Vessel v, string resourceName)
         {
             double space = 0.0;
-            foreach (Part p in vessel.parts)
+            foreach (Part p in v.parts)
                 foreach (PartResource pr in p.Resources)
                     if (pr.resourceName == resourceName && pr.flowState)
                         space += pr.maxAmount - pr.amount;
             return space;
         }
 
-        private double GetVesselResourceAmount(string resourceName)
+        protected double GetVesselResourceAmount(Vessel v, string resourceName)
         {
             double total = 0.0;
-            foreach (Part p in vessel.parts)
+            foreach (Part p in v.parts)
                 foreach (PartResource pr in p.Resources)
                     if (pr.resourceName == resourceName && pr.flowState)
                         total += pr.amount;
             return total;
         }
 
-        private double GetInputRatio(string resourceName)
+        protected double GetInputRatio(string resourceName)
         {
             foreach (ResourceInput inp in _inputs)
                 if (inp.resourceName.Equals(resourceName, StringComparison.OrdinalIgnoreCase))
@@ -2400,103 +2195,1785 @@ MODULE
 
         // ── Resource consumption / production ──────────────────────────────────────
 
-        /// <summary>
-        /// Attempts to consume all inputs for this tick (all-or-nothing).
-        /// Refunds everything already pulled if any input comes up short.
-        /// </summary>
-        private bool ConsumeInputs(double dt)
+        protected bool ConsumeInputs(Part contextPart, double dt)
         {
-            // Track (resourceName, flowMode, amountPulled) so we can refund using the same flow mode
             var pulled = new List<(string name, ResourceFlowMode mode, double amount)>(_inputs.Count);
             bool allSatisfied = true;
 
             foreach (ResourceInput inp in _inputs)
             {
-                if (inp.ratio <= 0.0)
-                {
-                    pulled.Add((inp.resourceName, inp.flowMode, 0.0));
-                    continue;
-                }
-
+                if (inp.ratio <= 0.0) { pulled.Add((inp.resourceName, inp.flowMode, 0.0)); continue; }
                 double needed = inp.ratio * dt;
-                double got = part.RequestResource(inp.resourceName, needed, inp.flowMode);
+                double got = contextPart.RequestResource(inp.resourceName, needed, inp.flowMode);
                 pulled.Add((inp.resourceName, inp.flowMode, got));
-
-                if (got < needed * 0.999)
-                    allSatisfied = false;
+                if (got < needed * 0.999) allSatisfied = false;
             }
 
             if (!allSatisfied)
             {
                 foreach (var entry in pulled)
                     if (entry.amount > 0.0)
-                        part.RequestResource(entry.name, -entry.amount, entry.mode);
+                        contextPart.RequestResource(entry.name, -entry.amount, entry.mode);
                 return false;
             }
-
             return true;
         }
 
-        /// <summary>
-        /// Adds all output resources to the vessel. Non-dump outputs that are full were
-        /// already caught by CheckOutputSpace before we got here.
-        /// </summary>
-        private void ProduceOutputs(double dt)
+        protected void ProduceOutputs(Part contextPart, double dt)
         {
             foreach (ResourceOutput output in _outputs)
             {
                 if (output.ratio <= 0.0) continue;
-                // Negative demand = add resources to the vessel
-                part.RequestResource(output.resourceName, -(output.ratio * dt), ResourceFlowMode.ALL_VESSEL);
+                contextPart.RequestResource(output.resourceName, -(output.ratio * dt), ResourceFlowMode.ALL_VESSEL);
             }
         }
 
         // ── Powerfail ──────────────────────────────────────────────────────────────
 
-        private void TriggerPowerfail()
+        protected void TriggerPowerfail(Part contextPart)
         {
             KShared.Instance?.Log(
-                "Converter \"" + ConverterName + "\" powerfailed. Result: " + _powerfailResult,
-                "KhemistryAdvancedISRU/TriggerPowerfail");
+                "Converter \"" + _displayName + "\" powerfailed. Result: " + _powerfailResult,
+                "KhemistryAdvancedISRUBase/TriggerPowerfail");
 
             switch (_powerfailResult)
             {
                 case PowerfailResult.None:
-                    // Nothing happens beyond skipping this tick
                     break;
-
                 case PowerfailResult.Stop:
                     isRunning = false;
                     statusDisplay = "Stopped (powerfail)";
                     break;
-
                 case PowerfailResult.Maint:
                     isRunning = false;
                     needsMaintenance = true;
                     statusDisplay = "Needs maintenance";
                     ScreenMessages.PostScreenMessage(new ScreenMessage(
-                        "Converter \"" + ConverterName + "\": Requires maintenance by an Engineer.",
+                        "Converter \"" + _displayName + "\": Requires maintenance by an Engineer.",
                         8f, ScreenMessageStyle.UPPER_CENTER));
                     break;
-
                 case PowerfailResult.Explode:
-                    part.explode();
+                    // For EVA converters, explode the contextPart (the Kerbal) rather than
+                    // the stored item (which has no live part to explode).
+                    contextPart.explode();
                     break;
             }
         }
 
+        // ── Recipe group check ─────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Checks whether another converter in the same recipeGroup is already running
+        /// on the given part. For EVA use, pass the Kerbal's part and this will check
+        /// all EVA ISRU modules across all stored items in the Kerbal's inventory.
+        /// </summary>
+        public bool CheckRecipeGroup(Part contextPart)
+        {
+            if (_recipeGroup == null) return true;
+
+            // Check same-part live modules (standard ISRU)
+            foreach (PartModule pm in contextPart.Modules)
+            {
+                KhemistryAdvancedISRUBase other = pm as KhemistryAdvancedISRUBase;
+                if (other == null || other == this) continue;
+                if (other._recipeGroup != _recipeGroup) continue;
+                if (other.isRunning)
+                {
+                    ScreenMessages.PostScreenMessage(new ScreenMessage(
+                        "Another converter in group " + _recipeGroup + " is already running!",
+                        5f, ScreenMessageStyle.UPPER_CENTER));
+                    return false;
+                }
+            }
+            return true;
+        }
+
         // ── Helpers ────────────────────────────────────────────────────────────────
 
-        private static string NullIfEmpty(string s)
+        protected static string NullIfEmpty(string s)
             => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
 
-        // ── Event / action visibility ──────────────────────────────────────────────
-
-        private void UpdateEventVisibility()
+        public void TickCooldown(double dt)
         {
-            Events["StartConverter"].active = !isRunning && !needsMaintenance;
-            Events["StopConverter"].active = isRunning;
+            _outputWarnCooldown = Math.Max(0.0, _outputWarnCooldown - dt);
+        }
+
+        // ── Abstract members subclasses must implement ─────────────────────────────
+
+        protected abstract void LoadConfigFromPartInfo();
+        protected abstract void UpdateEventVisibility();
+    }
+
+    // ── KhemistryAdvancedISRU (unchanged behaviour, now extends base) ──────────────
+
+    public class KhemistryAdvancedISRU : KhemistryAdvancedISRUBase
+    {
+        public override void OnStart(StartState state)
+        {
+            base.OnStart(state);
+
+            _fatalConfigError = false;
+            _outputWarnCooldown = 0.0;
+
+            LoadConfigFromPartInfo();
+
+            if (_fatalConfigError)
+            {
+                foreach (BaseEvent e in Events) e.active = false;
+                statusDisplay = "ERROR: see log";
+                return;
+            }
+
+            _displayName = _recipeGroup != null
+                ? ConverterName + " (" + _recipeGroup + ")"
+                : ConverterName;
+
+            string startLabel = _recipeGroup != null
+                ? StartActionName + " (" + _recipeGroup + ")"
+                : StartActionName;
+            string stopLabel = _recipeGroup != null
+                ? StopActionName + " (" + _recipeGroup + ")"
+                : StopActionName;
+
+            Events["StartConverter"].guiName = startLabel;
+            Events["StopConverter"].guiName = stopLabel;
+            Actions["StartConverterAction"].guiName = startLabel;
+            Actions["StopConverterAction"].guiName = stopLabel;
+
+            Events["StartConverter"].unfocusedRange = _maxInteractionDistance;
+            Events["StopConverter"].unfocusedRange = _maxInteractionDistance;
+            Events["ExecuteCycle"].unfocusedRange = _maxInteractionDistance;
+            Events["PerformMaintenance"].unfocusedRange = _maxInteractionDistance;
+
+            UpdateEventVisibility();
+        }
+
+        public void FixedUpdate()
+        {
+            if (!HighLogic.LoadedSceneIsFlight) return;
+            if (vessel == null || part == null) return;
+            if (_fatalConfigError) return;
+
+            double dt = TimeWarp.fixedDeltaTime;
+            _outputWarnCooldown = Math.Max(0.0, _outputWarnCooldown - dt);
+
+            if (_manualOperation)
+            {
+                statusDisplay = needsMaintenance ? "Needs maintenance"
+                    : !isRunning ? "Stopped"
+                    : "Waiting for manual cycle";
+                UpdateEventVisibility();
+                return;
+            }
+
+            if (!isRunning || needsMaintenance)
+            {
+                statusDisplay = needsMaintenance ? "Needs maintenance" : "Stopped";
+                UpdateEventVisibility();
+                return;
+            }
+
+            RunOneCycle(part, dt);
+            UpdateEventVisibility();
+        }
+
+        // ── Events ─────────────────────────────────────────────────────────────────
+
+        [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Start Converter",
+                  groupName = "khemistryisru")]
+        public void StartConverter()
+        {
+            if (needsMaintenance)
+            {
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "Converter \"" + _displayName + "\": Requires maintenance before starting.",
+                    5f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+            if (!CheckRecipeGroup(part)) return;
+            isRunning = true;
+            KShared.Instance?.Log("Converter \"" + _displayName + "\" started.", "KhemistryAdvancedISRU/StartConverter");
+            UpdateEventVisibility();
+        }
+
+        [KSPEvent(guiActive = false, guiActiveEditor = false, guiName = "Stop Converter",
+                  groupName = "khemistryisru")]
+        public void StopConverter()
+        {
+            isRunning = false;
+            KShared.Instance?.Log("Converter \"" + _displayName + "\" stopped.", "KhemistryAdvancedISRU/StopConverter");
+            UpdateEventVisibility();
+        }
+
+        [KSPEvent(guiActive = false, guiActiveEditor = false, guiName = "Perform Maintenance",
+                  groupName = "khemistryisru",
+                  externalToEVAOnly = true, guiActiveUnfocused = false, unfocusedRange = 10f)]
+        public void PerformMaintenance()
+        {
+            ProtoCrewMember kerbal = FlightGlobals.ActiveVessel?.GetVesselCrew()?.FirstOrDefault();
+            if (kerbal == null || kerbal.trait != "Engineer")
+            {
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "Converter \"" + _displayName + "\": Maintenance requires an Engineer.",
+                    5f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+            needsMaintenance = false;
+            KShared.Instance?.Log("Converter \"" + _displayName + "\" maintained by " + kerbal.name + ".",
+                "KhemistryAdvancedISRU/PerformMaintenance");
+            ScreenMessages.PostScreenMessage(new ScreenMessage(
+                "Converter \"" + _displayName + "\": Maintenance complete.", 5f, ScreenMessageStyle.UPPER_CENTER));
+            UpdateEventVisibility();
+        }
+
+        [KSPEvent(guiActive = false, guiActiveEditor = false, guiName = "Execute Cycle",
+                  groupName = "khemistryisru")]
+        public void ExecuteCycle()
+        {
+            if (needsMaintenance)
+            {
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "Converter \"" + _displayName + "\": Requires maintenance.",
+                    5f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+            if (!_manualRequiresStartup)
+                if (!CheckRecipeGroup(part)) return;
+
+            RunOneCycle(part, TimeWarp.fixedDeltaTime);
+            UpdateEventVisibility();
+        }
+
+        [KSPAction("Start Converter")]
+        public void StartConverterAction(KSPActionParam param) => StartConverter();
+
+        [KSPAction("Stop Converter")]
+        public void StopConverterAction(KSPActionParam param) => StopConverter();
+
+        // ── Config loading ─────────────────────────────────────────────────────────
+
+        protected override void LoadConfigFromPartInfo()
+        {
+            KShared.Instance?.Log("Called!", "KhemistryAdvancedISRU/LoadConfigFromPartInfo");
+            ConfigNode moduleNode = FindModuleConfigNode("KhemistryAdvancedISRU");
+            if (moduleNode == null) { _fatalConfigError = true; return; }
+            LoadSharedConfig(moduleNode, "KhemistryAdvancedISRU");
+        }
+
+        // ── Event visibility ───────────────────────────────────────────────────────
+
+        protected override void UpdateEventVisibility()
+        {
+            bool startStopEnabled = !_manualOperation || _manualRequiresStartup;
+
+            ApplyShowRule(Events["StartConverter"],
+                showPAW: startStopEnabled && !isRunning && !needsMaintenance && _startStopShowPAW,
+                showEVA: startStopEnabled && !isRunning && !needsMaintenance && _startStopShowEVA);
+
+            ApplyShowRule(Events["StopConverter"],
+                showPAW: startStopEnabled && isRunning && _startStopShowPAW,
+                showEVA: startStopEnabled && isRunning && _startStopShowEVA);
+
+            bool cycleEnabled = _manualOperation && !needsMaintenance && (!_manualRequiresStartup || isRunning);
+
+            ApplyShowRule(Events["ExecuteCycle"],
+                showPAW: cycleEnabled && _manualShowPAW,
+                showEVA: cycleEnabled && _manualShowEVA);
+
             Events["PerformMaintenance"].active = needsMaintenance;
+            Events["PerformMaintenance"].guiActiveUnfocused = needsMaintenance;
+            Events["PerformMaintenance"].unfocusedRange = _maxInteractionDistance;
+        }
+
+        private static void ApplyShowRule(BaseEvent ev, bool showPAW, bool showEVA)
+        {
+            ev.guiActive = showPAW;
+            ev.guiActiveUnfocused = showEVA;
+            ev.externalToEVAOnly = showEVA;
+            ev.active = showPAW || showEVA;
+        }
+    }
+
+    // ── KhemistryEVAAdvancedISRU ───────────────────────────────────────────────────
+    // Lives on an inventory part. Has no FixedUpdate or events of its own.
+    // KhemistryKerbal reads config from the prefab and drives cycles via the base class.
+    // ──────────────────────────────────────────────────────────────────────────────
+
+    public class KhemistryEVAAdvancedISRU : KhemistryAdvancedISRUBase
+    {
+        // No KSPEvents, no FixedUpdate.
+        // All interaction is routed through KhemistryKerbal.
+
+        public HashSet<string> SupportedResources = new HashSet<string>();
+
+        public override void OnLoad(ConfigNode node)
+        {
+            base.OnLoad(node);
+            SupportedResources.Clear();
+            if (node.HasNode("SUPPORTED_RESOURCES"))
+            {
+                foreach (string name in node.GetNode("SUPPORTED_RESOURCES").GetValues("name"))
+                    SupportedResources.Add(name.Trim());
+                KShared.Instance?.Log(
+                    "Loaded " + SupportedResources.Count + " allowed resources.",
+                    "KhemistryEVAAdvancedISRU/OnLoad");
+            }
+            else
+            {
+                KShared.Instance?.LogError(
+                    "Part \"" + part.name + "\" has KhemistryEVAAdvancedISRU but no SUPPORTED_RESOURCES node. This part is now broken and won't be able to recieve any resources.",
+                    "KhemistryEVAAdvancedISRU/OnLoad");
+            }
+        }
+
+        public override void OnStart(StartState state)
+        {
+            base.OnStart(state);
+
+            // This module may OnStart on the prefab when the part is loaded into the
+            // part database. We load config here so the prefab is ready for KhemistryKerbal
+            // to read _inputs, _outputs, conditions, etc. without needing a live vessel.
+            LoadConfigFromPartInfo();
+
+            if (_fatalConfigError)
+            {
+                statusDisplay = "ERROR: see log";
+                return;
+            }
+
+            _displayName = _recipeGroup != null
+                ? ConverterName + " (" + _recipeGroup + ")"
+                : ConverterName;
+        }
+
+        protected override void LoadConfigFromPartInfo()
+        {
+            KShared.Instance?.Log("Called!", "KhemistryEVAAdvancedISRU/LoadConfigFromPartInfo");
+            ConfigNode moduleNode = FindModuleConfigNode("KhemistryEVAAdvancedISRU");
+            if (moduleNode == null) { _fatalConfigError = true; return; }
+            LoadSharedConfig(moduleNode, "KhemistryEVAAdvancedISRU");
+        }
+
+        // No event visibility to manage — KhemistryKerbal owns the UI for this module.
+        protected override void UpdateEventVisibility() { }
+
+        /// <summary>
+        /// Called by KhemistryKerbal to load config from the prefab and expose it.
+        /// Returns false if config failed to load.
+        /// </summary>
+        public bool IsConfigLoaded => !_fatalConfigError;
+
+        /// <summary>
+        /// Exposes the display name for KhemistryKerbal to use in selector labels.
+        /// </summary>
+        public string DisplayName => string.IsNullOrEmpty(_displayName) ? ConverterName : _displayName;
+
+        /// <summary>
+        /// Whether this converter supports manual operation (single-cycle button).
+        /// </summary>
+        public bool IsManual => _manualOperation;
+
+        /// <summary>
+        /// Whether manual mode requires a Start before Execute Cycle.
+        /// </summary>
+        public bool ManualRequiresStartup => _manualRequiresStartup;
+    }
+
+    // ── KhemistryKerbal (updated) ─────────────────────────────────────────────────
+    // Additions: detects stored parts with KhemistryEVAAdvancedISRU on their prefab,
+    // shows EVA events per converter, and drives their cycles.
+    // ──────────────────────────────────────────────────────────────────────────────
+
+    public class KhemistryKerbal : PartModule
+    {
+        // ── Suit cell persistent state ─────────────────────────────────────────────
+
+        [KSPField(isPersistant = true)]
+        public string suitCellResourceName = "";
+
+        [KSPField(isPersistant = true)]
+        public float suitCellResourceAmount = 0f;
+
+        // ── Suit cell config (loaded from MODULE node, non-persistent) ─────────────
+
+        private float _suitCellMaxAmount = 0f;          // 0 = no suit cell configured
+        private float _suitCellTransferDistance = 10f;
+        private readonly HashSet<string> _suitCellAllowedResources = new HashSet<string>();
+
+        // ── Inventory part-name whitelists ─────────────────────────────────────────
+
+        private HashSet<string> FluidCellPartNames = new HashSet<string>();
+        private HashSet<string> _evaISRUPartNames = new HashSet<string>();
+
+        private ModuleInventoryPart _inventory;
+
+        [KSPField(isPersistant = false, guiActive = true, guiActiveEditor = false, guiName = "Held Cells")]
+        public string CellContentsDisplay = "No cells available";
+
+        // ── Fluid-cell abstraction ─────────────────────────────────────────────────
+        // Represents either the built-in suit cell or an inventory StoredPart cell.
+
+        private struct FluidCellRef
+        {
+            public bool isSuit;
+            public StoredPart stored;   // valid when !isSuit
+        }
+
+        // ── ISRU handle abstraction ────────────────────────────────────────────────
+        // Represents either a live KhemistryEVAAdvancedISRU on the kerbal part
+        // or an inventory-backed one accessed through a StoredPart snapshot.
+
+        private struct ISRUHandle
+        {
+            public bool isLive;
+            public KhemistryEVAAdvancedISRU liveModule; // valid when isLive
+            public StoredPart stored;                    // valid when !isLive
+            public KhemistryEVAAdvancedISRU prefab;     // valid when !isLive
+
+            // Convenience: whichever module holds the config and live state
+            public KhemistryEVAAdvancedISRU Config => isLive ? liveModule : prefab;
+            public string ConverterName => Config.ConverterName;
+            public string DisplayName => Config.DisplayName;
+        }
+
+        // ── Config loading ─────────────────────────────────────────────────────────
+
+        private void LoadConfigFromPartInfo()
+        {
+            KShared.Instance?.Log("Called!", "KhemistryKerbal/LoadConfigFromPartInfo");
+            FluidCellPartNames.Clear();
+            _evaISRUPartNames.Clear();
+            _suitCellMaxAmount = 0f;
+            _suitCellTransferDistance = 10f;
+            _suitCellAllowedResources.Clear();
+
+            ConfigNode moduleNode = null;
+
+            // Try partInfo first
+            if (part.partInfo?.partConfig != null)
+            {
+                foreach (ConfigNode n in part.partInfo.partConfig.GetNodes("MODULE"))
+                {
+                    if (n.GetValue("name") == "KhemistryKerbal") { moduleNode = n; break; }
+                }
+            }
+
+            // Fallback: search GameDatabase (required for kerbalEVA parts)
+            if (moduleNode == null)
+            {
+                string targetPartName = part.partInfo?.name ?? part.name;
+                foreach (ConfigNode partNode in GameDatabase.Instance.GetConfigNodes("PART"))
+                {
+                    string nodeName = partNode.GetValue("name") ?? "";
+                    int slash = nodeName.LastIndexOf('/');
+                    if (slash >= 0) nodeName = nodeName.Substring(slash + 1);
+                    if (!nodeName.Equals(targetPartName, StringComparison.OrdinalIgnoreCase)) continue;
+
+                    foreach (ConfigNode n in partNode.GetNodes("MODULE"))
+                    {
+                        if (n.GetValue("name") == "KhemistryKerbal") { moduleNode = n; break; }
+                    }
+                    if (moduleNode != null) break;
+                }
+            }
+
+            if (moduleNode == null)
+            {
+                KShared.Instance?.LogError(
+                    "Could not find KhemistryKerbal MODULE node for part \"" + part.name + "\".",
+                    "KhemistryKerbal/LoadConfigFromPartInfo");
+                return;
+            }
+
+            // FLUID_CELL_PARTS whitelist
+            if (moduleNode.HasNode("FLUID_CELL_PARTS"))
+                foreach (string name in moduleNode.GetNode("FLUID_CELL_PARTS").GetValues("name"))
+                    FluidCellPartNames.Add(name.Trim());
+
+            // EVA_ISRU_PARTS whitelist
+            if (moduleNode.HasNode("EVA_ISRU_PARTS"))
+                foreach (string name in moduleNode.GetNode("EVA_ISRU_PARTS").GetValues("name"))
+                    _evaISRUPartNames.Add(name.Trim());
+
+            // SUIT_CELL (optional)
+            if (moduleNode.HasNode("SUIT_CELL"))
+            {
+                ConfigNode suitNode = moduleNode.GetNode("SUIT_CELL");
+                float tmp;
+                if (float.TryParse(suitNode.GetValue("maxAmount"), out tmp))
+                    _suitCellMaxAmount = tmp;
+                if (float.TryParse(suitNode.GetValue("transferDistance"), out tmp))
+                    _suitCellTransferDistance = tmp;
+                if (suitNode.HasNode("ALLOWED_RESOURCES"))
+                    foreach (string n in suitNode.GetNode("ALLOWED_RESOURCES").GetValues("name"))
+                        _suitCellAllowedResources.Add(n.Trim());
+            }
+
+            KShared.Instance?.Log(
+                string.Format("Loaded {0} fluid cell part names, {1} EVA ISRU part names, suitCell={2}.",
+                    FluidCellPartNames.Count, _evaISRUPartNames.Count, _suitCellMaxAmount > 0f),
+                "KhemistryKerbal/LoadConfigFromPartInfo");
+        }
+
+        // ── Lifecycle ──────────────────────────────────────────────────────────────
+
+        public override void OnStart(StartState state)
+        {
+            base.OnStart(state);
+
+            var allHandlers = part.FindModulesImplementing<KhemistryKerbal>();
+            if (allHandlers.Count > 1 && allHandlers[0] != this)
+            {
+                KShared.Instance?.Log("Duplicate handler found, removing self.", "KhemistryKerbal/OnStart");
+                return;
+            }
+
+            LoadConfigFromPartInfo();
+
+            _inventory = part.FindModuleImplementing<ModuleInventoryPart>();
+            if (_inventory == null)
+                KShared.Instance?.LogError("No ModuleInventoryPart on Kerbal.", "KhemistryKerbal/OnStart");
+            else
+                KShared.Instance?.Log("Inventory found.", "KhemistryKerbal/OnStart");
+
+            KShared.Instance?.Log("OnStart complete!", "KhemistryKerbal/OnStart");
+        }
+
+        public override void OnUpdate()
+        {
+            UpdateFluidCellDisplay();
+        }
+
+        // ── Cell helpers ───────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Returns all fluid cell references: suit cell first (if configured),
+        /// then inventory cells in order.
+        /// </summary>
+        private List<FluidCellRef> GetAllCellRefs()
+        {
+            var result = new List<FluidCellRef>();
+            if (_suitCellMaxAmount > 0f)
+                result.Add(new FluidCellRef { isSuit = true });
+            foreach (StoredPart stored in GetHeldCellSnapshots())
+                result.Add(new FluidCellRef { isSuit = false, stored = stored });
+            return result;
+        }
+
+        // "Cell 0 (suit)" for the suit cell; "Cell N" for inventory cells (index = position in GetAllCellRefs list)
+        private string GetCellLabel(FluidCellRef cell, int index)
+            => cell.isSuit ? "Cell 0 (suit)" : string.Format("Cell {0}", index);
+
+        private string ReadCellResourceName(FluidCellRef cell)
+            => cell.isSuit ? suitCellResourceName : ReadResourceName(cell.stored);
+
+        private float ReadCellResourceAmount(FluidCellRef cell)
+            => cell.isSuit ? suitCellResourceAmount : ReadResourceAmount(cell.stored);
+
+        private float ReadCellMaxAmount(FluidCellRef cell)
+            => cell.isSuit ? _suitCellMaxAmount : ReadMaxAmount(cell.stored.partName);
+
+        private float ReadCellTransferDistance(FluidCellRef cell)
+            => cell.isSuit ? _suitCellTransferDistance : ReadTransferDistance(cell.stored.partName);
+
+        private HashSet<string> ReadCellAllowedResources(FluidCellRef cell)
+            => cell.isSuit ? _suitCellAllowedResources : ReadAllowedResources(cell.stored.partName);
+
+        private void WriteCellResourceName(FluidCellRef cell, string name)
+        {
+            if (cell.isSuit) suitCellResourceName = name;
+            else WriteResourceName(cell.stored, name);
+        }
+
+        private void WriteCellResourceAmount(FluidCellRef cell, float amount)
+        {
+            if (cell.isSuit) suitCellResourceAmount = amount;
+            else WriteResourceAmount(cell.stored, amount);
+        }
+
+        // ── Fluid cell display ─────────────────────────────────────────────────────
+
+        private void UpdateFluidCellDisplay()
+        {
+            var cells = GetAllCellRefs();
+            if (cells.Count == 0)
+            {
+                CellContentsDisplay = "No cells available";
+                return;
+            }
+            var parts = new List<string>();
+            for (int i = 0; i < cells.Count; i++)
+            {
+                string label = GetCellLabel(cells[i], i);
+                string resName = ReadCellResourceName(cells[i]);
+                float resAmount = ReadCellResourceAmount(cells[i]);
+                float maxAmount = ReadCellMaxAmount(cells[i]);
+                parts.Add(string.IsNullOrEmpty(resName)
+                    ? string.Format("{0}: Empty", label)
+                    : string.Format("{0}: {1} {2:F1}/{3:F1} kg", label, resName, resAmount, maxAmount));
+            }
+            CellContentsDisplay = string.Join("  |  ", parts.ToArray());
+        }
+
+        // ── ISRU handle helpers ────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Returns all ISRU handles: live kerbal-part modules first, then
+        /// inventory-backed ones.
+        /// </summary>
+        private List<ISRUHandle> GetAllISRUHandles()
+        {
+            var result = new List<ISRUHandle>();
+
+            // Live modules directly on the kerbal part
+            foreach (KhemistryEVAAdvancedISRU m in part.FindModulesImplementing<KhemistryEVAAdvancedISRU>())
+            {
+                if (!m.IsConfigLoaded) continue;
+                result.Add(new ISRUHandle { isLive = true, liveModule = m });
+            }
+
+            // Inventory-backed modules
+            foreach (StoredPart stored in GetEVAISRUSnapshots())
+                foreach (KhemistryEVAAdvancedISRU prefab in GetPrefabISRUModules(stored))
+                    if (prefab.IsConfigLoaded)
+                        result.Add(new ISRUHandle { isLive = false, stored = stored, prefab = prefab });
+
+            return result;
+        }
+
+        /// <summary>Reads isRunning / needsMaintenance from either live state or snapshot.</summary>
+        private bool ReadISRUBool(ISRUHandle h, string key)
+        {
+            if (h.isLive)
+            {
+                if (key == "isRunning") return h.liveModule.isRunning;
+                if (key == "needsMaintenance") return h.liveModule.needsMaintenance;
+                return false;
+            }
+            return ReadISRUBool(h.stored, h.Config.ConverterName, key);
+        }
+
+        /// <summary>Writes isRunning / needsMaintenance to either live state or snapshot.</summary>
+        private void WriteISRUBool(ISRUHandle h, string key, bool value)
+        {
+            if (h.isLive)
+            {
+                if (key == "isRunning") h.liveModule.isRunning = value;
+                else if (key == "needsMaintenance") h.liveModule.needsMaintenance = value;
+                return;
+            }
+            WriteISRUBool(h.stored, h.Config.ConverterName, key, value);
+        }
+
+        // ── EVA ISRU: snapshot discovery ──────────────────────────────────────────
+
+        private List<StoredPart> GetEVAISRUSnapshots()
+        {
+            var result = new List<StoredPart>();
+            if (_inventory == null) return result;
+
+            for (int i = 0; i < _inventory.storedParts.Count; i++)
+            {
+                StoredPart stored = _inventory.storedParts.At(i);
+                if (_evaISRUPartNames.Count > 0 && !_evaISRUPartNames.Contains(stored.partName))
+                    continue;
+                AvailablePart ap = PartLoader.getPartInfoByName(stored.partName);
+                if (ap == null) continue;
+                if (ap.partPrefab.FindModuleImplementing<KhemistryEVAAdvancedISRU>() == null) continue;
+                result.Add(stored);
+            }
+            return result;
+        }
+
+        private List<KhemistryEVAAdvancedISRU> GetPrefabISRUModules(StoredPart stored)
+        {
+            AvailablePart ap = PartLoader.getPartInfoByName(stored.partName);
+            return ap?.partPrefab.FindModulesImplementing<KhemistryEVAAdvancedISRU>()
+                ?? new List<KhemistryEVAAdvancedISRU>();
+        }
+
+        private ProtoPartModuleSnapshot GetISRUSnapshot(StoredPart stored, string converterName)
+        {
+            if (stored.snapshot == null) return null;
+            foreach (ProtoPartModuleSnapshot moduleSnap in stored.snapshot.modules)
+            {
+                if (moduleSnap.moduleName != "KhemistryEVAAdvancedISRU") continue;
+                if (moduleSnap.moduleValues.GetValue("ConverterName") == converterName)
+                    return moduleSnap;
+            }
+            return null;
+        }
+
+        private bool ReadISRUBool(StoredPart stored, string converterName, string key)
+        {
+            string val = GetISRUSnapshot(stored, converterName)?.moduleValues.GetValue(key);
+            bool result;
+            return val != null && bool.TryParse(val, out result) && result;
+        }
+
+        private void WriteISRUBool(StoredPart stored, string converterName, string key, bool value)
+            => GetISRUSnapshot(stored, converterName)?.moduleValues.SetValue(key, value.ToString());
+
+        // ── EVA ISRU: events ──────────────────────────────────────────────────────
+
+        [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Use Held Converter",
+                  groupName = "evaisru", groupDisplayName = "EVA Converters", groupStartCollapsed = false,
+                  externalToEVAOnly = true, guiActiveUnfocused = false, unfocusedRange = 10f)]
+        public void EVAUseConverter()
+        {
+            var shared = KShared.Instance;
+            if (shared == null) return;
+
+            var options = GetAllISRUHandles();
+
+            if (options.Count == 0)
+            {
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "No EVA converters available.", 5f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+
+            var labels = new List<string>();
+            foreach (ISRUHandle h in options)
+            {
+                bool running = ReadISRUBool(h, "isRunning");
+                bool maint = ReadISRUBool(h, "needsMaintenance");
+                string suffix = maint ? " [MAINT]" : running ? " [Running]" : " [Stopped]";
+                labels.Add(h.DisplayName + suffix);
+            }
+
+            if (options.Count == 1)
+                ShowConverterActionMenu(options[0]);
+            else
+                shared.ShowSelector("Select converter", labels, label =>
+                {
+                    int idx = labels.IndexOf(label);
+                    if (idx >= 0) ShowConverterActionMenu(options[idx]);
+                });
+        }
+
+        private void ShowConverterActionMenu(ISRUHandle handle)
+        {
+            var shared = KShared.Instance;
+            bool running = ReadISRUBool(handle, "isRunning");
+            bool maint = ReadISRUBool(handle, "needsMaintenance");
+
+            var actions = new List<string>();
+
+            if (maint)
+            {
+                actions.Add("Perform Maintenance");
+            }
+            else
+            {
+                bool startStopEnabled = !handle.Config.IsManual || handle.Config.ManualRequiresStartup;
+                if (startStopEnabled)
+                {
+                    if (!running) actions.Add("Start");
+                    else actions.Add("Stop");
+                }
+                if (handle.Config.IsManual && (!handle.Config.ManualRequiresStartup || running))
+                    actions.Add("Execute Cycle");
+            }
+
+            if (actions.Count == 0)
+            {
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "No actions available for \"" + handle.DisplayName + "\".",
+                    5f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+
+            if (actions.Count == 1)
+            {
+                ExecuteConverterAction(handle, actions[0]);
+                return;
+            }
+
+            shared.ShowSelector("Action: " + handle.DisplayName, actions,
+                action => ExecuteConverterAction(handle, action));
+        }
+
+        private void ExecuteConverterAction(ISRUHandle handle, string action)
+        {
+            switch (action)
+            {
+                case "Start":
+                    if (!handle.Config.CheckRecipeGroup(part)) return;
+                    WriteISRUBool(handle, "isRunning", true);
+                    KShared.Instance?.Log("EVA converter \"" + handle.DisplayName + "\" started.",
+                        "KhemistryKerbal/ExecuteConverterAction");
+                    ScreenMessages.PostScreenMessage(new ScreenMessage(
+                        "Converter \"" + handle.DisplayName + "\" started.", 4f, ScreenMessageStyle.UPPER_CENTER));
+                    break;
+
+                case "Stop":
+                    WriteISRUBool(handle, "isRunning", false);
+                    KShared.Instance?.Log("EVA converter \"" + handle.DisplayName + "\" stopped.",
+                        "KhemistryKerbal/ExecuteConverterAction");
+                    ScreenMessages.PostScreenMessage(new ScreenMessage(
+                        "Converter \"" + handle.DisplayName + "\" stopped.", 4f, ScreenMessageStyle.UPPER_CENTER));
+                    break;
+
+                case "Execute Cycle":
+                    if (!handle.Config.ManualRequiresStartup && !handle.Config.CheckRecipeGroup(part)) return;
+                    handle.Config.RunOneCycle(part, TimeWarp.fixedDeltaTime);
+                    KShared.Instance?.Log("EVA converter \"" + handle.DisplayName + "\" cycle executed.",
+                        "KhemistryKerbal/ExecuteConverterAction");
+                    break;
+
+                case "Perform Maintenance":
+                    ProtoCrewMember kerbal = FlightGlobals.ActiveVessel?.GetVesselCrew()?.FirstOrDefault();
+                    if (kerbal == null || kerbal.trait != "Engineer")
+                    {
+                        ScreenMessages.PostScreenMessage(new ScreenMessage(
+                            "Maintenance requires an Engineer.", 5f, ScreenMessageStyle.UPPER_CENTER));
+                        return;
+                    }
+                    WriteISRUBool(handle, "needsMaintenance", false);
+                    KShared.Instance?.Log("EVA converter \"" + handle.DisplayName + "\" maintained.",
+                        "KhemistryKerbal/ExecuteConverterAction");
+                    ScreenMessages.PostScreenMessage(new ScreenMessage(
+                        "Converter \"" + handle.DisplayName + "\": Maintenance complete.",
+                        5f, ScreenMessageStyle.UPPER_CENTER));
+                    break;
+            }
+        }
+
+        // ── FixedUpdate ────────────────────────────────────────────────────────────
+
+        public void FixedUpdate()
+        {
+            if (!HighLogic.LoadedSceneIsFlight) return;
+            if (vessel == null || part == null) return;
+
+            double dt = TimeWarp.fixedDeltaTime;
+
+            // ── Live kerbal-part ISRU modules ──────────────────────────────────────
+            // State is live on the module; no snapshot sync needed.
+            foreach (KhemistryEVAAdvancedISRU liveISRU in part.FindModulesImplementing<KhemistryEVAAdvancedISRU>())
+            {
+                if (!liveISRU.IsConfigLoaded || liveISRU.IsManual) continue;
+                if (!liveISRU.isRunning || liveISRU.needsMaintenance) continue;
+                liveISRU.TickCooldown(dt);
+                liveISRU.RunOneCycle(part, dt);
+                // isRunning / needsMaintenance are already written directly by RunOneCycle/TriggerPowerfail
+            }
+
+            // ── Inventory ISRU modules ─────────────────────────────────────────────
+            // State must be synced in/out via ProtoPartModuleSnapshot.
+            foreach (StoredPart stored in GetEVAISRUSnapshots())
+            {
+                foreach (KhemistryEVAAdvancedISRU prefab in GetPrefabISRUModules(stored))
+                {
+                    if (!prefab.IsConfigLoaded || prefab.IsManual) continue;
+
+                    bool running = ReadISRUBool(stored, prefab.ConverterName, "isRunning");
+                    bool maint = ReadISRUBool(stored, prefab.ConverterName, "needsMaintenance");
+                    if (!running || maint) continue;
+
+                    prefab.isRunning = running;
+                    prefab.needsMaintenance = maint;
+                    prefab.TickCooldown(dt);
+                    prefab.RunOneCycle(part, dt);
+
+                    WriteISRUBool(stored, prefab.ConverterName, "isRunning", prefab.isRunning);
+                    WriteISRUBool(stored, prefab.ConverterName, "needsMaintenance", prefab.needsMaintenance);
+                }
+            }
+
+            // ── Processor modules ──────────────────────────────────────────────────
+            foreach (StoredPart stored in GetProcessorSnapshots())
+            {
+                KhemistryEVACombinedProcessor prefab = GetPrefabProcessor(stored);
+                if (prefab == null || !prefab.IsConfigLoaded) continue;
+
+                bool running = ReadProcessorBool(stored, "isRunning");
+                string converterName = ReadProcessorField(stored, "activeConverterName");
+                if (!running || string.IsNullOrEmpty(converterName)) continue;
+
+                var resources = DeserializeProcessorResources(stored);
+                bool cycled = prefab.RunConversionCycle(resources, converterName, dt);
+                WriteProcessorResources(stored, resources);
+
+                if (!cycled)
+                {
+                    WriteProcessorField(stored, "isRunning", "False");
+                    KShared.Instance?.Log(
+                        "Processor converter \"" + converterName + "\" stopped: insufficient inputs.",
+                        "KhemistryKerbal/FixedUpdate");
+                    ScreenMessages.PostScreenMessage(new ScreenMessage(
+                        "Converter \"" + converterName + "\" stopped: insufficient inputs.",
+                        5f, ScreenMessageStyle.UPPER_CENTER));
+                }
+            }
+        }
+
+        // ── Fluid cell snapshot helpers ────────────────────────────────────────────
+
+        private List<StoredPart> GetHeldCellSnapshots()
+        {
+            var result = new List<StoredPart>();
+            if (_inventory == null) return result;
+            for (int i = 0; i < _inventory.storedParts.Count; i++)
+            {
+                StoredPart stored = _inventory.storedParts.At(i);
+                if (FluidCellPartNames.Contains(stored.partName))
+                    result.Add(stored);
+            }
+            return result;
+        }
+
+        private ProtoPartModuleSnapshot GetCellModuleSnapshot(StoredPart stored)
+        {
+            if (stored.snapshot == null) return null;
+            foreach (ProtoPartModuleSnapshot moduleSnap in stored.snapshot.modules)
+                if (moduleSnap.moduleName == "KhemistryFluidCell") return moduleSnap;
+            return null;
+        }
+
+        private string ReadResourceName(StoredPart stored)
+            => GetCellModuleSnapshot(stored)?.moduleValues.GetValue("ResourceName") ?? "";
+
+        private float ReadResourceAmount(StoredPart stored)
+        {
+            string val = GetCellModuleSnapshot(stored)?.moduleValues.GetValue("ResourceAmount");
+            return val != null ? float.Parse(val) : 0f;
+        }
+
+        private float ReadMaxAmount(string partName)
+            => PartLoader.getPartInfoByName(partName)?.partPrefab
+                .FindModuleImplementing<KhemistryFluidCell>()?.ResourceMaxAmount ?? 100f;
+
+        private float ReadTransferDistance(string partName)
+            => PartLoader.getPartInfoByName(partName)?.partPrefab
+                .FindModuleImplementing<KhemistryFluidCell>()?.TransferDistance ?? 10f;
+
+        private HashSet<string> ReadAllowedResources(string partName)
+            => PartLoader.getPartInfoByName(partName)?.partPrefab
+                .FindModuleImplementing<KhemistryFluidCell>()?.AllowedResources
+                ?? new HashSet<string>();
+
+        private void WriteResourceName(StoredPart stored, string name)
+            => GetCellModuleSnapshot(stored)?.moduleValues.SetValue("ResourceName", name);
+
+        private void WriteResourceAmount(StoredPart stored, float amount)
+            => GetCellModuleSnapshot(stored)?.moduleValues.SetValue("ResourceAmount", amount.ToString("F4"));
+
+        private List<Part> GetPartsInRange(float range)
+        {
+            KShared.Instance?.Log("Called with range " + range.ToString(), "KhemistryKerbal/GetPartsInRange");
+            var result = new List<Part>();
+            foreach (Vessel v in FlightGlobals.VesselsLoaded)
+                foreach (Part p in v.parts)
+                {
+                    if (p == this.part) continue;
+                    if (Vector3.Distance(this.part.transform.position, p.transform.position) <= range)
+                        result.Add(p);
+                }
+            KShared.Instance?.Log("Acquired " + result.Count.ToString() + " parts.", "KhemistryKerbal/GetPartsInRange");
+            return result;
+        }
+
+        // ── Fluid cell events ──────────────────────────────────────────────────────
+
+        [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Transfer from cell to nearby part",
+         groupName = "fluidcelleva", groupDisplayName = "Fluid Cells", groupStartCollapsed = false)]
+        public void EVASendResources()
+        {
+            var shared = KShared.Instance;
+            if (shared == null) { Debug.LogError("Khemistry: KShared null in EVASendResources!"); return; }
+
+            var cells = GetAllCellRefs();
+            if (cells.Count == 0)
+            {
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "No fluid cells available.", 5.0f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+
+            if (cells.Count == 1)
+            {
+                ShowPartSelectorForSend(cells[0]);
+            }
+            else
+            {
+                var labels = new List<string>();
+                for (int i = 0; i < cells.Count; i++)
+                {
+                    string cellLabel = GetCellLabel(cells[i], i);
+                    string resName = ReadCellResourceName(cells[i]);
+                    float resAmount = ReadCellResourceAmount(cells[i]);
+                    float maxAmount = ReadCellMaxAmount(cells[i]);
+                    labels.Add(string.IsNullOrEmpty(resName)
+                        ? string.Format("{0}: Empty", cellLabel)
+                        : string.Format("{0}: {1} {2:F1}/{3:F1} kg", cellLabel, resName, resAmount, maxAmount));
+                }
+                shared.ShowSelector("Which cell to send from?", labels, label =>
+                {
+                    int index = labels.IndexOf(label);
+                    if (index >= 0) ShowPartSelectorForSend(cells[index]);
+                });
+            }
+        }
+
+        private void ShowPartSelectorForSend(FluidCellRef cell)
+        {
+            var shared = KShared.Instance;
+            string resourceName = ReadCellResourceName(cell);
+            float resourceAmount = ReadCellResourceAmount(cell);
+            float range = ReadCellTransferDistance(cell);
+
+            if (string.IsNullOrEmpty(resourceName) || resourceAmount <= 0)
+            {
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "That cell is empty.", 5.0f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+
+            var targetParts = new Dictionary<string, Part>();
+            foreach (Part p in GetPartsInRange(range))
+                foreach (PartResource pr in p.Resources)
+                {
+                    if (pr.resourceName != resourceName) continue;
+                    if (pr.amount >= pr.maxAmount) continue;
+                    string label = string.Format("{0} / {1}  (space: {2:F1} kg)",
+                        p.vessel.vesselName, p.partInfo.title, pr.maxAmount - pr.amount);
+                    if (!targetParts.ContainsKey(label))
+                        targetParts.Add(label, p);
+                    break;
+                }
+
+            if (targetParts.Count == 0)
+            {
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "No nearby parts can accept " + resourceName + ".", 5.0f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+
+            shared.ShowSelector("Send " + resourceName + " to...", targetParts.Keys.ToList(), label =>
+            {
+                Part target = targetParts[label];
+                var def = PartResourceLibrary.Instance.GetDefinition(resourceName);
+                if (def == null) return;
+                PartResource targetResource = target.Resources.Get(def.id);
+                if (targetResource == null) return;
+
+                double space = targetResource.maxAmount - targetResource.amount;
+                double pushed = Math.Min(resourceAmount, space);
+                targetResource.amount += pushed;
+
+                float newAmount = resourceAmount - (float)pushed;
+                if (newAmount <= 0.001f) { WriteCellResourceName(cell, ""); WriteCellResourceAmount(cell, 0f); }
+                else WriteCellResourceAmount(cell, newAmount);
+
+                shared.Log(pushed + " of " + resourceName + " pushed into " + target.partInfo.title,
+                    "KhemistryKerbal/ShowPartSelectorForSend");
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    string.Format("Transferred {0:F2} kg of {1}.", pushed, resourceName),
+                    5.0f, ScreenMessageStyle.UPPER_CENTER));
+            });
+        }
+
+        [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Transfer from nearby part to cell",
+         groupName = "fluidcelleva", groupDisplayName = "Fluid Cells", groupStartCollapsed = false)]
+        public void EVATakeResources()
+        {
+            var shared = KShared.Instance;
+            if (shared == null) { Debug.LogError("Khemistry: KShared null in EVATakeResources!"); return; }
+
+            var cells = GetAllCellRefs();
+            if (cells.Count == 0)
+            {
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "No fluid cells available.", 5.0f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+
+            if (cells.Count == 1)
+            {
+                ShowPartSelectorForTake(cells[0]);
+            }
+            else
+            {
+                var labels = new List<string>();
+                for (int i = 0; i < cells.Count; i++)
+                {
+                    string cellLabel = GetCellLabel(cells[i], i);
+                    string resName = ReadCellResourceName(cells[i]);
+                    float resAmount = ReadCellResourceAmount(cells[i]);
+                    float maxAmount = ReadCellMaxAmount(cells[i]);
+                    labels.Add(string.IsNullOrEmpty(resName)
+                        ? string.Format("{0}: Empty", cellLabel)
+                        : string.Format("{0}: {1} {2:F1}/{3:F1} kg", cellLabel, resName, resAmount, maxAmount));
+                }
+                shared.ShowSelector("Which cell to fill?", labels, label =>
+                {
+                    int index = labels.IndexOf(label);
+                    if (index >= 0) ShowPartSelectorForTake(cells[index]);
+                });
+            }
+        }
+
+        private void ShowPartSelectorForTake(FluidCellRef cell)
+        {
+            KShared.Instance?.Log(
+                "Called for " + (cell.isSuit ? "suit cell" : cell.stored.partName),
+                "KhemistryKerbal/ShowPartSelectorForTake");
+            var shared = KShared.Instance;
+            string currentResource = ReadCellResourceName(cell);
+            float currentAmount = ReadCellResourceAmount(cell);
+            float maxAmount = ReadCellMaxAmount(cell);
+            float range = ReadCellTransferDistance(cell);
+            HashSet<string> allowed = ReadCellAllowedResources(cell);
+
+            if (currentAmount >= maxAmount)
+            {
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "That cell is full.", 5.0f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+
+            float spaceRemaining = maxAmount - currentAmount;
+            var optionParts = new Dictionary<string, Part>();
+            var optionResources = new Dictionary<string, string>();
+
+            foreach (Part p in GetPartsInRange(range))
+                foreach (PartResource pr in p.Resources)
+                {
+                    if (pr.amount <= 0) continue;
+                    if (!string.IsNullOrEmpty(currentResource) && pr.resourceName != currentResource) continue;
+                    if (string.IsNullOrEmpty(currentResource) && allowed.Count > 0
+                        && !allowed.Contains(pr.resourceName)) continue;
+
+                    string label = string.Format("{0} / {1}  ({2}: {3:F1} kg)",
+                        p.vessel.vesselName, p.partInfo.title, pr.resourceName, pr.amount);
+                    if (!optionParts.ContainsKey(label))
+                    {
+                        optionParts.Add(label, p);
+                        optionResources.Add(label, pr.resourceName);
+                    }
+                }
+
+            if (optionParts.Count == 0)
+            {
+                string msg = string.IsNullOrEmpty(currentResource)
+                    ? "No allowed resources found within range."
+                    : "No nearby parts have " + currentResource + ".";
+                ScreenMessages.PostScreenMessage(new ScreenMessage(msg, 5.0f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+
+            shared.ShowSelector("Take resources from...", optionParts.Keys.ToList(), label =>
+            {
+                Part source = optionParts[label];
+                string resourceName = optionResources[label];
+                var def = PartResourceLibrary.Instance.GetDefinition(resourceName);
+                if (def == null) return;
+                PartResource sourceResource = source.Resources.Get(def.id);
+                if (sourceResource == null) return;
+
+                double taken = Math.Min(sourceResource.amount, spaceRemaining);
+                sourceResource.amount -= taken;
+                WriteCellResourceName(cell, resourceName);
+                WriteCellResourceAmount(cell, currentAmount + (float)taken);
+
+                shared.Log(taken + " of " + resourceName + " taken from " + source.partInfo.title,
+                    "KhemistryKerbal/ShowPartSelectorForTake");
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    string.Format("Received {0:F2} kg of {1}.", taken, resourceName),
+                    5.0f, ScreenMessageStyle.UPPER_CENTER));
+            });
+        }
+
+        // ── Processor helpers (unchanged) ──────────────────────────────────────────
+
+        private List<StoredPart> GetProcessorSnapshots()
+        {
+            var result = new List<StoredPart>();
+            if (_inventory == null) return result;
+            for (int i = 0; i < _inventory.storedParts.Count; i++)
+            {
+                StoredPart stored = _inventory.storedParts.At(i);
+                AvailablePart ap = PartLoader.getPartInfoByName(stored.partName);
+                if (ap?.partPrefab.FindModuleImplementing<KhemistryEVACombinedProcessor>() != null)
+                    result.Add(stored);
+            }
+            return result;
+        }
+
+        private KhemistryEVACombinedProcessor GetPrefabProcessor(StoredPart stored)
+            => PartLoader.getPartInfoByName(stored.partName)?.partPrefab
+                .FindModuleImplementing<KhemistryEVACombinedProcessor>();
+
+        private ProtoPartModuleSnapshot GetProcessorSnapshot(StoredPart stored)
+        {
+            if (stored.snapshot == null) return null;
+            foreach (ProtoPartModuleSnapshot snap in stored.snapshot.modules)
+                if (snap.moduleName == "KhemistryEVACombinedProcessor") return snap;
+            return null;
+        }
+
+        private string ReadProcessorField(StoredPart stored, string key)
+            => GetProcessorSnapshot(stored)?.moduleValues.GetValue(key) ?? "";
+
+        private void WriteProcessorField(StoredPart stored, string key, string value)
+            => GetProcessorSnapshot(stored)?.moduleValues.SetValue(key, value);
+
+        private bool ReadProcessorBool(StoredPart stored, string key)
+        {
+            bool result;
+            return bool.TryParse(ReadProcessorField(stored, key), out result) && result;
+        }
+
+        private Dictionary<string, double> DeserializeProcessorResources(StoredPart stored)
+            => KhemistryEVACombinedProcessor.Deserialize(ReadProcessorField(stored, "storedResourcesData"));
+
+        private void WriteProcessorResources(StoredPart stored, Dictionary<string, double> resources)
+            => WriteProcessorField(stored, "storedResourcesData",
+                KhemistryEVACombinedProcessor.Serialize(resources));
+
+        // ── Processor EVA event and action methods (unchanged) ────────────────────
+
+        [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Use Held Processor",
+                  groupName = "processoreva", groupDisplayName = "Processors", groupStartCollapsed = false,
+                  externalToEVAOnly = true, guiActiveUnfocused = false, unfocusedRange = 10f)]
+        public void EVAUseProcessor()
+        {
+            var shared = KShared.Instance;
+            if (shared == null) return;
+
+            var processors = GetProcessorSnapshots();
+            if (processors.Count == 0)
+            {
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "No processors in inventory.", 5f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+
+            if (processors.Count == 1)
+            {
+                ShowProcessorActionMenu(processors[0]);
+                return;
+            }
+
+            var labels = new List<string>();
+            foreach (StoredPart stored in processors)
+            {
+                KhemistryEVACombinedProcessor prefab = GetPrefabProcessor(stored);
+                string name = prefab != null ? stored.partName : stored.partName;
+                bool running = ReadProcessorBool(stored, "isRunning");
+                string conv = ReadProcessorField(stored, "activeConverterName");
+                string suffix = running ? " [" + conv + "]" : " [Stopped]";
+                labels.Add(name + suffix);
+            }
+
+            shared.ShowSelector("Select processor", labels, label =>
+            {
+                int idx = labels.IndexOf(label);
+                if (idx >= 0) ShowProcessorActionMenu(processors[idx]);
+            });
+        }
+
+        private void ShowProcessorActionMenu(StoredPart stored)
+        {
+            var shared = KShared.Instance;
+            KhemistryEVACombinedProcessor prefab = GetPrefabProcessor(stored);
+            if (prefab == null || !prefab.IsConfigLoaded) return;
+
+            bool running = ReadProcessorBool(stored, "isRunning");
+            var actions = new List<string>();
+
+            if (prefab.Converters.Count > 0)
+            {
+                if (!running) actions.Add("Start Converter");
+                else actions.Add("Stop Converter");
+            }
+
+            actions.Add("Transfer In (from nearby)");
+
+            var resources = DeserializeProcessorResources(stored);
+            if (KhemistryEVACombinedProcessor.GetTotal(resources) > 0.0)
+                actions.Add("Transfer Out (to nearby)");
+
+            if (actions.Count == 0)
+            {
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "No actions available.", 5f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+
+            shared.ShowSelector("Processor: " + stored.partName, actions,
+                action => ExecuteProcessorAction(stored, prefab, action));
+        }
+
+        private void ExecuteProcessorAction(StoredPart stored,
+            KhemistryEVACombinedProcessor prefab, string action)
+        {
+            var shared = KShared.Instance;
+            if (shared == null) return;
+
+            switch (action)
+            {
+                case "Start Converter":
+                    {
+                        if (prefab.Converters.Count == 1)
+                        {
+                            WriteProcessorField(stored, "activeConverterName", prefab.Converters[0].name);
+                            WriteProcessorField(stored, "isRunning", "True");
+                            ScreenMessages.PostScreenMessage(new ScreenMessage(
+                                "Converter \"" + prefab.Converters[0].name + "\" started.",
+                                4f, ScreenMessageStyle.UPPER_CENTER));
+                        }
+                        else
+                        {
+                            var names = new List<string>();
+                            foreach (var conv in prefab.Converters) names.Add(conv.name);
+                            shared.ShowSelector("Select converter to start", names, name =>
+                            {
+                                WriteProcessorField(stored, "activeConverterName", name);
+                                WriteProcessorField(stored, "isRunning", "True");
+                                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                                    "Converter \"" + name + "\" started.", 4f, ScreenMessageStyle.UPPER_CENTER));
+                            });
+                        }
+                        break;
+                    }
+                case "Stop Converter":
+                    WriteProcessorField(stored, "isRunning", "False");
+                    ScreenMessages.PostScreenMessage(new ScreenMessage(
+                        "Converter stopped.", 4f, ScreenMessageStyle.UPPER_CENTER));
+                    break;
+
+                case "Transfer In (from nearby)":
+                    ShowProcessorTransferInMenu(stored, prefab);
+                    break;
+
+                case "Transfer Out (to nearby)":
+                    ShowProcessorTransferOutMenu(stored, prefab);
+                    break;
+            }
+        }
+
+        private void ShowProcessorTransferInMenu(StoredPart stored,
+            KhemistryEVACombinedProcessor prefab)
+        {
+            KShared.Instance?.Log("Called!", "KhemistryKerbal/ShowProcessorTransferInMenu");
+            var shared = KShared.Instance;
+            var resources = DeserializeProcessorResources(stored);
+            double currentTotal = KhemistryEVACombinedProcessor.GetTotal(resources);
+            double spaceRemaining = prefab.MaxTotalStorage - currentTotal;
+
+            if (spaceRemaining <= 0.0)
+            {
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "Processor is full.", 5f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+
+            var options = new Dictionary<string, (Part part, string resourceName)>();
+            foreach (Part p in GetPartsInRange(prefab.TransferDistance))
+                foreach (PartResource pr in p.Resources)
+                {
+                    if (!prefab.SupportedResources.Contains(pr.resourceName)) continue;
+                    if (pr.amount <= 0.0) continue;
+                    string label = string.Format("{0} / {1}  ({2}: {3:F1})",
+                        p.vessel.vesselName, p.partInfo.title, pr.resourceName, pr.amount);
+                    if (!options.ContainsKey(label))
+                        options.Add(label, (p, pr.resourceName));
+                }
+
+            if (options.Count == 0)
+            {
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "No nearby parts have supported resources.", 5f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+
+            shared.ShowSelector("Take from...", new List<string>(options.Keys), label =>
+            {
+                var (sourcePart, resourceName) = options[label];
+                var def = PartResourceLibrary.Instance.GetDefinition(resourceName);
+                if (def == null) return;
+                PartResource sourceResource = sourcePart.Resources.Get(def.id);
+                if (sourceResource == null) return;
+
+                double taken = Math.Min(sourceResource.amount, spaceRemaining);
+                sourceResource.amount -= taken;
+
+                var res = DeserializeProcessorResources(stored);
+                double existing;
+                res.TryGetValue(resourceName, out existing);
+                res[resourceName] = existing + taken;
+                WriteProcessorResources(stored, res);
+
+                KShared.Instance?.Log(
+                    string.Format("Processor received {0:F4} of {1} from {2}.",
+                        taken, resourceName, sourcePart.partInfo.title),
+                    "KhemistryKerbal/ProcessorTransferIn");
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    string.Format("Received {0:F2} of {1}.", taken, resourceName),
+                    5f, ScreenMessageStyle.UPPER_CENTER));
+            });
+        }
+
+        private void ShowProcessorTransferOutMenu(StoredPart stored,
+            KhemistryEVACombinedProcessor prefab)
+        {
+            var shared = KShared.Instance;
+            var resources = DeserializeProcessorResources(stored);
+
+            if (resources.Count == 0)
+            {
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "Processor is empty.", 5f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+
+            if (resources.Count == 1)
+            {
+                string only = ""; double onlyAmount = 0.0;
+                foreach (var kvp in resources) { only = kvp.Key; onlyAmount = kvp.Value; }
+                ShowProcessorTransferOutTargets(stored, prefab, only, onlyAmount);
+                return;
+            }
+
+            var resLabels = new List<string>();
+            var resKeys = new List<string>();
+            foreach (var kvp in resources)
+            {
+                resLabels.Add(string.Format("{0}: {1:F2}", kvp.Key, kvp.Value));
+                resKeys.Add(kvp.Key);
+            }
+
+            shared.ShowSelector("Which resource to send?", resLabels, label =>
+            {
+                int idx = resLabels.IndexOf(label);
+                if (idx >= 0)
+                    ShowProcessorTransferOutTargets(stored, prefab, resKeys[idx], resources[resKeys[idx]]);
+            });
+        }
+
+        private void ShowProcessorTransferOutTargets(StoredPart stored,
+            KhemistryEVACombinedProcessor prefab, string resourceName, double resourceAmount)
+        {
+            var shared = KShared.Instance;
+            var options = new Dictionary<string, Part>();
+
+            foreach (Part p in GetPartsInRange(prefab.TransferDistance))
+                foreach (PartResource pr in p.Resources)
+                {
+                    if (pr.resourceName != resourceName) continue;
+                    if (pr.amount >= pr.maxAmount) continue;
+                    string label = string.Format("{0} / {1}  (space: {2:F1})",
+                        p.vessel.vesselName, p.partInfo.title, pr.maxAmount - pr.amount);
+                    if (!options.ContainsKey(label))
+                        options.Add(label, p);
+                }
+
+            if (options.Count == 0)
+            {
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "No nearby parts can accept " + resourceName + ".",
+                    5f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+
+            shared.ShowSelector("Send " + resourceName + " to...",
+                new List<string>(options.Keys), label =>
+                {
+                    Part target = options[label];
+                    var def = PartResourceLibrary.Instance.GetDefinition(resourceName);
+                    if (def == null) return;
+                    PartResource targetResource = target.Resources.Get(def.id);
+                    if (targetResource == null) return;
+
+                    double space = targetResource.maxAmount - targetResource.amount;
+                    double pushed = Math.Min(resourceAmount, space);
+                    targetResource.amount += pushed;
+
+                    var res = DeserializeProcessorResources(stored);
+                    double remaining = resourceAmount - pushed;
+                    if (remaining < 1e-9) res.Remove(resourceName);
+                    else res[resourceName] = remaining;
+                    WriteProcessorResources(stored, res);
+
+                    KShared.Instance?.Log(
+                        string.Format("Processor sent {0:F4} of {1} to {2}.",
+                            pushed, resourceName, target.partInfo.title),
+                        "KhemistryKerbal/ProcessorTransferOut");
+                    ScreenMessages.PostScreenMessage(new ScreenMessage(
+                        string.Format("Transferred {0:F2} of {1}.", pushed, resourceName),
+                        5f, ScreenMessageStyle.UPPER_CENTER));
+                });
+        }
+    }
+
+    public class KhemistryEVACombinedProcessor : PartModule
+    {
+        // ── Persistent state ───────────────────────────────────────────────────────
+
+        // Serialized as "ResA:1.5000|ResB:2.0000". Empty string = nothing stored.
+        [KSPField(isPersistant = true)]
+        public string storedResourcesData = "";
+
+        [KSPField(isPersistant = true)]
+        public bool isRunning = false;
+
+        [KSPField(isPersistant = true)]
+        public string activeConverterName = "";
+
+        // ── Config fields ──────────────────────────────────────────────────────────
+
+        [KSPField(isPersistant = false)]
+        public float maxTotalStorage = 200f;
+
+        [KSPField(isPersistant = false)]
+        public float transferDistance = 10f;
+
+        // ── Display ────────────────────────────────────────────────────────────────
+
+        [KSPField(isPersistant = false, guiActive = true, guiActiveEditor = true,
+                  guiName = "Contents", groupName = "khemistryprocessor",
+                  groupDisplayName = "Processor", groupStartCollapsed = false)]
+        public string contentsDisplay = "Empty";
+
+        [KSPField(isPersistant = false, guiActive = true, guiActiveEditor = false,
+                  guiName = "Converter", groupName = "khemistryprocessor")]
+        public string converterDisplay = "Stopped";
+
+        [KSPField(isPersistant = false, guiActive = true, guiActiveEditor = true,
+                  guiName = "Capacity", groupName = "khemistryprocessor")]
+        public string capacityDisplay = "0 / 0";
+
+        // ── Internal data ──────────────────────────────────────────────────────────
+
+        public struct ProcessorConverter
+        {
+            public string name;
+            public List<(string resourceName, double ratio)> inputs;
+            public List<(string resourceName, double ratio)> outputs;
+        }
+
+        private readonly List<string> _supportedResources = new List<string>();
+        private readonly List<ProcessorConverter> _converters = new List<ProcessorConverter>();
+        private bool _fatalConfigError = false;
+
+        // ── Public accessors for KhemistryKerbal ───────────────────────────────────
+
+        public bool IsConfigLoaded => !_fatalConfigError;
+        public List<string> SupportedResources => _supportedResources;
+        public List<ProcessorConverter> Converters => _converters;
+        public float MaxTotalStorage => maxTotalStorage;
+        public float TransferDistance => transferDistance;
+
+        // ── Lifecycle ──────────────────────────────────────────────────────────────
+
+        public override void OnLoad(ConfigNode node)
+        {
+            base.OnLoad(node);
+
+            _supportedResources.Clear();
+            _converters.Clear();
+            _fatalConfigError = false;
+
+            // Scalar config
+            float tmp;
+            if (float.TryParse(node.GetValue("maxTotalStorage"), out tmp)) maxTotalStorage = tmp;
+            if (float.TryParse(node.GetValue("transferDistance"), out tmp)) transferDistance = tmp;
+
+            // SUPPORTED_RESOURCES — required
+            if (!node.HasNode("SUPPORTED_RESOURCES"))
+            {
+                KShared.Instance?.LogError(
+                    "Part \"" + part.name + "\" has KhemistryEVACombinedProcessor but no SUPPORTED_RESOURCES node.",
+                    "KhemistryEVACombinedProcessor/OnLoad");
+                _fatalConfigError = true;
+                return;
+            }
+            foreach (string n in node.GetNode("SUPPORTED_RESOURCES").GetValues("name"))
+                _supportedResources.Add(n.Trim());
+
+            if (_supportedResources.Count == 0)
+            {
+                KShared.Instance?.LogError(
+                    "Part \"" + part.name + "\" has an empty SUPPORTED_RESOURCES node.",
+                    "KhemistryEVACombinedProcessor/OnLoad");
+                _fatalConfigError = true;
+                return;
+            }
+
+            // CONVERTER nodes — optional
+            foreach (ConfigNode convNode in node.GetNodes("CONVERTER"))
+            {
+                string convName = convNode.GetValue("ConverterName");
+                if (string.IsNullOrEmpty(convName))
+                {
+                    KShared.Instance?.LogError("A CONVERTER node is missing ConverterName, skipping.",
+                        "KhemistryEVACombinedProcessor/OnLoad");
+                    continue;
+                }
+
+                var conv = new ProcessorConverter
+                {
+                    name = convName,
+                    inputs = new List<(string, double)>(),
+                    outputs = new List<(string, double)>()
+                };
+
+                foreach (ConfigNode inputNode in convNode.GetNodes("INPUT_RESOURCE"))
+                {
+                    string resName = inputNode.GetValue("ResourceName");
+                    if (string.IsNullOrEmpty(resName)) continue;
+                    double ratio = 0.0;
+                    double.TryParse(inputNode.GetValue("Ratio"), out ratio);
+                    conv.inputs.Add((resName, ratio));
+                }
+
+                foreach (ConfigNode outputNode in convNode.GetNodes("OUTPUT_RESOURCE"))
+                {
+                    string resName = outputNode.GetValue("ResourceName");
+                    if (string.IsNullOrEmpty(resName)) continue;
+                    double ratio = 0.0;
+                    double.TryParse(outputNode.GetValue("Ratio"), out ratio);
+                    conv.outputs.Add((resName, ratio));
+                }
+
+                _converters.Add(conv);
+            }
+
+            KShared.Instance?.Log(
+                string.Format("OnLoad: {0} supported resources, {1} converters, maxStorage={2}, transferDist={3}",
+                    _supportedResources.Count, _converters.Count, maxTotalStorage, transferDistance),
+                "KhemistryEVACombinedProcessor/OnLoad");
+        }
+
+        public override void OnStart(StartState state)
+        {
+            base.OnStart(state);
+
+            // Config is already loaded by OnLoad — just update the display
+            if (_fatalConfigError)
+            {
+                contentsDisplay = "ERROR: see log";
+                converterDisplay = "ERROR";
+                return;
+            }
+
+            UpdateDisplay(Deserialize(storedResourcesData));
+        }
+
+        // ── Serialization (static so KhemistryKerbal can use without a live instance) ──
+
+        public static Dictionary<string, double> Deserialize(string data)
+        {
+            var dict = new Dictionary<string, double>();
+            if (string.IsNullOrEmpty(data)) return dict;
+            foreach (string entry in data.Split('|'))
+            {
+                if (string.IsNullOrEmpty(entry)) continue;
+                int sep = entry.IndexOf(':');
+                if (sep < 1) continue;
+                string name = entry.Substring(0, sep);
+                double amount;
+                if (double.TryParse(entry.Substring(sep + 1), out amount) && amount > 0.0)
+                    dict[name] = amount;
+            }
+            return dict;
+        }
+
+        public static string Serialize(Dictionary<string, double> dict)
+        {
+            var parts = new List<string>();
+            foreach (var kvp in dict)
+                if (kvp.Value > 0.0)
+                    parts.Add(kvp.Key + ":" + kvp.Value.ToString("F4"));
+            return string.Join("|", parts.ToArray());
+        }
+
+        public static double GetTotal(Dictionary<string, double> dict)
+        {
+            double total = 0.0;
+            foreach (var kvp in dict) total += kvp.Value;
+            return total;
+        }
+
+        // ── Conversion cycle ───────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Attempts one conversion tick on the provided resource dictionary.
+        /// Mutates the dictionary in place. Returns true if conversion ran.
+        /// </summary>
+        public bool RunConversionCycle(Dictionary<string, double> resources,
+            string converterName, double dt)
+        {
+            ProcessorConverter? found = null;
+            foreach (var conv in _converters)
+                if (conv.name == converterName) { found = conv; break; }
+
+            if (found == null) return false;
+            var c = found.Value;
+
+            // Check all inputs are available
+            foreach (var input in c.inputs)
+            {
+                double needed = input.ratio * dt;
+                double available;
+                if (!resources.TryGetValue(input.resourceName, out available)
+                    || available < needed * 0.999)
+                    return false;
+            }
+
+            // Check total capacity won't be exceeded
+            double inputSum = 0.0;
+            foreach (var input in c.inputs) inputSum += input.ratio * dt;
+            double outputSum = 0.0;
+            foreach (var output in c.outputs) outputSum += output.ratio * dt;
+            double currentTotal = GetTotal(resources);
+            if (currentTotal - inputSum + outputSum > maxTotalStorage)
+                return false;
+
+            // Consume inputs
+            foreach (var input in c.inputs)
+            {
+                double needed = input.ratio * dt;
+                resources[input.resourceName] -= needed;
+                if (resources[input.resourceName] < 1e-9)
+                    resources.Remove(input.resourceName);
+            }
+
+            // Produce outputs
+            foreach (var output in c.outputs)
+            {
+                double existing;
+                resources.TryGetValue(output.resourceName, out existing);
+                resources[output.resourceName] = existing + output.ratio * dt;
+            }
+
+            return true;
+        }
+
+        // ── Display helper ─────────────────────────────────────────────────────────
+
+        public void UpdateDisplay(Dictionary<string, double> resources)
+        {
+            double total = GetTotal(resources);
+
+            if (resources.Count == 0)
+                contentsDisplay = "Empty";
+            else
+            {
+                var parts = new List<string>();
+                foreach (var kvp in resources)
+                    parts.Add(string.Format("{0}: {1:F2}", kvp.Key, kvp.Value));
+                contentsDisplay = string.Join(", ", parts.ToArray());
+            }
+
+            capacityDisplay = string.Format("{0:F2} / {1:F2}", total, maxTotalStorage);
+
+            converterDisplay = (isRunning && !string.IsNullOrEmpty(activeConverterName))
+                ? "Running: " + activeConverterName
+                : "Stopped";
         }
     }
 }
