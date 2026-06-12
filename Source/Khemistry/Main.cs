@@ -6,6 +6,22 @@ using UnityEngine;
 
 // NOTES:
 // Deposit generation does not save biomes as they aren't needed anywhere other than placing the deposit at the correct position
+/* Example deposit config:
+KHEMISTRY_RESOURCE_DEPOSIT
+{
+    type = surface               // Can be surface (surface and underground deposit), surfaceOnly (only surface deposit), or underground (only underground deposit). Will fail to load if this is not defined.
+    render = true                // Only checked for surface and surfaceOnly, this will render a model at where the deposit is if true. Defaults to false.
+    maxAmount = 10               // Maximum amount of deposits allowed. Defaults to 10.
+    minAmount = 5                // Minimum amount of deposits allowed. Defaults to 5.
+    body = Kerbin                // What celestial body the deposit is located on. Will fail to load if this is not defined.
+    biome = Shores               // If this is set, the deposit will only spawn in this biome.
+    resource = H2O               // What resource is in this deposit. Will fail to load if this is not defined.
+    resource2 = H2               // What resource is stored in the underground version of this deposit. This is only checked for surface deposits and the deposit will not load if it's not defined.
+    depthSurface = 10            // For surface and surfaceOnly deposits, this is how deep the top layer of the deposit is in meters. Not checked for underground deposits. Defaults to 10.
+    depthUndergroundStart = 100  // For underground deposits, this is the depth that the deposit starts at in meters. Not checked for surface and surfaceOnly deposits. Defaults to 100
+    depthUnderground = 50        // How deep the underground part of the deposit is in meters. This is not checked for surfaceOnly. Defaults to 50
+}
+*/
 
 namespace Khemistry
 {
@@ -52,26 +68,8 @@ namespace Khemistry
         public string resource { get; set; }  // Internal name of a resource
         public string planet { get; set; }  // Planet the resource is on
         public KhemistryUDeposit pairGDeposit { get; set; }  // Underground deposit right under the surface one
-        
-        public Dictionary<string,string> resource_undergroundResourcePairs = new Dictionary<string,string>();
 
-        public void populateResourcePairs()
-        {
-            resource_undergroundResourcePairs.Clear();
-            resource_undergroundResourcePairs.Add("Glacial Sulfide Ore", "Nickel Sulfide Ore");
-            KShared.Instance?.Log("Successfully populated the surfaceResource-groundResource pairs.", "KhemistryGDeposit/getUndergroundPairResource");
-        }
-
-        public string getUndergroundPairResource(string resource)
-        {
-            if(resource_undergroundResourcePairs.ContainsKey(resource))
-                return resource_undergroundResourcePairs[resource];
-            else
-                KShared.Instance?.LogError(resource + " does not have an underground counterpart, returning it as the underground resouce.", "KhemistryGDeposit/getUndergroundPairResource");
-            return resource;
-        }
-
-        public KhemistryGDeposit(KShared kinst, string planet, string requiredBiome, float depth, string resource)
+        public KhemistryGDeposit(KShared kinst, string planet, string requiredBiome, float depth, string resource, string resource2, float underDepth)
         {
             // Set values to make sure everything works
             this.planet = planet;
@@ -89,7 +87,9 @@ namespace Khemistry
 
             // Create the underground pair of the surface deposit, giving it the counterpart resource and overriding the position to the surface deposit's position
             // The biome is not passed here because the override will ignore it anyway
-            pairGDeposit = new KhemistryUDeposit(kinst, planet, null, 100.0f, 50.0f, getUndergroundPairResource(resource), position[0], position[1]);
+            // If resource2 is null, the deposit is considered "surfaceOnly" and the underground deposit won't be created
+            if(resource2 != null)
+                pairGDeposit = new KhemistryUDeposit(kinst, planet, null, depth, underDepth, resource2, position[0], position[1]);
         }
     }
 
@@ -122,16 +122,73 @@ namespace Khemistry
             // Remotely populate the CBody list with biomes once in the main menu
             kinst.celestialBodies = FlightGlobals.Bodies.Select(b => b.bodyName).ToList();
 
-            // Remotely populating everything in KShared from here since it's easier
-            // Underground deposit creation
-            kinst.Log("Creating underground deposits...", "KSharedMainMenu/Awake");
-            kinst.undergroundDeposits.Add("Eeloo", new KhemistryUDeposit(kinst, "Eeloo", null, 100.0f, 50.0f, "Infinity Catalyst"));  // idk lol
-            kinst.Log("Created " + kinst.undergroundDeposits.Count().ToString() + " underground deposits.", "KSharedMainMenu/Awake");
+            // Fetch all resource deposits
+            ConfigNode[] nodes = GameDatabase.Instance.GetConfigNodes("KHEMISTRY_RESOURCE_DEPOSIT");
 
-            // Surface deposit creation
-            kinst.Log("Creating underground deposits...", "KSharedMainMenu/Awake");
-            for (int i = 0; i < kinst.rand.Next(20,40); i++)
-                kinst.surfaceDeposits.Add("Kerbin", new KhemistryGDeposit(kinst, "Kerbin", "Tundra", 50.0f, "Glacial Sulfide Ore"));
+            // Load all resource deposits
+            foreach (ConfigNode node in nodes)
+            {
+                // Fatal error checking
+                if (!node.HasValue("resource"))  // no resource, fatal error
+                {
+                    kinst.LogError("A KHEMISTRY_RESOURCE_DEPOSIT does not define a resource it contains and was not loaded.", "KSharedMainMenu/Awake");
+                    continue;
+                }
+                if (!node.HasValue("type"))  // no type, fatal error
+                {
+                    kinst.LogError("A KHEMISTRY_RESOURCE_DEPOSIT with resource \""+node.GetValue("resource")+"\" does not have a type and was not loaded.", "KSharedMainMenu/Awake");
+                    continue;
+                }
+                if (!node.HasValue("body"))  // no body, fatal error
+                {
+                    kinst.LogError("A KHEMISTRY_RESOURCE_DEPOSIT with resource \""+node.GetValue("resource")+"\" does not define a body to be placed on and was not loaded.", "KSharedMainMenu/Awake");
+                    continue;
+                }
+                if (node.GetValue("type") == "surface" && !node.HasValue("resource2"))  // no underground resource for a surface+underground deposit, fatal error
+                {
+                    kinst.LogError("A KHEMISTRY_RESOURCE_DEPOSIT with resource \"" + node.GetValue("resource") + "\" is a surface type deposit without a resource2 value. It was not loaded.", "KSharedMainMenu/Awake");
+                    continue;
+                }
+
+                // Rendering logic (soon)
+                if (node.GetValue("type") != "underground" && node.GetValue("render") == "true")
+                {
+                    kinst.LogError("A KHEMISTRY_RESOURCE_DEPOSIT with resource \""+node.GetValue("resource")+"\" attempts to render but that is not implemented yet.", "KSharedMainMenu/Awake");
+                    continue;
+                }
+
+                // Load values shared between all deposits
+                int maxAmount = kinst.getIntValueFromCFG(node, "maxAmount", 10)+1;  // +1 accounts for non-inclusive behavior of rand.Next
+                int minAmount = kinst.getIntValueFromCFG(node, "minAmount", 10);
+                string body = node.GetValue("body");
+                string resource = node.GetValue("resource");
+                string biome = kinst.getStrValueFromCFG(node, "biome", null);
+                float depthUnderground = kinst.getFloatValueFromCFG(node, "depthUnderground", 50);
+
+                // Load deposits
+                if (node.GetValue("type") == "surface")  // Creates a deposit with both a surface and an underground deposit
+                {
+                    for (int i = 0; i < kinst.rand.Next(minAmount, maxAmount); i++)
+                        kinst.surfaceDeposits.Add(body, new KhemistryGDeposit(kinst, body, biome, kinst.getFloatValueFromCFG(node, "depthSurface", 10), resource, node.GetValue("resource2"), kinst.getFloatValueFromCFG(node, "depthUndergroundStart", 100)));
+                }
+                else if (node.GetValue("type") == "surfaceOnly")  // Creates a deposit exculsively on the surface
+                {
+                    for (int i = 0; i < kinst.rand.Next(minAmount, maxAmount); i++)
+                        kinst.surfaceDeposits.Add(body, new KhemistryGDeposit(kinst, body, biome, kinst.getFloatValueFromCFG(node, "depthSurface", 10), resource, null, 0));  // null makes it a surfaceOnly deposit, passing 0 as resource2 will be ignored in this case
+                }
+                else if (node.GetValue("type") == "underground")  // Creates an underground deposit
+                {
+                    for (int i = 0; i < kinst.rand.Next(minAmount, maxAmount); i++)
+                        kinst.undergroundDeposits.Add(body, new KhemistryUDeposit(kinst, body, biome, kinst.getFloatValueFromCFG(node, "depthUndergroundStart", 100), depthUnderground, resource));
+                }
+                else  // invalid type, fatal error
+                {
+                    kinst.LogError("A KHEMISTRY_RESOURCE_DEPOSIT with resource \""+node.GetValue("resource")+"\" does not have a valid type and was not loaded. The type was \""+node.GetValue("type")+"\".", "KSharedMainMenu/Awake");
+                }
+            }
+
+            // Log what was created
+            kinst.Log("Created " + kinst.undergroundDeposits.Count().ToString() + " underground deposits.", "KSharedMainMenu/Awake");
             kinst.Log("Created " + kinst.surfaceDeposits.Count().ToString() + " surface deposits.", "KSharedMainMenu/Awake");
         }
     }
@@ -163,6 +220,20 @@ namespace Khemistry
 
         // Helper function to get a biome name from position on a body
         public string getBiomeNameFromLatLon(string planet, Vector2 pos) => FlightGlobals.GetBodyByName(planet).BiomeMap.GetAtt(pos[0], pos[1]).name;
+
+        public int getIntValueFromCFG(ConfigNode node, string value, int defaultValue)
+        {
+            if (node.HasValue(value))
+                try { return int.Parse(node.GetValue(value)); } catch (Exception) { }
+            return defaultValue;
+        }
+        public float getFloatValueFromCFG(ConfigNode node, string value, float defaultValue)
+        {
+            if (node.HasValue(value))
+                try { return float.Parse(node.GetValue(value)); } catch (Exception) { }
+            return defaultValue;
+        }
+        public string getStrValueFromCFG(ConfigNode node, string value, string defaultValue) => node.HasValue(value) ? node.GetValue(value) : defaultValue;
 
         public void Awake()
         {
