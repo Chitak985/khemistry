@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 // NOTES:
 // Deposit generation does not save biomes as they aren't needed anywhere other than placing the deposit at the correct position
@@ -20,27 +21,57 @@ KHEMISTRY_RESOURCE_DEPOSIT
     depthSurface = 10            // For surface and surfaceOnly deposits, this is how deep the top layer of the deposit is in meters. Not checked for underground deposits. Defaults to 10.
     depthUndergroundStart = 100  // For underground deposits, this is the depth that the deposit starts at in meters. Not checked for surface and surfaceOnly deposits. Defaults to 100
     depthUnderground = 50        // How deep the underground part of the deposit is in meters. This is not checked for surfaceOnly. Defaults to 50
+    minRadius = 10               // Minimum radius of the deposit in meters. Defaults to 10
+    maxRadius = 20               // Maximum radius of the deposit in meters. Defaults to 20
 }
 */
 
 namespace Khemistry
 {
-    // Stores underground deposit data
-    public class KhemistryUDeposit
+    // Shared data
+    public class KhemistryDeposit
     {
+        // Shared variables
         public Vector2 position { get; set; }  // In latitude, longitude format
-        public float depthStart { get; set; }  // In meters
         public float depth { get; set; }  // In meters
         public string resource { get; set; }  // Internal name of a resource
         public string planet { get; set; }  // Planet the resource is on
+        public float radius { get; set; }  // Radius of the deposit in meters
 
-        public KhemistryUDeposit(KShared kinst, string planet, string requiredBiome, float depthStart, float depth, string resource, float latOverride=-12345, float lonOverride = -12345)
+        // Deposit distance logic
+        public float distanceFromDeposit(float lat, float lon)
+        {
+            return (float)KShared.LatLonDistanceMeters(position[0], position[1], lat, lon, planet);
+        }
+        public bool isInsideDeposit(float lat, float lon) => distanceFromDeposit(lat,lon) <= radius;
+    }
+    // Stores underground deposit data
+    public class KhemistryUDeposit : KhemistryDeposit
+    {
+        public float depthStart { get; set; }  // In meters
+
+        // Helper function to see if inside the deposit based on depth, depth is in meters
+        public bool isDepthInsideDeposit(float depth2) => depth2 > depthStart && depth2 < depthStart + depth;
+
+        public KhemistryUDeposit(KShared kinst, string planet, string requiredBiome, float depthStart, float depth, string resource, float minRadius, float maxRadius, float latOverride=-12345, float lonOverride = -12345)
         {
             // Set values to make sure everything works
             this.planet = planet;
             this.depthStart = depthStart;
             this.depth = depth;
             this.resource = resource;
+
+            if (minRadius == maxRadius)
+            {
+                radius = minRadius;
+            }
+            else
+            {
+                float tmp = -1.0f;
+                while (!(minRadius > tmp))
+                    tmp = (float)(kinst.rand.NextDouble() * maxRadius);
+                radius = tmp;
+            }
 
             // Generate position
             if ((int)latOverride == -12345 || (int)lonOverride == -12345)  // If either of them are not set, calculate as normal
@@ -49,7 +80,7 @@ namespace Khemistry
                 if (requiredBiome != null)  // If it is null, any biome is supported
                 {
                     // Just keep randomizing the deposit until it hits the right biome
-                    while (kinst.getBiomeNameFromLatLon(planet, position) != requiredBiome)
+                    while (KShared.getBiomeNameFromLatLon(planet, position) != requiredBiome)
                         position = new Vector2((float)(kinst.rand.NextDouble() * 180) - 90, (float)(kinst.rand.NextDouble() * 360) - 180);
                 }
             }
@@ -61,27 +92,33 @@ namespace Khemistry
     }
     // Stores surface deposit data
     // Because a surface deposit extends into the ground, there is an underground deposit as well
-    public class KhemistryGDeposit
+    public class KhemistryGDeposit : KhemistryDeposit
     {
-        public Vector2 position { get; set; }  // In latitude, longitude format
-        public float depth { get; set; }  // In meters
-        public string resource { get; set; }  // Internal name of a resource
-        public string planet { get; set; }  // Planet the resource is on
         public KhemistryUDeposit pairGDeposit { get; set; }  // Underground deposit right under the surface one
+        
+        // Helper function to see if inside the deposit based on depth, depth is in meters
+        // Using -1 to make sure 0 works
+        public bool isDepthInsideDeposit(float depth2) => depth2 > -1 && depth2 < depth;
 
-        public KhemistryGDeposit(KShared kinst, string planet, string requiredBiome, float depth, string resource, string resource2, float underDepth)
+        public KhemistryGDeposit(KShared kinst, string planet, string requiredBiome, float depth, string resource, float minRadius, float maxRadius, string resource2, float underDepth)
         {
             // Set values to make sure everything works
             this.planet = planet;
             this.depth = depth;
             this.resource = resource;
 
+            // if it works, it works
+            float tmp = -1.0f;
+            while (!(minRadius > tmp))
+                tmp = (float)(kinst.rand.NextDouble() * maxRadius);
+            radius = tmp;
+
             // Generate position
             position = new Vector2((float)(kinst.rand.NextDouble() * 180) - 90, (float)(kinst.rand.NextDouble() * 360) - 180);
             if (requiredBiome != null)  // If it is null, any biome is supported
             {
                 // Just keep randomizing the deposit until it hits the right biome
-                while (kinst.getBiomeNameFromLatLon(planet, position) != requiredBiome)
+                while (KShared.getBiomeNameFromLatLon(planet, position) != requiredBiome)
                     position = new Vector2((float)(kinst.rand.NextDouble() * 180) - 90, (float)(kinst.rand.NextDouble() * 360) - 180);
             }
 
@@ -158,28 +195,30 @@ namespace Khemistry
                 }
 
                 // Load values shared between all deposits
-                int maxAmount = kinst.getIntValueFromCFG(node, "maxAmount", 10)+1;  // +1 accounts for non-inclusive behavior of rand.Next
-                int minAmount = kinst.getIntValueFromCFG(node, "minAmount", 10);
+                int maxAmount = KShared.getIntValueFromCFG(node, "maxAmount", 10)+1;  // +1 accounts for non-inclusive behavior of rand.Next
+                int minAmount = KShared.getIntValueFromCFG(node, "minAmount", 5);
+                int maxRadius = KShared.getIntValueFromCFG(node, "maxRadius", 20) + 1;  // +1 accounts for non-inclusive behavior of rand.Next
+                int minRadius = KShared.getIntValueFromCFG(node, "minRadius", 10);
                 string body = node.GetValue("body");
                 string resource = node.GetValue("resource");
-                string biome = kinst.getStrValueFromCFG(node, "biome", null);
-                float depthUnderground = kinst.getFloatValueFromCFG(node, "depthUnderground", 50);
+                string biome = KShared.getStrValueFromCFG(node, "biome", null);
+                float depthUnderground = KShared.getFloatValueFromCFG(node, "depthUnderground", 50);
 
                 // Load deposits
                 if (node.GetValue("type") == "surface")  // Creates a deposit with both a surface and an underground deposit
                 {
                     for (int i = 0; i < kinst.rand.Next(minAmount, maxAmount); i++)
-                        kinst.surfaceDeposits.Add(body, new KhemistryGDeposit(kinst, body, biome, kinst.getFloatValueFromCFG(node, "depthSurface", 10), resource, node.GetValue("resource2"), kinst.getFloatValueFromCFG(node, "depthUndergroundStart", 100)));
+                        kinst.surfaceDeposits.Add(new KhemistryGDeposit(kinst, body, biome, KShared.getFloatValueFromCFG(node, "depthSurface", 10), resource, minRadius, maxRadius, node.GetValue("resource2"), KShared.getFloatValueFromCFG(node, "depthUndergroundStart", 100)));
                 }
                 else if (node.GetValue("type") == "surfaceOnly")  // Creates a deposit exculsively on the surface
                 {
                     for (int i = 0; i < kinst.rand.Next(minAmount, maxAmount); i++)
-                        kinst.surfaceDeposits.Add(body, new KhemistryGDeposit(kinst, body, biome, kinst.getFloatValueFromCFG(node, "depthSurface", 10), resource, null, 0));  // null makes it a surfaceOnly deposit, passing 0 as resource2 will be ignored in this case
+                        kinst.surfaceDeposits.Add(new KhemistryGDeposit(kinst, body, biome, KShared.getFloatValueFromCFG(node, "depthSurface", 10), resource, minRadius, maxRadius, null, 0));  // null makes it a surfaceOnly deposit, passing 0 as resource2 will be ignored in this case
                 }
                 else if (node.GetValue("type") == "underground")  // Creates an underground deposit
                 {
                     for (int i = 0; i < kinst.rand.Next(minAmount, maxAmount); i++)
-                        kinst.undergroundDeposits.Add(body, new KhemistryUDeposit(kinst, body, biome, kinst.getFloatValueFromCFG(node, "depthUndergroundStart", 100), depthUnderground, resource));
+                        kinst.undergroundDeposits.Add(new KhemistryUDeposit(kinst, body, biome, KShared.getFloatValueFromCFG(node, "depthUndergroundStart", 100), depthUnderground, resource, minRadius, maxRadius));
                 }
                 else  // invalid type, fatal error
                 {
@@ -209,9 +248,18 @@ namespace Khemistry
         private Rect _windowRect = new Rect(0, 0, 320, 300);
         private int _windowId;
 
-        // Deposit dictionaries, stored as {planet: depositClass}
-        public Dictionary<string, KhemistryUDeposit> undergroundDeposits = new Dictionary<string, KhemistryUDeposit>();
-        public Dictionary<string, KhemistryGDeposit> surfaceDeposits = new Dictionary<string, KhemistryGDeposit>();
+        private bool _amountVisible = false;
+        private string _amountTitle = "";
+        private float _amountValue = 0f;
+        private float _amountMin = 0f;
+        private float _amountMax = 1f;
+        private Action<float> _amountCallback;
+        private Rect _amountRect = new Rect(0, 0, 320, 130);
+        private int _amountWindowId;
+
+        // Deposit lists
+        public List<KhemistryUDeposit> undergroundDeposits = new List<KhemistryUDeposit>();
+        public List<KhemistryGDeposit> surfaceDeposits = new List<KhemistryGDeposit>();
 
         // Shared random class
         public System.Random rand = new System.Random();
@@ -219,22 +267,84 @@ namespace Khemistry
         public List<string> celestialBodies = new List<string>();
 
         // Helper function to get a biome name from position on a body
-        public string getBiomeNameFromLatLon(string planet, Vector2 pos) => FlightGlobals.GetBodyByName(planet).BiomeMap.GetAtt(pos[0], pos[1]).name;
+        public static string getBiomeNameFromLatLon(string planet, Vector2 pos) => FlightGlobals.GetBodyByName(planet).BiomeMap.GetAtt(pos[0], pos[1]).name;
 
-        public int getIntValueFromCFG(ConfigNode node, string value, int defaultValue)
+        // Helper functions to get values from configs with default values
+        public static int getIntValueFromCFG(ConfigNode node, string value, int defaultValue)
         {
             if (node.HasValue(value))
                 try { return int.Parse(node.GetValue(value)); } catch (Exception) { }
             return defaultValue;
         }
-        public float getFloatValueFromCFG(ConfigNode node, string value, float defaultValue)
+        public static float getFloatValueFromCFG(ConfigNode node, string value, float defaultValue)
         {
             if (node.HasValue(value))
                 try { return float.Parse(node.GetValue(value)); } catch (Exception) { }
             return defaultValue;
         }
-        public string getStrValueFromCFG(ConfigNode node, string value, string defaultValue) => node.HasValue(value) ? node.GetValue(value) : defaultValue;
+        public static string getStrValueFromCFG(ConfigNode node, string value, string defaultValue) => node.HasValue(value) ? node.GetValue(value) : defaultValue;
 
+        // Planet distance calculator
+        public static double LatLonDistanceMeters(
+            double lat1Deg,
+            double lon1Deg,
+            double lat2Deg,
+            double lon2Deg,
+            string body)
+        {
+            // Convert degrees to radians
+            double lat1 = DegreesToRadians(lat1Deg);
+            double lon1 = DegreesToRadians(lon1Deg);
+            double lat2 = DegreesToRadians(lat2Deg);
+            double lon2 = DegreesToRadians(lon2Deg);
+
+            double dLat = lat2 - lat1;
+            double dLon = lon2 - lon1;
+
+            double a =
+                Math.Pow(Math.Sin(dLat / 2), 2) +
+                Math.Cos(lat1) * Math.Cos(lat2) *
+                Math.Pow(Math.Sin(dLon / 2), 2);
+
+            double c = 2 * Math.Atan2(
+                Math.Sqrt(a),
+                Math.Sqrt(1 - a));
+
+            return FlightGlobals.GetBodyByName(body).Radius * c;
+        }
+
+        public static double DegreesToRadians(double degrees)
+        {
+            return degrees * Math.PI / 180.0;
+        }
+        
+        // Helper functions to get all deposits at a point, depth is in meters
+        public List<string> surfaceDepositsAtPoint(float lat, float lon, string body, float depth)
+        {
+            List<string> tmp = new List<string>();
+            foreach (KhemistryGDeposit deposit in surfaceDeposits)
+            {
+                if (body == deposit.planet && deposit.isInsideDeposit(lat, lon) && deposit.isDepthInsideDeposit(depth))
+                {
+                    tmp.Add(deposit.resource);
+                }
+            }
+            return tmp;
+        }
+        public List<string> undergroundDepositsAtPoint(float lat, float lon, string body, float depth)
+        {
+            List<string> tmp = new List<string>();
+            foreach (KhemistryUDeposit deposit in undergroundDeposits)
+            {
+                if (body == deposit.planet && deposit.isInsideDeposit(lat, lon) && deposit.isDepthInsideDeposit(depth))
+                {
+                    tmp.Add(deposit.resource);
+                }
+            }
+            return tmp;
+        }
+
+        // Main code
         public void Awake()
         {
             // Initialization
@@ -247,6 +357,7 @@ namespace Khemistry
             _instance = this;
             DontDestroyOnLoad(gameObject);
             _windowId = GUIUtility.GetControlID(FocusType.Passive);
+            _amountWindowId = GUIUtility.GetControlID(FocusType.Passive);
             Log("KShared initialized.", "KShared/Awake");
         }
 
@@ -267,14 +378,56 @@ namespace Khemistry
 
         private void OnGUI()
         {
-            if (!_selectorVisible) return;
-            _windowRect = GUILayout.Window(
-                _windowId,
-                _windowRect,
-                DrawSelectorWindow,
-                _selectorTitle,
-                HighLogic.Skin.window
-            );
+            if (_selectorVisible)
+                _windowRect = GUILayout.Window(
+                    _windowId,
+                    _windowRect,
+                    DrawSelectorWindow,
+                    _selectorTitle,
+                    HighLogic.Skin.window);
+
+            if (_amountVisible)
+                _amountRect = GUILayout.Window(
+                    _amountWindowId,
+                    _amountRect,
+                    DrawAmountWindow,
+                    _amountTitle,
+                    HighLogic.Skin.window);
+        }
+
+        public void ShowAmountSelector(string title, float min, float max, float initial, Action<float> onConfirm)
+        {
+            _amountTitle = title;
+            _amountMin = min;
+            _amountMax = max;
+            _amountValue = Mathf.Clamp(initial, min, max);
+            _amountCallback = onConfirm;
+            _amountRect = new Rect(
+                (Screen.width - _amountRect.width) / 2f,
+                (Screen.height - _amountRect.height) / 2f,
+                _amountRect.width, _amountRect.height);
+            _amountVisible = true;
+        }
+
+        private void DrawAmountWindow(int windowId)
+        {
+            GUILayout.Label(
+                string.Format("{0:F3}  /  {1:F3}", _amountValue, _amountMax),
+                HighLogic.Skin.label);
+            _amountValue = GUILayout.HorizontalSlider(
+                _amountValue, _amountMin, _amountMax,
+                HighLogic.Skin.horizontalSlider,
+                HighLogic.Skin.horizontalSliderThumb);
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Confirm", HighLogic.Skin.button))
+            {
+                _amountVisible = false;
+                _amountCallback(_amountValue);
+            }
+            if (GUILayout.Button("Cancel", HighLogic.Skin.button))
+                _amountVisible = false;
+            GUILayout.EndHorizontal();
+            GUI.DragWindow();
         }
 
         private void DrawSelectorWindow(int windowId)
@@ -1704,6 +1857,7 @@ MODULE
     altitudeMaxCondition = 10000                  // Maximum altitude from sea level this ISRU can operate at. Requires altitudeMinCondition, do not include if no altitude restrictions
     altitudeMinCondition = 0                      // Minimum altitude from sea level this ISRU can operate at. Requires altitudeMaxCondition, do not include if no altitude restrictions
     situationCondition = Landed                   // Converter can only operate in this situation. Possible values are Landed, Splashed, FlyingLow, FlyingHigh, SpaceLow, SpaceHigh, SubOrbital. Do not include the value to ignore this condition.
+    depositCondition = GSOre                      // Converter can only operate when over this deposit. Should be the resource value of a surface deposit.
     powerfailResource = LVEnergy                  // If this resource runs out, the part will powerfail. Must be an INPUT_RESOURCE. Do not include to disable powerfails.
     powerfailResult = EXPLODE,10                  // The result if a powerfail occurs. Can be "EXPLODE,n", "MAINT", or "STOP". Requires powerfailResource to be set and valid.
                                                   // EXPLODE will explode the part with power n, MAINT will require an Engineer kerbal to come fix it, and STOP will just shut down the part.
@@ -1785,6 +1939,7 @@ MODULE
         protected double _altMin = double.MinValue;
         protected double _altMax = double.MaxValue;
         protected SituationCondition _situationCondition = SituationCondition.Any;
+        protected string _depositCondition = null;
 
         // Powerfail
         protected string _powerfailResource = null;
@@ -1813,6 +1968,122 @@ MODULE
         // Runtime
         protected bool _fatalConfigError = false;
         protected double _outputWarnCooldown = 0.0;
+
+        /// <summary>
+        /// Runs one converter cycle against the kerbal's suit cell instead of the vessel
+        /// network. The dictionary maps resource name → amount (at most one entry, since
+        /// the suit cell holds one resource type at a time). Mutates the dictionary in place.
+        /// Returns true if the cycle ran.
+        /// </summary>
+        public bool RunOneCycleSuitCell(Part contextPart, Dictionary<string, double> suitCell,
+    float suitMaxAmount, double dt)
+        {
+            // Conditions first — identical ordering to RunOneCycle
+            string conditionReason;
+            if (!CheckConditions(contextPart.vessel, out conditionReason))
+            {
+                statusDisplay = "Inactive: " + conditionReason;
+                return false;
+            }
+
+            // Total-capacity check: (current − inputs + non-dump outputs) must fit
+            double currentTotal = DictTotal(suitCell);
+            double inputConsumed = 0.0;
+            foreach (ResourceInput inp in _inputs) inputConsumed += inp.ratio * dt;
+            double outputProduced = 0.0;
+            foreach (ResourceOutput o in _outputs)
+                if (!o.dumpExcess) outputProduced += o.ratio * dt;
+
+            if (currentTotal - inputConsumed + outputProduced > suitMaxAmount + 1e-9)
+            {
+                if (_outputWarnCooldown <= 0.0)
+                {
+                    ScreenMessages.PostScreenMessage(new ScreenMessage(
+                        string.Format("Converter \"{0}\": Not enough space in suit cell, converter paused!",
+                            _displayName),
+                        5f, ScreenMessageStyle.UPPER_CENTER));
+                    _outputWarnCooldown = 5.0;
+                }
+                statusDisplay = "Paused: suit cell full";
+                return false;
+            }
+
+            // Powerfail check
+            bool powerfailShort = false;
+            if (_powerfailResource != null)
+            {
+                double pfNeeded;
+                suitCell.TryGetValue(_powerfailResource, out pfNeeded);
+                double pfAvailable = pfNeeded;   // reuse variable — get actual available
+                suitCell.TryGetValue(_powerfailResource, out pfAvailable);
+                if (pfAvailable < GetInputRatio(_powerfailResource) * dt * 0.999)
+                    powerfailShort = true;
+            }
+
+            // Input availability
+            bool allSatisfied = true;
+            foreach (ResourceInput inp in _inputs)
+            {
+                if (inp.ratio <= 0.0) continue;
+                double available;
+                suitCell.TryGetValue(inp.resourceName, out available);
+                if (available < inp.ratio * dt * 0.999) { allSatisfied = false; break; }
+            }
+
+            if (!allSatisfied)
+            {
+                if (powerfailShort)
+                {
+                    ScreenMessages.PostScreenMessage(new ScreenMessage(
+                        string.Format("Converter \"{0}\": Powerfailed due to lack of {1}!",
+                            _displayName, _powerfailResource),
+                        8f, ScreenMessageStyle.UPPER_CENTER));
+                    TriggerPowerfail(contextPart);
+                }
+                else
+                {
+                    statusDisplay = "Insufficient resources";
+                }
+                return false;
+            }
+
+            // Consume inputs
+            foreach (ResourceInput inp in _inputs)
+            {
+                if (inp.ratio <= 0.0) continue;
+                double current;
+                suitCell.TryGetValue(inp.resourceName, out current);
+                double remaining = current - inp.ratio * dt;
+                if (remaining < 1e-9) suitCell.Remove(inp.resourceName);
+                else suitCell[inp.resourceName] = remaining;
+            }
+
+            // Produce outputs
+            foreach (ResourceOutput output in _outputs)
+            {
+                if (output.ratio <= 0.0) continue;
+                double toAdd = output.ratio * dt;
+                if (output.dumpExcess)
+                {
+                    double spaceLeft = suitMaxAmount - DictTotal(suitCell);
+                    toAdd = Math.Min(toAdd, Math.Max(0.0, spaceLeft));
+                }
+                if (toAdd <= 1e-12) continue;
+                double existing;
+                suitCell.TryGetValue(output.resourceName, out existing);
+                suitCell[output.resourceName] = existing + toAdd;
+            }
+
+            statusDisplay = _manualOperation ? "Waiting for manual cycle" : "Running";
+            return true;
+        }
+
+        private static double DictTotal(Dictionary<string, double> dict)
+        {
+            double total = 0.0;
+            foreach (var kvp in dict) total += kvp.Value;
+            return total;
+        }
 
         // ── Config loading ─────────────────────────────────────────────────────────
 
@@ -1951,6 +2222,9 @@ MODULE
                         "Converter \"" + ConverterName + "\": Unknown situationCondition \"" + sitStr + "\" — condition ignored.",
                         moduleName + "/LoadSharedConfig");
             }
+
+            // depositCondition
+            _depositCondition = NullIfEmpty(moduleNode.GetValue("depositCondition"));
 
             // powerfailResource / powerfailResult
             _powerfailResource = null;
@@ -2180,6 +2454,12 @@ MODULE
             if (_situationCondition != SituationCondition.Any && !CheckSituation(v))
             {
                 reason = "wrong situation (" + v.situation + ")";
+                return false;
+            }
+
+            if (!KShared.Instance.surfaceDepositsAtPoint((float)v.latitude, (float)v.longitude, v.mainBody.name, 0).Contains(_depositCondition))
+            {
+                reason = "not at deposit " + _depositCondition;
                 return false;
             }
 
@@ -2574,6 +2854,10 @@ MODULE
     {
         // No KSPEvents, no FixedUpdate.
         // All interaction is routed through KhemistryKerbal.
+        [KSPField(isPersistant = false)]
+        public bool useSuitCell = false;
+
+        public bool UseSuitCell => useSuitCell;
 
         public HashSet<string> SupportedResources = new HashSet<string>();
 
@@ -2591,8 +2875,10 @@ MODULE
             }
             else
             {
-                KShared.Instance?.LogError(
-                    "Part \"" + part.name + "\" has KhemistryEVAAdvancedISRU but no SUPPORTED_RESOURCES node. This part is now broken and won't be able to recieve any resources.",
+                // Not an error — kerbal-native modules don't need SUPPORTED_RESOURCES.
+                KShared.Instance?.Log(
+                    "Part \"" + part.name + "\" has KhemistryEVAAdvancedISRU with no SUPPORTED_RESOURCES node " +
+                    "(OK for kerbal-native modules; inventory-item modules won't accept any resource).",
                     "KhemistryEVAAdvancedISRU/OnLoad");
             }
         }
@@ -2623,6 +2909,10 @@ MODULE
             ConfigNode moduleNode = FindModuleConfigNode("KhemistryEVAAdvancedISRU");
             if (moduleNode == null) { _fatalConfigError = true; return; }
             LoadSharedConfig(moduleNode, "KhemistryEVAAdvancedISRU");
+
+            bool tmpB;
+            if (bool.TryParse(moduleNode.GetValue("useSuitCell"), out tmpB))
+                useSuitCell = tmpB;
         }
 
         // No event visibility to manage — KhemistryKerbal owns the UI for this module.
@@ -2659,11 +2949,9 @@ MODULE
     {
         // ── Suit cell persistent state ─────────────────────────────────────────────
 
+        // Serialized as "ResA:1.5000|ResB:2.0000" — same format as KhemistryEVACombinedProcessor
         [KSPField(isPersistant = true)]
-        public string suitCellResourceName = "";
-
-        [KSPField(isPersistant = true)]
-        public float suitCellResourceAmount = 0f;
+        public string suitCellResourcesData = "";
 
         // ── Suit cell config (loaded from MODULE node, non-persistent) ─────────────
 
@@ -2706,6 +2994,12 @@ MODULE
             public string ConverterName => Config.ConverterName;
             public string DisplayName => Config.DisplayName;
         }
+
+        private Dictionary<string, double> GetSuitCellDict()
+    => KhemistryEVACombinedProcessor.Deserialize(suitCellResourcesData);
+
+        private void SetSuitCellFromDict(Dictionary<string, double> dict)
+    => suitCellResourcesData = KhemistryEVACombinedProcessor.Serialize(dict);
 
         // ── Config loading ─────────────────────────────────────────────────────────
 
@@ -2836,52 +3130,62 @@ MODULE
             => cell.isSuit ? "Cell 0 (suit)" : string.Format("Cell {0}", index);
 
         private string ReadCellResourceName(FluidCellRef cell)
-            => cell.isSuit ? suitCellResourceName : ReadResourceName(cell.stored);
+        {
+            if (cell.isSuit)
+            {
+                var dict = GetSuitCellDict();
+                if (dict.Count == 0) return "";
+                var names = new List<string>();
+                foreach (var kvp in dict) names.Add(kvp.Key);
+                return string.Join(", ", names.ToArray());
+            }
+            return ReadResourceName(cell.stored);
+        }
 
         private float ReadCellResourceAmount(FluidCellRef cell)
-            => cell.isSuit ? suitCellResourceAmount : ReadResourceAmount(cell.stored);
+        {
+            if (cell.isSuit)
+                return (float)KhemistryEVACombinedProcessor.GetTotal(GetSuitCellDict());
+            return ReadResourceAmount(cell.stored);
+        }
 
         private float ReadCellMaxAmount(FluidCellRef cell)
             => cell.isSuit ? _suitCellMaxAmount : ReadMaxAmount(cell.stored.partName);
-
-        private float ReadCellTransferDistance(FluidCellRef cell)
-            => cell.isSuit ? _suitCellTransferDistance : ReadTransferDistance(cell.stored.partName);
-
-        private HashSet<string> ReadCellAllowedResources(FluidCellRef cell)
-            => cell.isSuit ? _suitCellAllowedResources : ReadAllowedResources(cell.stored.partName);
-
-        private void WriteCellResourceName(FluidCellRef cell, string name)
-        {
-            if (cell.isSuit) suitCellResourceName = name;
-            else WriteResourceName(cell.stored, name);
-        }
-
-        private void WriteCellResourceAmount(FluidCellRef cell, float amount)
-        {
-            if (cell.isSuit) suitCellResourceAmount = amount;
-            else WriteResourceAmount(cell.stored, amount);
-        }
 
         // ── Fluid cell display ─────────────────────────────────────────────────────
 
         private void UpdateFluidCellDisplay()
         {
             var cells = GetAllCellRefs();
-            if (cells.Count == 0)
-            {
-                CellContentsDisplay = "No cells available";
-                return;
-            }
+            if (cells.Count == 0) { CellContentsDisplay = "No cells available"; return; }
             var parts = new List<string>();
             for (int i = 0; i < cells.Count; i++)
             {
                 string label = GetCellLabel(cells[i], i);
-                string resName = ReadCellResourceName(cells[i]);
-                float resAmount = ReadCellResourceAmount(cells[i]);
-                float maxAmount = ReadCellMaxAmount(cells[i]);
-                parts.Add(string.IsNullOrEmpty(resName)
-                    ? string.Format("{0}: Empty", label)
-                    : string.Format("{0}: {1} {2:F1}/{3:F1} kg", label, resName, resAmount, maxAmount));
+                if (cells[i].isSuit)
+                {
+                    var dict = GetSuitCellDict();
+                    double total = KhemistryEVACombinedProcessor.GetTotal(dict);
+                    if (dict.Count == 0)
+                        parts.Add(string.Format("{0}: Empty (0/{1:F2})", label, _suitCellMaxAmount));
+                    else
+                    {
+                        var cp = new List<string>();
+                        foreach (var kvp in dict)
+                            cp.Add(string.Format("{0}: {1:F2}", kvp.Key, kvp.Value));
+                        parts.Add(string.Format("{0}: {1} ({2:F2}/{3:F2})",
+                            label, string.Join(", ", cp.ToArray()), total, _suitCellMaxAmount));
+                    }
+                }
+                else
+                {
+                    string resName = ReadResourceName(cells[i].stored);
+                    float resAmount = ReadResourceAmount(cells[i].stored);
+                    float maxAmount = ReadMaxAmount(cells[i].stored.partName);
+                    parts.Add(string.IsNullOrEmpty(resName)
+                        ? string.Format("{0}: Empty", label)
+                        : string.Format("{0}: {1} {2:F1}/{3:F1} kg", label, resName, resAmount, maxAmount));
+                }
             }
             CellContentsDisplay = string.Join("  |  ", parts.ToArray());
         }
@@ -2994,11 +3298,13 @@ MODULE
         {
             var shared = KShared.Instance;
             if (shared == null) return;
+            KShared.Instance.Log("Called! (Use Held Converter button)", "KhemistryKerbal/EVAUseConverter");
 
             var options = GetAllISRUHandles();
 
             if (options.Count == 0)
             {
+                KShared.Instance.Log("No EVA converters were found.", "KhemistryKerbal/EVAUseConverter");
                 ScreenMessages.PostScreenMessage(new ScreenMessage(
                     "No EVA converters available.", 5f, ScreenMessageStyle.UPPER_CENTER));
                 return;
@@ -3088,7 +3394,24 @@ MODULE
 
                 case "Execute Cycle":
                     if (!handle.Config.ManualRequiresStartup && !handle.Config.CheckRecipeGroup(part)) return;
-                    handle.Config.RunOneCycle(part, TimeWarp.fixedDeltaTime);
+                    if (handle.Config.UseSuitCell)
+                    {
+                        if (_suitCellMaxAmount > 0f)
+                        {
+                            var suitDict = GetSuitCellDict();
+                            handle.Config.RunOneCycleSuitCell(part, suitDict, _suitCellMaxAmount, TimeWarp.fixedDeltaTime);
+                            SetSuitCellFromDict(suitDict);
+                        }
+                        else
+                        {
+                            ScreenMessages.PostScreenMessage(new ScreenMessage(
+                                "No suit cell configured for this kerbal.", 5f, ScreenMessageStyle.UPPER_CENTER));
+                        }
+                    }
+                    else
+                    {
+                        handle.Config.RunOneCycle(part, TimeWarp.fixedDeltaTime);
+                    }
                     KShared.Instance?.Log("EVA converter \"" + handle.DisplayName + "\" cycle executed.",
                         "KhemistryKerbal/ExecuteConverterAction");
                     break;
@@ -3120,24 +3443,35 @@ MODULE
 
             double dt = TimeWarp.fixedDeltaTime;
 
-            // ── Live kerbal-part ISRU modules ──────────────────────────────────────
-            // State is live on the module; no snapshot sync needed.
+            // ── Live kerbal-part ISRU modules ──────────────────────────────────────────
             foreach (KhemistryEVAAdvancedISRU liveISRU in part.FindModulesImplementing<KhemistryEVAAdvancedISRU>())
             {
-                if (!liveISRU.IsConfigLoaded || liveISRU.IsManual) continue;
+                if (!liveISRU.IsConfigLoaded) continue;
+                liveISRU.TickCooldown(dt);          // Always tick — even for manual converters
+                if (liveISRU.IsManual) continue;
                 if (!liveISRU.isRunning || liveISRU.needsMaintenance) continue;
-                liveISRU.TickCooldown(dt);
-                liveISRU.RunOneCycle(part, dt);
-                // isRunning / needsMaintenance are already written directly by RunOneCycle/TriggerPowerfail
+
+                if (liveISRU.UseSuitCell)
+                {
+                    if (_suitCellMaxAmount <= 0f) continue;
+                    var suitDict = GetSuitCellDict();
+                    liveISRU.RunOneCycleSuitCell(part, suitDict, _suitCellMaxAmount, dt);
+                    SetSuitCellFromDict(suitDict);
+                }
+                else
+                {
+                    liveISRU.RunOneCycle(part, dt);
+                }
             }
 
-            // ── Inventory ISRU modules ─────────────────────────────────────────────
-            // State must be synced in/out via ProtoPartModuleSnapshot.
+            // ── Inventory ISRU modules ─────────────────────────────────────────────────
             foreach (StoredPart stored in GetEVAISRUSnapshots())
             {
                 foreach (KhemistryEVAAdvancedISRU prefab in GetPrefabISRUModules(stored))
                 {
-                    if (!prefab.IsConfigLoaded || prefab.IsManual) continue;
+                    if (!prefab.IsConfigLoaded) continue;
+                    prefab.TickCooldown(dt);        // Always tick
+                    if (prefab.IsManual) continue;
 
                     bool running = ReadISRUBool(stored, prefab.ConverterName, "isRunning");
                     bool maint = ReadISRUBool(stored, prefab.ConverterName, "needsMaintenance");
@@ -3145,8 +3479,20 @@ MODULE
 
                     prefab.isRunning = running;
                     prefab.needsMaintenance = maint;
-                    prefab.TickCooldown(dt);
-                    prefab.RunOneCycle(part, dt);
+
+                    if (prefab.UseSuitCell)
+                    {
+                        if (_suitCellMaxAmount > 0f)
+                        {
+                            var suitDict = GetSuitCellDict();
+                            prefab.RunOneCycleSuitCell(part, suitDict, _suitCellMaxAmount, dt);
+                            SetSuitCellFromDict(suitDict);
+                        }
+                    }
+                    else
+                    {
+                        prefab.RunOneCycle(part, dt);
+                    }
 
                     WriteISRUBool(stored, prefab.ConverterName, "isRunning", prefab.isRunning);
                     WriteISRUBool(stored, prefab.ConverterName, "needsMaintenance", prefab.needsMaintenance);
@@ -3254,6 +3600,7 @@ MODULE
         {
             var shared = KShared.Instance;
             if (shared == null) { Debug.LogError("Khemistry: KShared null in EVASendResources!"); return; }
+            KShared.Instance.Log("Called! (Transfer from ... to nearby part button)", "KhemistryKerbal/EVASendResources");
 
             var cells = GetAllCellRefs();
             if (cells.Count == 0)
@@ -3273,12 +3620,30 @@ MODULE
                 for (int i = 0; i < cells.Count; i++)
                 {
                     string cellLabel = GetCellLabel(cells[i], i);
-                    string resName = ReadCellResourceName(cells[i]);
-                    float resAmount = ReadCellResourceAmount(cells[i]);
-                    float maxAmount = ReadCellMaxAmount(cells[i]);
-                    labels.Add(string.IsNullOrEmpty(resName)
-                        ? string.Format("{0}: Empty", cellLabel)
-                        : string.Format("{0}: {1} {2:F1}/{3:F1} kg", cellLabel, resName, resAmount, maxAmount));
+                    if (cells[i].isSuit)
+                    {
+                        var dict = GetSuitCellDict();
+                        double total = KhemistryEVACombinedProcessor.GetTotal(dict);
+                        if (dict.Count == 0)
+                            labels.Add(string.Format("{0}: Empty (0/{1:F2})", cellLabel, _suitCellMaxAmount));
+                        else
+                        {
+                            var cp = new List<string>();
+                            foreach (var kvp in dict)
+                                cp.Add(string.Format("{0}: {1:F2}", kvp.Key, kvp.Value));
+                            labels.Add(string.Format("{0}: {1} ({2:F2}/{3:F2})", cellLabel,
+                                string.Join(", ", cp.ToArray()), total, _suitCellMaxAmount));
+                        }
+                    }
+                    else
+                    {
+                        string resName = ReadResourceName(cells[i].stored);
+                        float resAmount = ReadResourceAmount(cells[i].stored);
+                        float maxAmount = ReadMaxAmount(cells[i].stored.partName);
+                        labels.Add(string.IsNullOrEmpty(resName)
+                            ? string.Format("{0}: Empty", cellLabel)
+                            : string.Format("{0}: {1} {2:F1}/{3:F1} kg", cellLabel, resName, resAmount, maxAmount));
+                    }
                 }
                 shared.ShowSelector("Which cell to send from?", labels, label =>
                 {
@@ -3290,10 +3655,11 @@ MODULE
 
         private void ShowPartSelectorForSend(FluidCellRef cell)
         {
-            var shared = KShared.Instance;
-            string resourceName = ReadCellResourceName(cell);
-            float resourceAmount = ReadCellResourceAmount(cell);
-            float range = ReadCellTransferDistance(cell);
+            if (cell.isSuit) { ShowSuitCellPartSelectorForSend(); return; }
+
+            string resourceName = ReadResourceName(cell.stored);
+            float resourceAmount = ReadResourceAmount(cell.stored);
+            float range = ReadTransferDistance(cell.stored.partName);
 
             if (string.IsNullOrEmpty(resourceName) || resourceAmount <= 0)
             {
@@ -3308,10 +3674,9 @@ MODULE
                 {
                     if (pr.resourceName != resourceName) continue;
                     if (pr.amount >= pr.maxAmount) continue;
-                    string label = string.Format("{0} / {1}  (space: {2:F1} kg)",
+                    string lbl = string.Format("{0} / {1}  (space: {2:F1} kg)",
                         p.vessel.vesselName, p.partInfo.title, pr.maxAmount - pr.amount);
-                    if (!targetParts.ContainsKey(label))
-                        targetParts.Add(label, p);
+                    if (!targetParts.ContainsKey(lbl)) targetParts.Add(lbl, p);
                     break;
                 }
 
@@ -3322,28 +3687,24 @@ MODULE
                 return;
             }
 
-            shared.ShowSelector("Send " + resourceName + " to...", targetParts.Keys.ToList(), label =>
-            {
-                Part target = targetParts[label];
-                var def = PartResourceLibrary.Instance.GetDefinition(resourceName);
-                if (def == null) return;
-                PartResource targetResource = target.Resources.Get(def.id);
-                if (targetResource == null) return;
-
-                double space = targetResource.maxAmount - targetResource.amount;
-                double pushed = Math.Min(resourceAmount, space);
-                targetResource.amount += pushed;
-
-                float newAmount = resourceAmount - (float)pushed;
-                if (newAmount <= 0.001f) { WriteCellResourceName(cell, ""); WriteCellResourceAmount(cell, 0f); }
-                else WriteCellResourceAmount(cell, newAmount);
-
-                shared.Log(pushed + " of " + resourceName + " pushed into " + target.partInfo.title,
-                    "KhemistryKerbal/ShowPartSelectorForSend");
-                ScreenMessages.PostScreenMessage(new ScreenMessage(
-                    string.Format("Transferred {0:F2} kg of {1}.", pushed, resourceName),
-                    5.0f, ScreenMessageStyle.UPPER_CENTER));
-            });
+            KShared.Instance.ShowSelector("Send " + resourceName + " to...",
+                targetParts.Keys.ToList(), label =>
+                {
+                    Part target = targetParts[label];
+                    var def = PartResourceLibrary.Instance.GetDefinition(resourceName);
+                    if (def == null) return;
+                    PartResource targetResource = target.Resources.Get(def.id);
+                    if (targetResource == null) return;
+                    double space = targetResource.maxAmount - targetResource.amount;
+                    double pushed = Math.Min(resourceAmount, space);
+                    targetResource.amount += pushed;
+                    float newAmount = resourceAmount - (float)pushed;
+                    if (newAmount <= 0.001f) { WriteResourceName(cell.stored, ""); WriteResourceAmount(cell.stored, 0f); }
+                    else WriteResourceAmount(cell.stored, newAmount);
+                    ScreenMessages.PostScreenMessage(new ScreenMessage(
+                        string.Format("Transferred {0:F2} kg of {1}.", pushed, resourceName),
+                        5.0f, ScreenMessageStyle.UPPER_CENTER));
+                });
         }
 
         [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Transfer from nearby part to cell",
@@ -3352,6 +3713,7 @@ MODULE
         {
             var shared = KShared.Instance;
             if (shared == null) { Debug.LogError("Khemistry: KShared null in EVATakeResources!"); return; }
+            KShared.Instance.Log("Called! (Transfer from ... to cell button)", "KhemistryKerbal/EVATakeResources");
 
             var cells = GetAllCellRefs();
             if (cells.Count == 0)
@@ -3388,15 +3750,14 @@ MODULE
 
         private void ShowPartSelectorForTake(FluidCellRef cell)
         {
-            KShared.Instance?.Log(
-                "Called for " + (cell.isSuit ? "suit cell" : cell.stored.partName),
-                "KhemistryKerbal/ShowPartSelectorForTake");
-            var shared = KShared.Instance;
-            string currentResource = ReadCellResourceName(cell);
-            float currentAmount = ReadCellResourceAmount(cell);
-            float maxAmount = ReadCellMaxAmount(cell);
-            float range = ReadCellTransferDistance(cell);
-            HashSet<string> allowed = ReadCellAllowedResources(cell);
+            if (cell.isSuit) { ShowSuitCellPartSelectorForTake(); return; }
+            KShared.Instance.Log("Called!", "KhemistryKerbal/ShowPartSelectorForTake");
+
+            string currentResource = ReadResourceName(cell.stored);
+            float currentAmount = ReadResourceAmount(cell.stored);
+            float maxAmount = ReadMaxAmount(cell.stored.partName);
+            float range = ReadTransferDistance(cell.stored.partName);
+            HashSet<string> allowed = ReadAllowedResources(cell.stored.partName);
 
             if (currentAmount >= maxAmount)
             {
@@ -3416,18 +3777,18 @@ MODULE
                     if (!string.IsNullOrEmpty(currentResource) && pr.resourceName != currentResource) continue;
                     if (string.IsNullOrEmpty(currentResource) && allowed.Count > 0
                         && !allowed.Contains(pr.resourceName)) continue;
-
-                    string label = string.Format("{0} / {1}  ({2}: {3:F1} kg)",
+                    string lbl = string.Format("{0} / {1}  ({2}: {3:F1} kg)",
                         p.vessel.vesselName, p.partInfo.title, pr.resourceName, pr.amount);
-                    if (!optionParts.ContainsKey(label))
+                    if (!optionParts.ContainsKey(lbl))
                     {
-                        optionParts.Add(label, p);
-                        optionResources.Add(label, pr.resourceName);
+                        optionParts.Add(lbl, p);
+                        optionResources.Add(lbl, pr.resourceName);
                     }
                 }
 
             if (optionParts.Count == 0)
             {
+                KShared.Instance.Log("No nearby parts with resource "+currentResource+" were detected.", "KhemistryKerbal/ShowPartSelectorForTake");
                 string msg = string.IsNullOrEmpty(currentResource)
                     ? "No allowed resources found within range."
                     : "No nearby parts have " + currentResource + ".";
@@ -3435,7 +3796,8 @@ MODULE
                 return;
             }
 
-            shared.ShowSelector("Take resources from...", optionParts.Keys.ToList(), label =>
+            KShared.Instance.Log("Calling ShowSelector to take resources from a part.", "KhemistryKerbal/ShowPartSelectorForTake");
+            KShared.Instance.ShowSelector("Take resources from...", optionParts.Keys.ToList(), label =>
             {
                 Part source = optionParts[label];
                 string resourceName = optionResources[label];
@@ -3443,17 +3805,85 @@ MODULE
                 if (def == null) return;
                 PartResource sourceResource = source.Resources.Get(def.id);
                 if (sourceResource == null) return;
+                float maxTake = (float)Math.Min(sourceResource.amount, spaceRemaining);
 
-                double taken = Math.Min(sourceResource.amount, spaceRemaining);
-                sourceResource.amount -= taken;
-                WriteCellResourceName(cell, resourceName);
-                WriteCellResourceAmount(cell, currentAmount + (float)taken);
+                KShared.Instance.Log("Calling ShowAmountSelector to get exact amount.", "KhemistryKerbal/ShowPartSelectorForTake");
+                KShared.Instance.ShowAmountSelector(
+                    string.Format("How much {0} to take?", resourceName),
+                    0f, maxTake, maxTake, amount =>
+                    {
+                        double taken = Math.Min(amount, maxTake);
+                        if (taken <= 0.0) return;
+                        sourceResource.amount -= taken;
+                        WriteResourceName(cell.stored, resourceName);
+                        WriteResourceAmount(cell.stored, currentAmount + (float)taken);
+                        ScreenMessages.PostScreenMessage(new ScreenMessage(
+                            string.Format("Received {0:F2} kg of {1}.", taken, resourceName),
+                            5.0f, ScreenMessageStyle.UPPER_CENTER));
+                    });
+            });
+        }
 
-                shared.Log(taken + " of " + resourceName + " taken from " + source.partInfo.title,
-                    "KhemistryKerbal/ShowPartSelectorForTake");
+        private void ShowSuitCellPartSelectorForTake()
+        {
+            KShared.Instance.Log("Called!", "KhemistryKerbal/ShowSuitCellPartSelectorForTake");
+            var dict = GetSuitCellDict();
+            double currentTotal = KhemistryEVACombinedProcessor.GetTotal(dict);
+            double spaceRemaining = _suitCellMaxAmount - currentTotal;
+
+            if (spaceRemaining <= 0.0)
+            {
+                KShared.Instance.Log("Unable to take resources: suit cell is full.", "KhemistryKerbal/ShowSuitCellPartSelectorForTake");
                 ScreenMessages.PostScreenMessage(new ScreenMessage(
-                    string.Format("Received {0:F2} kg of {1}.", taken, resourceName),
-                    5.0f, ScreenMessageStyle.UPPER_CENTER));
+                    "Suit cell is full.", 5f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+
+            var options = new Dictionary<string, (Part part, PartResource resource)>();
+            foreach (Part p in GetPartsInRange(_suitCellTransferDistance))
+                foreach (PartResource pr in p.Resources)
+                {
+                    if (pr.amount <= 0.0) continue;
+                    if (_suitCellAllowedResources.Count > 0
+                        && !_suitCellAllowedResources.Contains(pr.resourceName)) continue;
+                    string lbl = string.Format("{0} / {1}  ({2}: {3:F2})",
+                        p.vessel.vesselName, p.partInfo.title, pr.resourceName, pr.amount);
+                    if (!options.ContainsKey(lbl))
+                        options.Add(lbl, (p, pr));
+                }
+
+            if (options.Count == 0)
+            {
+                KShared.Instance.Log("No nearby parts have any of the allowed resources.", "KhemistryKerbal/ShowSuitCellPartSelectorForTake");
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "No nearby parts have allowed resources.", 5f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+
+            KShared.Instance.Log("Calling ShowSelector to take resources from a part.", "KhemistryKerbal/ShowSuitCellPartSelectorForTake");
+            KShared.Instance.ShowSelector("Take from...", new List<string>(options.Keys), label =>
+            {
+                var (sourcePart, sourceResource) = options[label];
+                string resourceName = sourceResource.resourceName;
+                float maxTake = (float)Math.Min(sourceResource.amount, spaceRemaining);
+
+                KShared.Instance.Log("Calling ShowAmountSelector to get exact amount.", "KhemistryKerbal/ShowSuitCellPartSelectorForTake");
+                KShared.Instance.ShowAmountSelector(
+                    string.Format("How much {0} to take?", resourceName),
+                    0f, maxTake, maxTake, amount =>
+                    {
+                        double taken = Math.Min((double)amount, maxTake);
+                        if (taken <= 0.0) return;
+                        sourceResource.amount -= taken;
+                        var d = GetSuitCellDict();
+                        double existing;
+                        d.TryGetValue(resourceName, out existing);
+                        d[resourceName] = existing + taken;
+                        SetSuitCellFromDict(d);
+                        ScreenMessages.PostScreenMessage(new ScreenMessage(
+                            string.Format("Received {0:F2} of {1}.", taken, resourceName),
+                            5f, ScreenMessageStyle.UPPER_CENTER));
+                    });
             });
         }
 
@@ -3511,6 +3941,7 @@ MODULE
                   externalToEVAOnly = true, guiActiveUnfocused = false, unfocusedRange = 10f)]
         public void EVAUseProcessor()
         {
+            KShared.Instance.Log("Called! (Use Held Processor button)", "KhemistryKerbal/EVAUseProcessor");
             var shared = KShared.Instance;
             if (shared == null) return;
 
@@ -3773,6 +4204,81 @@ MODULE
                         string.Format("Processor sent {0:F4} of {1} to {2}.",
                             pushed, resourceName, target.partInfo.title),
                         "KhemistryKerbal/ProcessorTransferOut");
+                    ScreenMessages.PostScreenMessage(new ScreenMessage(
+                        string.Format("Transferred {0:F2} of {1}.", pushed, resourceName),
+                        5f, ScreenMessageStyle.UPPER_CENTER));
+                });
+        }
+        private void ShowSuitCellPartSelectorForSend()
+        {
+            var dict = GetSuitCellDict();
+            if (dict.Count == 0)
+            {
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "Suit cell is empty.", 5f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+
+            if (dict.Count == 1)
+            {
+                foreach (var kvp in dict) { ShowSuitCellSendTargets(kvp.Key, kvp.Value); return; }
+            }
+
+            var labels = new List<string>();
+            var keys = new List<string>();
+            var amounts = new List<double>();
+            foreach (var kvp in dict)
+            {
+                labels.Add(string.Format("{0}: {1:F2}", kvp.Key, kvp.Value));
+                keys.Add(kvp.Key);
+                amounts.Add(kvp.Value);
+            }
+
+            KShared.Instance.ShowSelector("Which resource to send?", labels, label =>
+            {
+                int idx = labels.IndexOf(label);
+                if (idx >= 0) ShowSuitCellSendTargets(keys[idx], amounts[idx]);
+            });
+        }
+
+        private void ShowSuitCellSendTargets(string resourceName, double resourceAmount)
+        {
+            var options = new Dictionary<string, Part>();
+            foreach (Part p in GetPartsInRange(_suitCellTransferDistance))
+                foreach (PartResource pr in p.Resources)
+                {
+                    if (pr.resourceName != resourceName) continue;
+                    if (pr.amount >= pr.maxAmount) continue;
+                    string lbl = string.Format("{0} / {1}  (space: {2:F1})",
+                        p.vessel.vesselName, p.partInfo.title, pr.maxAmount - pr.amount);
+                    if (!options.ContainsKey(lbl)) options.Add(lbl, p);
+                }
+
+            if (options.Count == 0)
+            {
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "No nearby parts can accept " + resourceName + ".", 5f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+
+            KShared.Instance.ShowSelector("Send " + resourceName + " to...",
+                new List<string>(options.Keys), label =>
+                {
+                    Part target = options[label];
+                    var def = PartResourceLibrary.Instance.GetDefinition(resourceName);
+                    if (def == null) return;
+                    PartResource targetResource = target.Resources.Get(def.id);
+                    if (targetResource == null) return;
+                    double space = targetResource.maxAmount - targetResource.amount;
+                    double pushed = Math.Min(resourceAmount, space);
+                    targetResource.amount += pushed;
+                    var d = GetSuitCellDict();
+                    double existing;
+                    d.TryGetValue(resourceName, out existing);
+                    double remaining = existing - pushed;
+                    if (remaining < 1e-9) d.Remove(resourceName);
+                    else d[resourceName] = remaining;
+                    SetSuitCellFromDict(d);
                     ScreenMessages.PostScreenMessage(new ScreenMessage(
                         string.Format("Transferred {0:F2} of {1}.", pushed, resourceName),
                         5f, ScreenMessageStyle.UPPER_CENTER));
