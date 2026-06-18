@@ -77,6 +77,56 @@ MODULE
     }
 }
 */
+/* Sample config for advanced ISRU (normal/EVA):
+MODULE
+{
+    name = KhemistryAdvancedISRU
+    ConverterName = Collect Earth Air             // Converter name, must be unique
+    StartActionName = Start collecting Earth Air  // Button name for starting the converter
+    StopActionName = Stop collecting Earth Air    // Button name for stopping the converter
+    planetCondition = Earth                       // Converter can only operate on this planet. Do not include if can work anywhere
+    biomeCondition = Cool Deserts                 // Converter can only operate in this biome. Do not include if no planetCondition or can work anywhere on that planet
+    altitudeMaxCondition = 10000                  // Maximum altitude from sea level this ISRU can operate at. Requires altitudeMinCondition, do not include if no altitude restrictions
+    altitudeMinCondition = 0                      // Minimum altitude from sea level this ISRU can operate at. Requires altitudeMaxCondition, do not include if no altitude restrictions
+    situationCondition = Landed                   // Converter can only operate in this situation. Possible values are Landed, Splashed, FlyingLow, FlyingHigh, SpaceLow, SpaceHigh, SubOrbital. Do not include the value to ignore this condition.
+    depositCondition = GSOre                      // Converter can only operate when over this deposit. Should be the resource value of a surface deposit.
+    powerfailResource = LVEnergy                  // If this resource runs out, the part will powerfail. Must be an INPUT_RESOURCE. Do not include to disable powerfails.
+    powerfailResult = EXPLODE,10                  // The result if a powerfail occurs. Can be "EXPLODE,n", "MAINT", or "STOP". Requires powerfailResource to be set and valid.
+                                                  // EXPLODE will explode the part with power n, MAINT will require an Engineer kerbal to come fix it, and STOP will just shut down the part.
+    manualOperation = true                        // false by default; enables manual cycle mode
+    manualRequiresStartup = false                 // true by default; if false, no Start/Stop, just Execute Cycle
+    startStopShowRules = EVA+PAW                  // "PAW" default; controls Start/Stop button visibility
+    manualShowRules = EVA                         // "PAW" default; controls Execute Cycle button visibility
+    maxInteractionDistance = 5.0                  // 10.0 default; applies to all EVA-visible buttons
+    recipeGroup = myGroup                         // null by default; enforces one-active-at-a-time per group. If null, the converter does not have a group.
+
+    INPUT_RESOURCE
+    {
+        ResourceName = LVEnergy
+        Ratio = 2
+        FlowMode = STAGE_PRIORITY_FLOW
+    }
+    OUTPUT_RESOURCE
+    {
+        ResourceName = EarthAir
+        Ratio = 1
+        DumpExcess = false
+    }
+
+    chargingRequired = true    // Does the converter need to be charged to be used
+	chargeRate = 50.0          // Percent per second to fill charge (50 = 2 seconds to full). Not required if charging is disabled
+	chargeDecayRate = 5.0      // Percent per second to lose charge when storage can no longer charge. Not required if charging is disabled
+
+	CHARGE_CON_NAMES           // Resources used for charge consumption. Not required if charging is disabled
+	{
+		name = ElectricCharge
+	}
+	CHARGE_CON_AMOUNTS         // Amount of each resource used for charge consumption (per second). Not required if charging is disabled
+	{
+		amount = 5.0
+	}
+}
+*/
 
 namespace Khemistry
 {
@@ -2126,43 +2176,6 @@ MODULE
         }
     }
     // Advanced ISRU module with a variety of features
-    /* Sample config:
-MODULE
-{
-    name = KhemistryAdvancedISRU
-    ConverterName = Collect Earth Air             // Converter name, must be unique
-    StartActionName = Start collecting Earth Air  // Button name for starting the converter
-    StopActionName = Stop collecting Earth Air    // Button name for stopping the converter
-    planetCondition = Earth                       // Converter can only operate on this planet. Do not include if can work anywhere
-    biomeCondition = Cool Deserts                 // Converter can only operate in this biome. Do not include if no planetCondition or can work anywhere on that planet
-    altitudeMaxCondition = 10000                  // Maximum altitude from sea level this ISRU can operate at. Requires altitudeMinCondition, do not include if no altitude restrictions
-    altitudeMinCondition = 0                      // Minimum altitude from sea level this ISRU can operate at. Requires altitudeMaxCondition, do not include if no altitude restrictions
-    situationCondition = Landed                   // Converter can only operate in this situation. Possible values are Landed, Splashed, FlyingLow, FlyingHigh, SpaceLow, SpaceHigh, SubOrbital. Do not include the value to ignore this condition.
-    depositCondition = GSOre                      // Converter can only operate when over this deposit. Should be the resource value of a surface deposit.
-    powerfailResource = LVEnergy                  // If this resource runs out, the part will powerfail. Must be an INPUT_RESOURCE. Do not include to disable powerfails.
-    powerfailResult = EXPLODE,10                  // The result if a powerfail occurs. Can be "EXPLODE,n", "MAINT", or "STOP". Requires powerfailResource to be set and valid.
-                                                  // EXPLODE will explode the part with power n, MAINT will require an Engineer kerbal to come fix it, and STOP will just shut down the part.
-    manualOperation = true                        // false by default; enables manual cycle mode
-    manualRequiresStartup = false                 // true by default; if false, no Start/Stop, just Execute Cycle
-    startStopShowRules = EVA+PAW                  // "PAW" default; controls Start/Stop button visibility
-    manualShowRules = EVA                         // "PAW" default; controls Execute Cycle button visibility
-    maxInteractionDistance = 5.0                  // 10.0 default; applies to all EVA-visible buttons
-    recipeGroup = myGroup                         // null by default; enforces one-active-at-a-time per group. If null, the converter does not have a group.
-
-    INPUT_RESOURCE
-    {
-        ResourceName = LVEnergy
-        Ratio = 2
-        FlowMode = STAGE_PRIORITY_FLOW
-    }
-    OUTPUT_RESOURCE
-    {
-        ResourceName = EarthAir
-        Ratio = 1
-        DumpExcess = false
-    }
-}
-    */
     // ── Base class ─────────────────────────────────────────────────────────────────
     // Contains all shared config, cycle logic, and helpers.
     // KhemistryAdvancedISRU and KhemistryEVAAdvancedISRU both extend this.
@@ -2176,6 +2189,72 @@ MODULE
         [KSPField(isPersistant = false)] public string StartActionName = "Start Converter";
         [KSPField(isPersistant = false)] public string StopActionName = "Stop Converter";
 
+        // -- Charging stuff --
+
+        [KSPField(isPersistant = false)]
+        public bool chargingRequired = false;
+
+        [KSPField(isPersistant = false)]
+        public float chargeRate = 0f;           // percent per second
+
+        [KSPField(isPersistant = false)]
+        public float chargeDecayRate = 0f;      // percent per second
+
+        private readonly List<string> _chargeNames = new List<string>();
+        private readonly List<float> _chargeAmounts = new List<float>();
+
+        public enum ConverterState { Off, Charging, On }
+
+        [KSPField(isPersistant = true)]
+        public float chargePercent = 0f;
+
+        [KSPField(isPersistant = true)]
+        public ConverterState state = ConverterState.Off;
+
+        // ── UI Events ──────────────────────────────────────────────────────────────
+
+        [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Enable Charging",
+                  groupName = "khemistryisru")]
+        public void EnableCharging()
+        {
+            if (!chargingRequired) return;
+            if (state == ConverterState.On) return;
+            state = ConverterState.Charging;
+            KShared.Instance?.Log("Charging enabled.", "KhemistryAdvancedISRUBase/EnableCharging");
+        }
+
+        [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Disable Charging",
+                  groupName = "khemistryisru", active = false)]
+        public void DisableCharging()
+        {
+            if (!chargingRequired) return;
+            if (state != ConverterState.Charging) return;
+            state = ConverterState.Off;
+            KShared.Instance?.Log("Charging disabled.", "KhemistryAdvancedISRUBase/DisableCharging");
+        }
+
+        [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Prepare converter",
+                  groupName = "khemistryisru", active = false)]
+        public void TurnOnContainer()
+        {
+            if (chargingRequired && chargePercent < 100f)
+            {
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "Converter must be fully charged before turning on.", 5f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+            state = ConverterState.On;
+            KShared.Instance?.Log("Converter turned ON.", "KhemistryAdvancedISRUBase/TurnOnContainer");
+        }
+
+        [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Turn off converter",
+                  groupName = "khemistryadvstorage", active = false)]
+        public void TurnOffContainer()
+        {
+            state = ConverterState.Off;
+            KShared.Instance?.Log("Converter turned OFF.", "KhemistryAdvancedISRUBase/TurnOffContainer");
+        }
+
         // ── Persistent state ───────────────────────────────────────────────────────
 
         [KSPField(isPersistant = true)] public bool isRunning = false;
@@ -2187,6 +2266,14 @@ MODULE
                   guiName = "Status", groupName = "khemistryisru",
                   groupDisplayName = "Khemistry ISRU", groupStartCollapsed = false)]
         public string statusDisplay = "Stopped";
+
+        [KSPField(isPersistant = false, guiActive = true, guiActiveEditor = false,
+                  guiName = "Charge", groupName = "khemistryisru")]
+        public string chargeDisplay = "Charge: N/A";
+
+        [KSPField(isPersistant = false, guiActive = true, guiActiveEditor = false,
+                  guiName = "State", groupName = "khemistryisru")]
+        public string stateDisplay = "State: Off";
 
         // ── Internal data structures ───────────────────────────────────────────────
 
@@ -2512,6 +2599,30 @@ MODULE
             // depositCondition
             _depositCondition = NullIfEmpty(moduleNode.GetValue("depositCondition"));
 
+            // charging
+            float tmp;
+            if (float.TryParse(moduleNode.GetValue("chargeRate"), out tmp)) chargeRate = tmp;
+            if (float.TryParse(moduleNode.GetValue("chargeDecayRate"), out tmp)) chargeDecayRate = tmp;
+
+            bool tmp2;
+            if (bool.TryParse(moduleNode.GetValue("chargingRequired"), out tmp2)) chargingRequired = tmp2;
+            
+            // CHARGE_CON_NAMES / CHARGE_CON_AMOUNTS
+            _chargeNames.Clear();
+            _chargeAmounts.Clear();
+            if (chargingRequired)
+            {
+                if (moduleNode.HasNode("CHARGE_CON_NAMES"))
+                    foreach (string n in moduleNode.GetNode("CHARGE_CON_NAMES").GetValues("name"))
+                        _chargeNames.Add(n.Trim());
+                if (moduleNode.HasNode("CHARGE_CON_AMOUNTS"))
+                    foreach (string a in moduleNode.GetNode("CHARGE_CON_AMOUNTS").GetValues("amount"))
+                    { if (float.TryParse(a, out tmp)) _chargeAmounts.Add(tmp); }
+                if (_chargeNames.Count != _chargeAmounts.Count)
+                    KShared.Instance?.LogError("CHARGE_CON_NAMES and CHARGE_CON_AMOUNTS length mismatch.",
+                        "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
+            }
+
             // powerfailResource / powerfailResult
             _powerfailResource = null;
             _powerfailResult = PowerfailResult.None;
@@ -2611,6 +2722,120 @@ MODULE
                     ConverterName, _inputs.Count, _outputs.Count,
                     _manualOperation, _manualRequiresStartup, _recipeGroup ?? "none"),
                 moduleName + "/LoadSharedConfig");
+        }
+
+        // Charging helper
+        /// <summary>
+        /// Pulls the given resources from the vessel network. Returns true only if every
+        /// resource was fully satisfied. Refunds all pulled resources if any fall short
+        /// (all-or-nothing semantics).
+        /// </summary>
+        private bool ConsumeVesselResources(List<string> names, List<float> amounts, double dt)
+        {
+            if (names.Count == 0 || amounts.Count == 0) return true;
+            if (names.Count != amounts.Count) return false;
+
+            var pulled = new List<double>(names.Count);
+            bool allSatisfied = true;
+
+            for (int i = 0; i < names.Count; i++)
+            {
+                float rate = amounts[i];
+                if (rate <= 0f) { pulled.Add(0.0); continue; }
+
+                var def = PartResourceLibrary.Instance.GetDefinition(names[i]);
+                if (def == null)
+                {
+                    KShared.Instance?.LogError("Unknown resource \"" + names[i] + "\" in consumption list.",
+                        "KhemistryAdvancedStorage/ConsumeVesselResources");
+                    pulled.Add(0.0);
+                    allSatisfied = false;
+                    continue;
+                }
+
+                double needed = rate * dt;
+                double got = part.RequestResource(names[i], needed);
+                pulled.Add(got);
+
+                // Allow a small tolerance (0.1% of needed)
+                if (got < needed * 0.999)
+                    allSatisfied = false;
+            }
+
+            if (!allSatisfied)
+            {
+                // Refund everything that was pulled
+                for (int i = 0; i < names.Count; i++)
+                    if (pulled[i] > 0.0)
+                        part.RequestResource(names[i], -pulled[i]);
+                return false;
+            }
+
+            return true;
+        }
+
+        // ── UI updates ─────────────────────────────────────────────────────────────
+
+        public void UpdateUI()
+        {
+            chargeDisplay = chargingRequired
+                ? string.Format("Charge: {0:F1}%", chargePercent)
+                : "Charge: N/A";
+
+            if(state == ConverterState.On)
+                stateDisplay = "State: Ready";
+            else
+                stateDisplay = "State: " + state.ToString();
+
+            Events["EnableCharging"].active = chargingRequired && state != ConverterState.Charging && state != ConverterState.On;
+            Events["DisableCharging"].active = chargingRequired && state == ConverterState.Charging;
+            Events["TurnOnContainer"].active = state != ConverterState.On;
+            Events["TurnOffContainer"].active = state == ConverterState.On;
+        }
+
+        // Charging
+        public void HandleCharging(double dt)
+        {
+            if (!chargingRequired) return;
+
+            if (state == ConverterState.Off)
+            {
+                // Container is off — charge decays passively
+                if (chargeDecayRate > 0f)
+                {
+                    chargePercent -= chargeDecayRate * (float)dt;
+                    if (chargePercent < 0f) chargePercent = 0f;
+                }
+                return;
+            }
+
+            if (state != ConverterState.Charging) return;
+
+            // Already full — flip to On
+            if (chargePercent >= 100f)
+            {
+                chargePercent = 100f;
+                state = ConverterState.On;
+                KShared.Instance?.Log("Container fully charged, now ON.",
+                    "KhemistryAdvancedStorage/HandleCharging");
+                return;
+            }
+
+            bool satisfied = ConsumeVesselResources(_chargeNames, _chargeAmounts, dt);
+            if (satisfied)
+            {
+                chargePercent += chargeRate * (float)dt;
+                if (chargePercent > 100f) chargePercent = 100f;
+            }
+            else
+            {
+                // Can't get charge resources — decay if configured
+                if (chargeDecayRate > 0f)
+                {
+                    chargePercent -= chargeDecayRate * (float)dt;
+                    if (chargePercent < 0f) chargePercent = 0f;
+                }
+            }
         }
 
         // ── Shared cycle logic ─────────────────────────────────────────────────────
@@ -3025,6 +3250,9 @@ MODULE
             Events["ExecuteCycle"].unfocusedRange = _maxInteractionDistance;
             Events["PerformMaintenance"].unfocusedRange = _maxInteractionDistance;
 
+            if (!chargingRequired)  // This avoids unchargable parts trying to require charging
+                this.state = ConverterState.On;
+
             SetupActiveAnimation();
 
             UpdateEventVisibility();
@@ -3038,6 +3266,9 @@ MODULE
 
             double dt = TimeWarp.fixedDeltaTime;
             _outputWarnCooldown = Math.Max(0.0, _outputWarnCooldown - dt);
+
+            HandleCharging(dt);
+            UpdateUI();
 
             if (_manualOperation)
             {
@@ -3056,9 +3287,15 @@ MODULE
                 return;
             }
 
+            if (state != ConverterState.On)
+            {
+                statusDisplay = "Not ready";
+                return;
+            }
+
             RunOneCycle(part, dt);
             UpdateEventVisibility();
-            SetActiveAnimationPlaying(isRunning);  // was IsCurrentlyActive, may need to change this
+            SetActiveAnimationPlaying(isRunning);
         }
 
         // ── Events ─────────────────────────────────────────────────────────────────
@@ -3075,6 +3312,7 @@ MODULE
                 return;
             }
             if (!CheckRecipeGroup(part)) return;
+            if (state != ConverterState.On) return;
             isRunning = true;
             KShared.Instance?.Log("Converter \"" + _displayName + "\" started.", "KhemistryAdvancedISRU/StartConverter");
             UpdateEventVisibility();
