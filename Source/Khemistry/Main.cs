@@ -1,8 +1,11 @@
+using CommNet.Network;
 using KSP.UI.Screens;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.Eventing.Reader;
 using System.Linq;
 using UnityEngine;
+using static PartResource;
 
 // NOTES:
 // Deposit generation does not save biomes as they aren't needed anywhere other than placing the deposit at the correct position
@@ -75,6 +78,16 @@ MODULE
         Ratio = 2
         FlowMode = STAGE_PRIORITY_FLOW
     }
+    RECIPES                             // List of recipes to import with type recipeType (optional)
+    {
+        name = Electrolyze Sea Water    // Use name values to specify which recipes are imported, checks based on ConverterName
+        name = Electrolyze Ocean Water
+    }
+    RECIPE_MULTIPLIERS                  // Multiplies each imported recipe by an amount (optional, if included will require RECIPES)
+    {                                   // Each amount value corresponds with each name value in RECIPES and multiplies that recipe.
+        amount = 10                     // Even if you want to import all recipes of that type, you will have to put them all into RECIPES first.
+        amount = 5
+    }
 }
 */
 /* Sample config for advanced ISRU (normal/EVA):
@@ -145,7 +158,7 @@ namespace Khemistry
         {
             return (float)KShared.LatLonDistanceMeters(position[0], position[1], lat, lon, planet);
         }
-        public bool isInsideDeposit(float lat, float lon) => distanceFromDeposit(lat,lon) <= radius;
+        public bool isInsideDeposit(float lat, float lon) => distanceFromDeposit(lat, lon) <= radius;
     }
     // Stores underground deposit data
     public class KhemistryUDeposit : KhemistryDeposit
@@ -155,7 +168,7 @@ namespace Khemistry
         // Helper function to see if inside the deposit based on depth, depth is in meters
         public bool isDepthInsideDeposit(float depth2) => depth2 > depthStart && depth2 < depthStart + depth;
 
-        public KhemistryUDeposit(KShared kinst, string planet, string requiredBiome, float depthStart, float depth, string resource, float minRadius, float maxRadius, float latOverride=-12345, float lonOverride = -12345)
+        public KhemistryUDeposit(KShared kinst, string planet, string requiredBiome, float depthStart, float depth, string resource, float minRadius, float maxRadius, float latOverride = -12345, float lonOverride = -12345)
         {
             // Set values to make sure everything works
             this.planet = planet;
@@ -197,7 +210,7 @@ namespace Khemistry
     public class KhemistryGDeposit : KhemistryDeposit
     {
         public KhemistryUDeposit pairGDeposit { get; set; }  // Underground deposit right under the surface one
-        
+
         // Helper function to see if inside the deposit based on depth, depth is in meters
         // Using -1 to make sure 0 works
         public bool isDepthInsideDeposit(float depth2) => depth2 > -1 && depth2 < depth;
@@ -227,7 +240,7 @@ namespace Khemistry
             // Create the underground pair of the surface deposit, giving it the counterpart resource and overriding the position to the surface deposit's position
             // The biome is not passed here because the override will ignore it anyway
             // If resource2 is null, the deposit is considered "surfaceOnly" and the underground deposit won't be created
-            if(resource2 != null)
+            if (resource2 != null)
                 pairGDeposit = new KhemistryUDeposit(kinst, planet, null, depth, underDepth, resource2, position[0], position[1]);
         }
     }
@@ -243,64 +256,71 @@ namespace Khemistry
 
         // ── Internal data structures ───────────────────────────────────────────────
 
-        protected struct ResourceInput
+        public struct ResourceInput
         {
             public string resourceName;
             public double ratio;
             public ResourceFlowMode flowMode;
         }
 
-        protected struct ResourceOutput
+        public struct ResourceOutput
         {
             public string resourceName;
             public double ratio;
             public bool dumpExcess;
         }
 
-        protected enum SituationCondition
+        public enum SituationCondition
         {
             Any, Landed, Splashed, FlyingLow, FlyingHigh, SpaceLow, SpaceHigh, SubOrbital
         }
 
-        protected enum PowerfailResult { None, Stop, Explode, Maint }
+        public enum PowerfailResult { None, Stop, Explode, Maint }
 
-        protected readonly List<ResourceInput> _inputs = new List<ResourceInput>();
-        protected readonly List<ResourceOutput> _outputs = new List<ResourceOutput>();
+        public List<ResourceInput> _inputs = new List<ResourceInput>();
+        public List<ResourceOutput> _outputs = new List<ResourceOutput>();
 
         // Conditions
-        protected string _planetCondition = null;
-        protected string _biomeCondition = null;
-        protected double _altMin = double.MinValue;
-        protected double _altMax = double.MaxValue;
-        protected SituationCondition _situationCondition = SituationCondition.Any;
-        protected string _depositCondition = null;
+        public string _planetCondition = null;
+        public string _biomeCondition = null;
+        public double _altMin = double.MinValue;
+        public double _altMax = double.MaxValue;
+        public SituationCondition _situationCondition = SituationCondition.Any;
+        public string _depositCondition = null;
 
         // Powerfail
-        protected string _powerfailResource = null;
-        protected PowerfailResult _powerfailResult = PowerfailResult.None;
-        protected float _powerfailExplosionPower = 0f;
+        public string _powerfailResource = null;
+        public PowerfailResult _powerfailResult = PowerfailResult.None;
+        public float _powerfailExplosionPower = 0f;
 
         // Manual operation config
-        protected bool _manualOperation = false;
-        protected bool _manualRequiresStartup = true;
+        public bool _manualOperation = false;
+        public bool _manualRequiresStartup = true;
 
         // Show rules
-        protected bool _startStopShowPAW = true;
-        protected bool _startStopShowEVA = false;
-        protected bool _manualShowPAW = true;
-        protected bool _manualShowEVA = false;
+        public bool _startStopShowPAW = true;
+        public bool _startStopShowEVA = false;
+        public bool _manualShowPAW = true;
+        public bool _manualShowEVA = false;
 
         // Interaction distance
-        protected float _maxInteractionDistance = 10f;
+        public float _maxInteractionDistance = 10f;
 
-        // Recipe group
-        protected string _recipeGroup = null;
+        // Recipe group (currently unused by KhemistryAdvancedRecipeISRU — kept for future GUI use)
+        public string _recipeGroup = null;
+
+        // Charging (only meaningful if a KhemistryAdvancedRecipeISRU does not override these)
+        public bool chargingRequired = false;
+        public float chargeRate = 0f;
+        public float chargeDecayRate = 0f;
+        public readonly List<string> ChargeNames = new List<string>();
+        public readonly List<float> ChargeAmounts = new List<float>();
 
         public KhemistryRecipe(ConfigNode node)
         {
             ConverterName = KShared.getStrValueFromCFG(node, "ConverterName", "Converter");
-            StartActionName = KShared.getStrValueFromCFG(node, "StartActionName", "Start Converter");
-            StopActionName = KShared.getStrValueFromCFG(node, "StopActionName", "Stop Converter");
+            StartActionName = KShared.getStrValueFromCFG(node, "StartActionName", null);
+            StopActionName = KShared.getStrValueFromCFG(node, "StopActionName", null);
             _planetCondition = KShared.getStrValueFromCFG(node, "planetCondition", null);
             _biomeCondition = KShared.getStrValueFromCFG(node, "biomeCondition", null);
             _altMin = KShared.getFloatValueFromCFG(node, "altitudeMinCondition", (float)double.MinValue);
@@ -322,6 +342,78 @@ namespace Khemistry
 
             // depositCondition
             _depositCondition = KShared.getStrValueFromCFG(node, "depositCondition", null);
+
+            // manualOperation / manualRequiresStartup
+            _manualOperation = false;
+            _manualRequiresStartup = true;
+            bool tmpB;
+            if (bool.TryParse(KShared.getStrValueFromCFG(node, "manualOperation", "false"), out tmpB))
+                _manualOperation = tmpB;
+            if (bool.TryParse(KShared.getStrValueFromCFG(node, "manualRequiresStartup", "true"), out tmpB))
+                _manualRequiresStartup = tmpB;
+
+            // startStopShowRules / manualShowRules
+            KShared.ParseShowRule(
+                KShared.getStrValueFromCFG(node, "startStopShowRules", "PAW"),
+                out _startStopShowPAW, out _startStopShowEVA, "startStopShowRules");
+
+            KShared.ParseShowRule(
+                KShared.getStrValueFromCFG(node, "manualShowRules", "PAW"),
+                out _manualShowPAW, out _manualShowEVA, "manualShowRules");
+
+            // maxInteractionDistance
+            _maxInteractionDistance = 10f;
+            float distTmp;
+            if (float.TryParse(node.GetValue("maxInteractionDistance"), out distTmp))
+                _maxInteractionDistance = distTmp;
+
+            // recipeGroup
+            _recipeGroup = KShared.getStrValueFromCFG(node, "recipeGroup", null);
+
+            // INPUT_RESOURCE nodes
+            foreach (ConfigNode inputNode in node.GetNodes("INPUT_RESOURCE"))
+            {
+                string resName = inputNode.GetValue("ResourceName");
+                if (string.IsNullOrEmpty(resName)) continue;
+
+                double ratio = 0.0;
+                double.TryParse(inputNode.GetValue("Ratio"), out ratio);
+
+                ResourceFlowMode flowMode = ResourceFlowMode.ALL_VESSEL;
+                string flowStr = inputNode.GetValue("FlowMode");
+                if (!string.IsNullOrEmpty(flowStr))
+                {
+                    ResourceFlowMode parsed;
+                    if (Enum.TryParse(flowStr.Trim(), true, out parsed))
+                        flowMode = parsed;
+                    else
+                        KShared.Instance?.LogError(
+                            "Recipe \"" + ConverterName + "\": Unknown FlowMode \"" + flowStr + "\" for " + resName + ", defaulting to ALL_VESSEL.",
+                            "KhemistryRecipe/constructor");
+                }
+
+                _inputs.Add(new ResourceInput { resourceName = resName, ratio = ratio, flowMode = flowMode });
+            }
+
+            // OUTPUT_RESOURCE nodes
+            foreach (ConfigNode outputNode in node.GetNodes("OUTPUT_RESOURCE"))
+            {
+                string resName = outputNode.GetValue("ResourceName");
+                if (string.IsNullOrEmpty(resName)) continue;
+
+                double ratio = 0.0;
+                double.TryParse(outputNode.GetValue("Ratio"), out ratio);
+
+                bool dumpExcess = false;
+                bool.TryParse(outputNode.GetValue("DumpExcess"), out dumpExcess);
+
+                _outputs.Add(new ResourceOutput { resourceName = resName, ratio = ratio, dumpExcess = dumpExcess });
+            }
+
+            if (_inputs.Count == 0 && _outputs.Count == 0)
+                KShared.Instance?.LogError(
+                    "Recipe \"" + ConverterName + "\" has no INPUT_RESOURCE or OUTPUT_RESOURCE nodes — it will do nothing.",
+                    "KhemistryRecipe/constructor");
 
             // powerfailResource / powerfailResult
             _powerfailResource = null;
@@ -382,32 +474,25 @@ namespace Khemistry
                 KShared.Instance?.LogError("powerfailResult set without powerfailResource — powerfailResult ignored.", "KhemistryRecipe/constructor");
             }
 
-            // manualOperation / manualRequiresStartup
-            _manualOperation = false;
-            _manualRequiresStartup = true;
-            bool tmpB;
-            if (bool.TryParse(KShared.getStrValueFromCFG(node, "manualOperation", "false"), out tmpB))
-                _manualOperation = tmpB;
-            if (bool.TryParse(KShared.getStrValueFromCFG(node, "manualRequiresStartup", "true"), out tmpB))
-                _manualRequiresStartup = tmpB;
+            // Charging (usually overridden wholesale by the owning KhemistryAdvancedRecipeISRU,
+            // but a recipe may define its own charge resource needs which get merged in)
+            if (bool.TryParse(KShared.getStrValueFromCFG(node, "chargingRequired", "false"), out tmpB))
+                chargingRequired = tmpB;
 
-            // startStopShowRules / manualShowRules
-            KShared.ParseShowRule(
-                KShared.getStrValueFromCFG(node, "startStopShowRules", "PAW"),
-                out _startStopShowPAW, out _startStopShowEVA, "startStopShowRules");
+            float chgTmp;
+            if (float.TryParse(node.GetValue("chargeRate"), out chgTmp)) chargeRate = chgTmp;
+            if (float.TryParse(node.GetValue("chargeDecayRate"), out chgTmp)) chargeDecayRate = chgTmp;
 
-            KShared.ParseShowRule(
-                KShared.getStrValueFromCFG(node, "manualShowRules", "PAW"),
-                out _manualShowPAW, out _manualShowEVA, "manualShowRules");
-
-            // maxInteractionDistance
-            _maxInteractionDistance = 10f;
-            float distTmp;
-            if (float.TryParse(node.GetValue("maxInteractionDistance"), out distTmp))
-                _maxInteractionDistance = distTmp;
-
-            // recipeGroup
-            _recipeGroup = KShared.getStrValueFromCFG(node, "recipeGroup", null);
+            if (node.HasNode("CHARGE_CON_NAMES"))
+                foreach (string n in node.GetNode("CHARGE_CON_NAMES").GetValues("name"))
+                    ChargeNames.Add(n.Trim());
+            if (node.HasNode("CHARGE_CON_AMOUNTS"))
+                foreach (string a in node.GetNode("CHARGE_CON_AMOUNTS").GetValues("amount"))
+                { float amtTmp; if (float.TryParse(a, out amtTmp)) ChargeAmounts.Add(amtTmp); }
+            if (ChargeNames.Count != ChargeAmounts.Count)
+                KShared.Instance?.LogError(
+                    "Recipe \"" + ConverterName + "\": CHARGE_CON_NAMES and CHARGE_CON_AMOUNTS length mismatch.",
+                    "KhemistryRecipe/constructor");
         }
     }
 
@@ -522,7 +607,7 @@ namespace Khemistry
                     continue;
                 }
                 string recipeT = node.GetValue("recipeType");
-                if (kinst.recipeDict.ContainsKey(recipeT))
+                if (!kinst.recipeDict.ContainsKey(recipeT))
                     kinst.recipeDict.Add(recipeT, new List<KhemistryRecipe>());
 
                 // Add recipe object
@@ -625,7 +710,7 @@ namespace Khemistry
         {
             return degrees * Math.PI / 180.0;
         }
-        
+
         // Helper functions to get all deposits at a point, depth is in meters
         public List<string> surfaceDepositsAtPoint(float lat, float lon, string body, float depth)
         {
@@ -654,7 +739,7 @@ namespace Khemistry
 
         // Show rules for converters and recipe
         public static void ParseShowRule(string raw, out bool showPAW, out bool showEVA,
-            string fieldName, string moduleName=null)
+            string fieldName, string moduleName = null)
         {
             string val = raw.Trim().Trim('"').ToUpper();
             switch (val)
@@ -667,7 +752,7 @@ namespace Khemistry
                 case "PAW+EVA":
                     showPAW = true; showEVA = true; break;
                 default:
-                    if(moduleName == null)
+                    if (moduleName == null)
                         Instance?.LogError("Unknown " + fieldName + " value \"" + raw + "\" — defaulting to PAW.", "KShared/ParseShowRule");
                     else
                         Instance?.LogError("Converter \"" + moduleName + "\": Unknown " + fieldName + " value \"" + raw + "\" — defaulting to PAW.", "KShared/ParseShowRule");
@@ -2200,8 +2285,8 @@ MODULE
         [KSPField(isPersistant = false)]
         public float chargeDecayRate = 0f;      // percent per second
 
-        private readonly List<string> _chargeNames = new List<string>();
-        private readonly List<float> _chargeAmounts = new List<float>();
+        protected readonly List<string> _chargeNames = new List<string>();
+        protected readonly List<float> _chargeAmounts = new List<float>();
 
         public enum ConverterState { Off, Charging, On }
 
@@ -2606,7 +2691,7 @@ MODULE
 
             bool tmp2;
             if (bool.TryParse(moduleNode.GetValue("chargingRequired"), out tmp2)) chargingRequired = tmp2;
-            
+
             // CHARGE_CON_NAMES / CHARGE_CON_AMOUNTS
             _chargeNames.Clear();
             _chargeAmounts.Clear();
@@ -2782,7 +2867,7 @@ MODULE
                 ? string.Format("Charge: {0:F1}%", chargePercent)
                 : "Charge: N/A";
 
-            if(state == ConverterState.On)
+            if (state == ConverterState.On)
                 stateDisplay = "State: Ready";
             else
                 stateDisplay = "State: " + state.ToString();
@@ -3419,10 +3504,806 @@ MODULE
         }
     }
 
-    // Uses KHEMISTRY_RECIPE recipes, see config at the top of source
-    public class KhemistryAdvancedRecipeISRU
+    // Uses KHEMISTRY_RECIPE recipes, see config at the top of source.
+    //
+    // The module's own MODULE config may define any field a normal KhemistryAdvancedISRU
+    // would (conditions, powerfail, manual operation, show rules,
+    // maxInteractionDistance, charging...). If present, that value overrides the same
+    // field on every loaded recipe wholesale. ConverterName, StartActionName, and
+    // StopActionName are NOT overridable — each recipe must define its own, since they
+    // exist specifically to differentiate between recipes. Two further exceptions:
+    //   - INPUT_RESOURCE / OUTPUT_RESOURCE nodes on the module are ADDED to whichever
+    //     recipe is active (after the recipe's own ratios have been scaled by
+    //     `multiplier`). If a module resource shares a ResourceName with one already
+    //     present on the recipe, the ratios are summed and FlowMode/DumpExcess are
+    //     taken from the module's entry.
+    //   - CHARGE_CON_NAMES / CHARGE_CON_AMOUNTS entries from the recipe and the module
+    //     are concatenated (recipe's first, then the module's). Duplicate names are
+    //     skipped (first occurrence wins) with a logged warning.
+    //
+    // The module can also have RECIPES and RECIPE_MULTIPLIERS nodes to only load
+    // specific recipes of type resourceType, as well as multiply the inputs and outputs
+    // of each by something. Both are optional, however if RECIPE_MULTIPLIERS is
+    // present, RECIPES must be too.
+    //
+    // Only one recipe runs at a time; recipeGroup is intentionally never read or
+    // checked, since recipes belonging to this module can never run concurrently.
+    public class KhemistryAdvancedRecipeISRU : KhemistryAdvancedISRUBase
     {
-        
+        [KSPField(isPersistant = false)]
+        public string recipeType = null;
+
+        [KSPField(isPersistant = false)]
+        public float multiplier = 1f;
+
+        [KSPField(isPersistant = true)]
+        public string activeRecipeName = null;
+
+        // List of allowed ConverterName of recipes and multipliers
+        public List<string> allowedRecipes = new List<string>();
+        public List<float> multiplierRecipes = new List<float>();
+
+        // Used only when no ModuleAnimationGroup is present on the part, or it has
+        // no activeAnimationName configured.
+        [KSPField(isPersistant = false)]
+        public string activeAnimationNameOverride = "";
+
+        private Animation _activeAnim;
+        private string _activeAnimationName;
+        private bool _animationPlaying = false;
+
+        private readonly List<KhemistryRecipe> _recipes = new List<KhemistryRecipe>();
+        private KhemistryRecipe _activeRecipe = null;
+
+        // ── Module-level overrides, captured in OnLoad ─────────────────────────────
+        // null/None means "not specified on the module — fall back to the recipe's value".
+
+        private string _ovPlanetCondition, _ovBiomeCondition, _ovDepositCondition;
+        private string _ovPowerfailResource, _ovPowerfailResultRaw;
+        private string _ovSituationConditionRaw;
+        private string _ovStartStopShowRulesRaw, _ovManualShowRulesRaw;
+        private double? _ovAltMin, _ovAltMax;
+        private float? _ovMaxInteractionDistance;
+        private bool? _ovManualOperation, _ovManualRequiresStartup, _ovChargingRequired;
+        private float? _ovChargeRate, _ovChargeDecayRate;
+
+        // The module's own extra resources/charge entries (always added, never an override)
+        private readonly List<ResourceInput> _extraInputs = new List<ResourceInput>();
+        private readonly List<ResourceOutput> _extraOutputs = new List<ResourceOutput>();
+        private readonly List<string> _ownChargeNames = new List<string>();
+        private readonly List<float> _ownChargeAmounts = new List<float>();
+
+        // ── Config loading (own module config — read directly from OnLoad's node,
+        //    same pattern as KhemistryFluidCell) ───────────────────────────────────
+
+        public override void OnLoad(ConfigNode node)
+        {
+            base.OnLoad(node);
+
+            recipeType = KShared.getStrValueFromCFG(node, "recipeType", recipeType);
+            multiplier = KShared.getFloatValueFromCFG(node, "multiplier", 1f);
+
+            if (node.HasNode("RECIPES"))
+            {
+                if (!node.GetNode("RECIPES").HasValue("name"))
+                    KShared.Instance?.LogError(
+                            "KhemistryAdvancedRecipeISRU: Node RECIPES is present but no \"name\" values inside, skipping node.",
+                            "KhemistryAdvancedRecipeISRU/OnLoad");
+                else
+                    allowedRecipes = node.GetNode("RECIPES").GetValues("name").ToList();
+                if (node.HasNode("RECIPE_MULTIPLIERS"))
+                {
+                    if (!node.GetNode("RECIPE_MULTIPLIERS").HasValue("amount"))
+                        KShared.Instance?.LogError(
+                                "KhemistryAdvancedRecipeISRU: Node RECIPE_MULTIPLIERS is present but no \"amount\" values inside, skipping node.",
+                                "KhemistryAdvancedRecipeISRU/OnLoad");
+                    else
+                    {
+                        multiplierRecipes.Clear();
+                        foreach(string recipe in node.GetNode("RECIPE_MULTIPLIERS").GetValues("amount"))
+                            multiplierRecipes.Add(float.Parse(recipe));
+                        if(allowedRecipes.Count != multiplierRecipes.Count)
+                        {
+                            KShared.Instance?.LogError(
+                                "KhemistryAdvancedRecipeISRU: RECIPE and RECIPE_MULTIPLIERS nodes have unequal amounts of \"name\" and \"amount\" values respectively ("+allowedRecipes.Count.ToString()+", "+multiplierRecipes.Count.ToString()+"), reverting to skip those nodes.",
+                                "KhemistryAdvancedRecipeISRU/OnLoad");
+                            allowedRecipes.Clear();
+                            multiplierRecipes.Clear();
+                        }
+                    }
+                }
+            }
+            else if (node.HasNode("RECIPE_MULTIPLIERS"))
+            {
+                KShared.Instance?.LogError(
+                            "KhemistryAdvancedRecipeISRU: Node RECIPE_MULTIPLIERS is present but no RECIPES node is present.",
+                            "KhemistryAdvancedRecipeISRU/OnLoad");
+            }
+
+            _ovPlanetCondition = KShared.getStrValueFromCFG(node, "planetCondition", null);
+            _ovBiomeCondition = KShared.getStrValueFromCFG(node, "biomeCondition", null);
+            _ovDepositCondition = KShared.getStrValueFromCFG(node, "depositCondition", null);
+            _ovPowerfailResource = KShared.getStrValueFromCFG(node, "powerfailResource", null);
+            _ovPowerfailResultRaw = KShared.getStrValueFromCFG(node, "powerfailResult", null);
+            _ovSituationConditionRaw = KShared.getStrValueFromCFG(node, "situationCondition", null);
+            _ovStartStopShowRulesRaw = KShared.getStrValueFromCFG(node, "startStopShowRules", null);
+            _ovManualShowRulesRaw = KShared.getStrValueFromCFG(node, "manualShowRules", null);
+
+            _ovAltMin = node.HasValue("altitudeMinCondition")
+                ? (double?)KShared.getFloatValueFromCFG(node, "altitudeMinCondition", 0f) : null;
+            _ovAltMax = node.HasValue("altitudeMaxCondition")
+                ? (double?)KShared.getFloatValueFromCFG(node, "altitudeMaxCondition", 0f) : null;
+            _ovMaxInteractionDistance = node.HasValue("maxInteractionDistance")
+                ? (float?)KShared.getFloatValueFromCFG(node, "maxInteractionDistance", 10f) : null;
+
+            _ovManualOperation = ParseNullableBool(node, "manualOperation");
+            _ovManualRequiresStartup = ParseNullableBool(node, "manualRequiresStartup");
+            _ovChargingRequired = ParseNullableBool(node, "chargingRequired");
+
+            _ovChargeRate = node.HasValue("chargeRate")
+                ? (float?)KShared.getFloatValueFromCFG(node, "chargeRate", 0f) : null;
+            _ovChargeDecayRate = node.HasValue("chargeDecayRate")
+                ? (float?)KShared.getFloatValueFromCFG(node, "chargeDecayRate", 0f) : null;
+
+            // Extra INPUT_RESOURCE / OUTPUT_RESOURCE — added to whichever recipe is active
+            _extraInputs.Clear();
+            foreach (ConfigNode inputNode in node.GetNodes("INPUT_RESOURCE"))
+            {
+                string resName = inputNode.GetValue("ResourceName");
+                if (string.IsNullOrEmpty(resName)) continue;
+
+                double ratio = 0.0;
+                double.TryParse(inputNode.GetValue("Ratio"), out ratio);
+
+                ResourceFlowMode flowMode = ResourceFlowMode.ALL_VESSEL;
+                string flowStr = inputNode.GetValue("FlowMode");
+                if (!string.IsNullOrEmpty(flowStr))
+                {
+                    ResourceFlowMode parsed;
+                    if (Enum.TryParse(flowStr.Trim(), true, out parsed))
+                        flowMode = parsed;
+                    else
+                        KShared.Instance?.LogError(
+                            "KhemistryAdvancedRecipeISRU: Unknown FlowMode \"" + flowStr + "\" for " + resName + ", defaulting to ALL_VESSEL.",
+                            "KhemistryAdvancedRecipeISRU/OnLoad");
+                }
+
+                _extraInputs.Add(new ResourceInput { resourceName = resName, ratio = ratio, flowMode = flowMode });
+            }
+
+            _extraOutputs.Clear();
+            foreach (ConfigNode outputNode in node.GetNodes("OUTPUT_RESOURCE"))
+            {
+                string resName = outputNode.GetValue("ResourceName");
+                if (string.IsNullOrEmpty(resName)) continue;
+
+                double ratio = 0.0;
+                double.TryParse(outputNode.GetValue("Ratio"), out ratio);
+
+                bool dumpExcess = false;
+                bool.TryParse(outputNode.GetValue("DumpExcess"), out dumpExcess);
+
+                _extraOutputs.Add(new ResourceOutput { resourceName = resName, ratio = ratio, dumpExcess = dumpExcess });
+            }
+
+            // Extra CHARGE_CON_NAMES / CHARGE_CON_AMOUNTS — appended after the recipe's own
+            _ownChargeNames.Clear();
+            _ownChargeAmounts.Clear();
+            if (node.HasNode("CHARGE_CON_NAMES"))
+                foreach (string n in node.GetNode("CHARGE_CON_NAMES").GetValues("name"))
+                    _ownChargeNames.Add(n.Trim());
+            if (node.HasNode("CHARGE_CON_AMOUNTS"))
+                foreach (string a in node.GetNode("CHARGE_CON_AMOUNTS").GetValues("amount"))
+                { float tmp; if (float.TryParse(a, out tmp)) _ownChargeAmounts.Add(tmp); }
+            if (_ownChargeNames.Count != _ownChargeAmounts.Count)
+                KShared.Instance?.LogError(
+                    "KhemistryAdvancedRecipeISRU: CHARGE_CON_NAMES and CHARGE_CON_AMOUNTS length mismatch.",
+                    "KhemistryAdvancedRecipeISRU/OnLoad");
+        }
+
+        private static bool? ParseNullableBool(ConfigNode node, string key)
+        {
+            if (!node.HasValue(key)) return null;
+            bool b;
+            return bool.TryParse(node.GetValue(key), out b) ? (bool?)b : null;
+        }
+
+        // ── Recipe resolution (needs KShared.Instance.recipeDict, only safe in OnStart) ─
+
+        protected override void LoadConfigFromPartInfo()
+        {
+            if (string.IsNullOrEmpty(recipeType))
+            {
+                KShared.Instance?.LogError(
+                    "Part \"" + part.name + "\" has a KhemistryAdvancedRecipeISRU with no recipeType set!",
+                    "KhemistryAdvancedRecipeISRU/LoadConfigFromPartInfo");
+                _fatalConfigError = true;
+                return;
+            }
+
+            var shared = KShared.Instance;
+            List<KhemistryRecipe> recipeList;
+            if (shared == null || !shared.recipeDict.TryGetValue(recipeType, out recipeList) || recipeList.Count == 0)
+            {
+                KShared.Instance?.LogError(
+                    "No KHEMISTRY_RECIPE entries found for recipeType \"" + recipeType + "\"!",
+                    "KhemistryAdvancedRecipeISRU/LoadConfigFromPartInfo");
+                _fatalConfigError = true;
+                return;
+            }
+
+            _recipes.Clear();
+
+            // Add recipes
+            if (allowedRecipes.Count == 0)
+                _recipes.AddRange(recipeList);
+            else
+                foreach (KhemistryRecipe recipe in recipeList)
+                    if (allowedRecipes.Contains(recipe.ConverterName))
+                        _recipes.Add(recipe);
+
+            // Multiply by per-recipe multiplier
+            if (multiplierRecipes.Count > 0)  // Because of logic in OnLoad, this will be empty if allowedRecipes is empty
+                foreach (KhemistryRecipe recipe in _recipes)
+                {
+                    if (allowedRecipes.Contains(recipe.ConverterName))
+                    {
+                        if (allowedRecipes.Count != multiplierRecipes.Count)
+                        {
+                            KShared.Instance?.Log(
+                                "allowedRecipes amount is not equal to the multiplierRecipes amount ("+allowedRecipes.Count.ToString()+", "+multiplierRecipes.Count.ToString()+"), skipping recipe multiplication.",
+                                "KhemistryAdvancedRecipeISRU/LoadConfigFromPartInfo");
+                            break;
+                        }
+
+                        recipe._inputs = recipe._inputs
+                            .Select(inp => new KhemistryRecipe.ResourceInput
+                            {
+                                resourceName = inp.resourceName,
+                                ratio = inp.ratio * multiplierRecipes[allowedRecipes.IndexOf(recipe.ConverterName)],
+                                flowMode = inp.flowMode
+                            })
+                            .ToList();
+                    }
+                    else
+                        KShared.Instance?.Log(
+                            recipe.ConverterName.ToString()+" was not found in allowedRecipes but is in multiplierRecipes, skipping this recipe.",
+                            "KhemistryAdvancedRecipeISRU/LoadConfigFromPartInfo");
+                }
+
+            KhemistryRecipe initial = null;
+            if (!string.IsNullOrEmpty(activeRecipeName))
+            {
+                foreach (KhemistryRecipe r in _recipes)
+                    if (r.ConverterName == activeRecipeName) { initial = r; break; }
+            }
+            if (initial == null) initial = _recipes[0];
+
+            ApplyRecipe(initial);
+            activeRecipeName = _activeRecipe.ConverterName;
+
+            KShared.Instance?.Log(
+                "Loaded " + _recipes.Count + " recipe(s) for recipeType \"" + recipeType + "\", active: \"" + _activeRecipe.ConverterName + "\".",
+                "KhemistryAdvancedRecipeISRU/LoadConfigFromPartInfo");
+        }
+
+        // ── Recipe application: merges a recipe's data with this module's overrides ──
+
+        private void ApplyRecipe(KhemistryRecipe recipe)
+        {
+            _activeRecipe = recipe;
+
+            ConverterName = recipe.ConverterName;
+            StartActionName = recipe.StartActionName ?? ("Start " + ConverterName);
+            StopActionName = recipe.StopActionName ?? ("Stop " + ConverterName);
+
+            _planetCondition = _ovPlanetCondition ?? recipe._planetCondition;
+            _biomeCondition = _ovBiomeCondition ?? recipe._biomeCondition;
+            _altMin = _ovAltMin ?? recipe._altMin;
+            _altMax = _ovAltMax ?? recipe._altMax;
+
+            string sitRaw = _ovSituationConditionRaw ?? recipe._situationCondition.ToString();
+            _situationCondition = SituationCondition.Any;
+            if (sitRaw != null)
+            {
+                SituationCondition parsedSit;
+                if (Enum.TryParse(sitRaw, true, out parsedSit))
+                    _situationCondition = parsedSit;
+                else
+                    KShared.Instance?.LogError(
+                        "Converter \"" + recipe.ConverterName + "\": Unknown situationCondition \"" + sitRaw + "\" — condition ignored.",
+                        "KhemistryAdvancedRecipeISRU/ApplyRecipe");
+            }
+
+            _depositCondition = _ovDepositCondition ?? recipe._depositCondition;
+
+            _manualOperation = _ovManualOperation ?? recipe._manualOperation;
+            _manualRequiresStartup = _ovManualRequiresStartup ?? recipe._manualRequiresStartup;
+
+            if (_ovStartStopShowRulesRaw != null)
+                KShared.ParseShowRule(_ovStartStopShowRulesRaw, out _startStopShowPAW, out _startStopShowEVA,
+                    "startStopShowRules", "KhemistryAdvancedRecipeISRU");
+            else
+            {
+                _startStopShowPAW = recipe._startStopShowPAW;
+                _startStopShowEVA = recipe._startStopShowEVA;
+            }
+
+            if (_ovManualShowRulesRaw != null)
+                KShared.ParseShowRule(_ovManualShowRulesRaw, out _manualShowPAW, out _manualShowEVA,
+                    "manualShowRules", "KhemistryAdvancedRecipeISRU");
+            else
+            {
+                _manualShowPAW = recipe._manualShowPAW;
+                _manualShowEVA = recipe._manualShowEVA;
+            }
+
+            _maxInteractionDistance = _ovMaxInteractionDistance ?? recipe._maxInteractionDistance;
+
+            // recipeGroup is intentionally never read — only one recipe can ever run at a time
+            _recipeGroup = null;
+
+            chargingRequired = _ovChargingRequired ?? recipe.chargingRequired;
+            chargeRate = _ovChargeRate ?? recipe.chargeRate;
+            chargeDecayRate = _ovChargeDecayRate ?? recipe.chargeDecayRate;
+
+            // CHARGE_CON_NAMES / CHARGE_CON_AMOUNTS: recipe's own first, then the module's own,
+            // duplicates (by name) skipped with a warning.
+            _chargeNames.Clear();
+            _chargeAmounts.Clear();
+            AddChargeEntries(recipe.ChargeNames, recipe.ChargeAmounts);
+            AddChargeEntries(_ownChargeNames, _ownChargeAmounts);
+
+            // INPUT_RESOURCE: recipe's own (scaled by multiplier) merged additively with the
+            // module's own extras (ratio summed, FlowMode taken from the module's entry).
+            _inputs.Clear();
+            var workingInputs = new List<ResourceInput>();
+            foreach (KhemistryRecipe.ResourceInput ri in recipe._inputs)
+                workingInputs.Add(new ResourceInput { resourceName = ri.resourceName, ratio = ri.ratio * multiplier, flowMode = ri.flowMode });
+            foreach (ResourceInput extra in _extraInputs)
+            {
+                int idx = workingInputs.FindIndex(w => w.resourceName.Equals(extra.resourceName, StringComparison.OrdinalIgnoreCase));
+                if (idx >= 0)
+                {
+                    ResourceInput merged = workingInputs[idx];
+                    merged.ratio += extra.ratio;
+                    merged.flowMode = extra.flowMode;
+                    workingInputs[idx] = merged;
+                }
+                else
+                {
+                    workingInputs.Add(extra);
+                }
+            }
+            _inputs.AddRange(workingInputs);
+
+            // OUTPUT_RESOURCE: same merge rule, DumpExcess taken from the module's entry.
+            _outputs.Clear();
+            var workingOutputs = new List<ResourceOutput>();
+            foreach (KhemistryRecipe.ResourceOutput ro in recipe._outputs)
+                workingOutputs.Add(new ResourceOutput { resourceName = ro.resourceName, ratio = ro.ratio * multiplier, dumpExcess = ro.dumpExcess });
+            foreach (ResourceOutput extra in _extraOutputs)
+            {
+                int idx = workingOutputs.FindIndex(w => w.resourceName.Equals(extra.resourceName, StringComparison.OrdinalIgnoreCase));
+                if (idx >= 0)
+                {
+                    ResourceOutput merged = workingOutputs[idx];
+                    merged.ratio += extra.ratio;
+                    merged.dumpExcess = extra.dumpExcess;
+                    workingOutputs[idx] = merged;
+                }
+                else
+                {
+                    workingOutputs.Add(extra);
+                }
+            }
+            _outputs.AddRange(workingOutputs);
+
+            if (_inputs.Count == 0 && _outputs.Count == 0)
+                KShared.Instance?.LogError(
+                    "Converter \"" + ConverterName + "\" (recipe) has no INPUT_RESOURCE or OUTPUT_RESOURCE — it will do nothing.",
+                    "KhemistryAdvancedRecipeISRU/ApplyRecipe");
+
+            // Powerfail must be re-validated against the FINAL merged _inputs.
+            string pfResFinal = _ovPowerfailResource ?? recipe._powerfailResource;
+            string pfResultRawFinal = _ovPowerfailResultRaw ?? CanonicalPowerfailResultRaw(recipe);
+            ResolvePowerfail(pfResFinal, pfResultRawFinal);
+
+            _displayName = ConverterName;
+
+            if (Events["StartConverter"] != null) Events["StartConverter"].guiName = StartActionName;
+            if (Events["StopConverter"] != null) Events["StopConverter"].guiName = StopActionName;
+            if (Actions["StartConverterAction"] != null) Actions["StartConverterAction"].guiName = StartActionName;
+            if (Actions["StopConverterAction"] != null) Actions["StopConverterAction"].guiName = StopActionName;
+
+            if (_activeAnim != null && !string.IsNullOrEmpty(_activeAnimationName))
+                _activeAnim[_activeAnimationName].wrapMode = _manualOperation ? WrapMode.Once : WrapMode.Loop;
+        }
+
+        private void AddChargeEntries(List<string> names, List<float> amounts)
+        {
+            int count = Math.Min(names.Count, amounts.Count);
+            for (int i = 0; i < count; i++)
+            {
+                string name = names[i].Trim();
+                bool duplicate = false;
+                foreach (string existing in _chargeNames)
+                    if (existing.Equals(name, StringComparison.OrdinalIgnoreCase)) { duplicate = true; break; }
+
+                if (duplicate)
+                {
+                    KShared.Instance?.LogError(
+                        "Converter \"" + ConverterName + "\": Duplicate charge resource \"" + name + "\" ignored (already defined).",
+                        "KhemistryAdvancedRecipeISRU/ApplyRecipe");
+                    continue;
+                }
+                _chargeNames.Add(name);
+                _chargeAmounts.Add(amounts[i]);
+            }
+        }
+
+        private static string CanonicalPowerfailResultRaw(KhemistryRecipe recipe)
+        {
+            switch (recipe._powerfailResult)
+            {
+                case KhemistryRecipe.PowerfailResult.Stop: return "STOP";
+                case KhemistryRecipe.PowerfailResult.Maint: return "MAINT";
+                case KhemistryRecipe.PowerfailResult.Explode:
+                    return "EXPLODE," + recipe._powerfailExplosionPower.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                default: return null;
+            }
+        }
+
+        private void ResolvePowerfail(string pfRes, string pfResultRaw)
+        {
+            _powerfailResource = null;
+            _powerfailResult = PowerfailResult.None;
+            _powerfailExplosionPower = 0f;
+
+            if (pfRes != null)
+            {
+                bool found = false;
+                foreach (ResourceInput inp in _inputs)
+                    if (inp.resourceName.Equals(pfRes, StringComparison.OrdinalIgnoreCase)) { found = true; break; }
+
+                if (!found)
+                {
+                    KShared.Instance?.LogError(
+                        "Converter \"" + ConverterName + "\": powerfailResource \"" + pfRes + "\" is not a defined INPUT_RESOURCE — powerfail disabled.",
+                        "KhemistryAdvancedRecipeISRU/ResolvePowerfail");
+                }
+                else
+                {
+                    _powerfailResource = pfRes;
+                    if (pfResultRaw != null)
+                    {
+                        string pfResult = pfResultRaw.Trim().Trim('"').ToUpper();
+                        if (pfResult == "STOP")
+                        {
+                            _powerfailResult = PowerfailResult.Stop;
+                        }
+                        else if (pfResult == "MAINT")
+                        {
+                            _powerfailResult = PowerfailResult.Maint;
+                        }
+                        else if (pfResult.StartsWith("EXPLODE,"))
+                        {
+                            float power;
+                            if (float.TryParse(pfResult.Substring(8), out power))
+                            {
+                                _powerfailResult = PowerfailResult.Explode;
+                                _powerfailExplosionPower = power;
+                            }
+                            else
+                            {
+                                KShared.Instance?.LogError(
+                                    "Converter \"" + ConverterName + "\": Could not parse EXPLODE power \"" + pfResultRaw + "\" — defaulting to STOP.",
+                                    "KhemistryAdvancedRecipeISRU/ResolvePowerfail");
+                                _powerfailResult = PowerfailResult.Stop;
+                            }
+                        }
+                        else
+                        {
+                            KShared.Instance?.LogError(
+                                "Converter \"" + ConverterName + "\": Unknown powerfailResult \"" + pfResultRaw + "\" — defaulting to STOP.",
+                                "KhemistryAdvancedRecipeISRU/ResolvePowerfail");
+                            _powerfailResult = PowerfailResult.Stop;
+                        }
+                    }
+                }
+            }
+            else if (pfResultRaw != null)
+            {
+                KShared.Instance?.LogError(
+                    "Converter \"" + ConverterName + "\": powerfailResult set without powerfailResource — powerfailResult ignored.",
+                    "KhemistryAdvancedRecipeISRU/ResolvePowerfail");
+            }
+        }
+
+        // ── Animation (mirrors KhemistryAdvancedISRU) ──────────────────────────────
+
+        private void SetupActiveAnimation()
+        {
+            ModuleAnimationGroup animGroup = part.FindModuleImplementing<ModuleAnimationGroup>();
+            string animName = (animGroup != null && !string.IsNullOrEmpty(animGroup.activeAnimationName))
+                ? animGroup.activeAnimationName
+                : activeAnimationNameOverride;
+
+            if (string.IsNullOrEmpty(animName))
+            {
+                _activeAnim = null;
+                _activeAnimationName = null;
+                return;
+            }
+
+            Animation[] animators = part.FindModelAnimators(animName);
+            if (animators.Length == 0)
+            {
+                KShared.Instance?.LogError(
+                    "Converter \"" + ConverterName + "\": No animator found for clip \"" + animName + "\".",
+                    "KhemistryAdvancedRecipeISRU/SetupActiveAnimation");
+                _activeAnim = null;
+                _activeAnimationName = null;
+                return;
+            }
+
+            _activeAnim = animators[0];
+            _activeAnimationName = animName;
+            _activeAnim[_activeAnimationName].wrapMode = _manualOperation ? WrapMode.Once : WrapMode.Loop;
+
+            KShared.Instance?.Log(
+                "Converter \"" + ConverterName + "\": Hooked active animation \"" + animName + "\""
+                + (animGroup != null ? " (from ModuleAnimationGroup)." : " (from activeAnimationNameOverride)."),
+                "KhemistryAdvancedRecipeISRU/SetupActiveAnimation");
+        }
+
+        private void SetActiveAnimationPlaying(bool playing)
+        {
+            if (_activeAnim == null || string.IsNullOrEmpty(_activeAnimationName)) return;
+            if (playing == _animationPlaying) return;
+
+            if (playing) _activeAnim.Play(_activeAnimationName);
+            else _activeAnim.Stop(_activeAnimationName);
+
+            _animationPlaying = playing;
+        }
+
+        private void PlayActiveAnimationOnce()
+        {
+            if (_activeAnim == null || string.IsNullOrEmpty(_activeAnimationName)) return;
+            _activeAnim.Play(_activeAnimationName);
+        }
+
+        // ── Lifecycle ───────────────────────────────────────────────────────────────
+
+        public override void OnStart(StartState state)
+        {
+            base.OnStart(state);
+
+            _fatalConfigError = false;
+            _outputWarnCooldown = 0.0;
+
+            LoadConfigFromPartInfo();
+
+            if (_fatalConfigError)
+            {
+                foreach (BaseEvent e in Events) e.active = false;
+                statusDisplay = "ERROR: see log";
+                return;
+            }
+
+            Events["StartConverter"].unfocusedRange = _maxInteractionDistance;
+            Events["StopConverter"].unfocusedRange = _maxInteractionDistance;
+            Events["SwitchRecipe"].unfocusedRange = _maxInteractionDistance;
+            Events["ExecuteCycle"].unfocusedRange = _maxInteractionDistance;
+            Events["PerformMaintenance"].unfocusedRange = _maxInteractionDistance;
+
+            if (!chargingRequired)  // Avoids unchargable parts trying to require charging
+                this.state = ConverterState.On;
+
+            SetupActiveAnimation();
+
+            UpdateEventVisibility();
+        }
+
+        public void FixedUpdate()
+        {
+            if (!HighLogic.LoadedSceneIsFlight) return;
+            if (vessel == null || part == null) return;
+            if (_fatalConfigError) return;
+
+            double dt = TimeWarp.fixedDeltaTime;
+            _outputWarnCooldown = Math.Max(0.0, _outputWarnCooldown - dt);
+
+            HandleCharging(dt);
+            UpdateUI();
+
+            if (_manualOperation)
+            {
+                statusDisplay = needsMaintenance ? "Needs maintenance"
+                    : !isRunning ? "Stopped"
+                    : "Waiting for manual cycle";
+                UpdateEventVisibility();
+                return;   // Manual converters animate via ExecuteCycle, not here.
+            }
+
+            if (!isRunning || needsMaintenance)
+            {
+                statusDisplay = needsMaintenance ? "Needs maintenance" : "Stopped";
+                UpdateEventVisibility();
+                SetActiveAnimationPlaying(false);
+                return;
+            }
+
+            if (state != ConverterState.On)
+            {
+                statusDisplay = "Not ready";
+                return;
+            }
+
+            RunOneCycle(part, dt);
+            UpdateEventVisibility();
+            SetActiveAnimationPlaying(isRunning);
+        }
+
+        // ── Events ─────────────────────────────────────────────────────────────────
+
+        [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Switch Recipe",
+                  groupName = "khemistryisru")]
+        public void SwitchRecipe()
+        {
+            if (isRunning)
+            {
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "Converter \"" + _displayName + "\": Stop the converter before switching recipes.",
+                    5f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+
+            if (_recipes.Count <= 1)
+            {
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "Converter \"" + _displayName + "\": No other recipes available to switch to.",
+                    5f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+
+            var shared = KShared.Instance;
+            if (shared == null) return;
+
+            var labels = new List<string>();
+            foreach (KhemistryRecipe r in _recipes)
+                labels.Add(r.ConverterName + (r == _activeRecipe ? " [Active]" : ""));
+
+            shared.ShowSelector("Switch Recipe", labels, label =>
+            {
+                int idx = labels.IndexOf(label);
+                if (idx < 0) return;
+                if (_recipes[idx] == _activeRecipe) return;
+
+                ApplyRecipe(_recipes[idx]);
+                activeRecipeName = _activeRecipe.ConverterName;
+                UpdateEventVisibility();
+                UpdateUI();
+
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "Switched to recipe \"" + _displayName + "\".", 5f, ScreenMessageStyle.UPPER_CENTER));
+                KShared.Instance?.Log("Switched active recipe to \"" + _displayName + "\".",
+                    "KhemistryAdvancedRecipeISRU/SwitchRecipe");
+            });
+        }
+
+        [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Start Converter",
+                  groupName = "khemistryisru")]
+        public void StartConverter()
+        {
+            if (needsMaintenance)
+            {
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "Converter \"" + _displayName + "\": Requires maintenance before starting.",
+                    5f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+            if (state != ConverterState.On) return;
+            isRunning = true;
+            KShared.Instance?.Log("Converter \"" + _displayName + "\" started.", "KhemistryAdvancedRecipeISRU/StartConverter");
+            UpdateEventVisibility();
+        }
+
+        [KSPEvent(guiActive = false, guiActiveEditor = false, guiName = "Stop Converter",
+                  groupName = "khemistryisru")]
+        public void StopConverter()
+        {
+            isRunning = false;
+            KShared.Instance?.Log("Converter \"" + _displayName + "\" stopped.", "KhemistryAdvancedRecipeISRU/StopConverter");
+            UpdateEventVisibility();
+        }
+
+        [KSPEvent(guiActive = false, guiActiveEditor = false, guiName = "Perform Maintenance",
+                  groupName = "khemistryisru",
+                  externalToEVAOnly = true, guiActiveUnfocused = false, unfocusedRange = 10f)]
+        public void PerformMaintenance()
+        {
+            ProtoCrewMember kerbal = null;
+            var crew = FlightGlobals.ActiveVessel?.GetVesselCrew();
+            if (crew != null)
+                foreach (ProtoCrewMember c in crew) { kerbal = c; break; }
+            if (kerbal == null || kerbal.trait != "Engineer")
+            {
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "Converter \"" + _displayName + "\": Maintenance requires an Engineer.",
+                    5f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+            needsMaintenance = false;
+            KShared.Instance?.Log("Converter \"" + _displayName + "\" maintained by " + kerbal.name + ".",
+                "KhemistryAdvancedRecipeISRU/PerformMaintenance");
+            ScreenMessages.PostScreenMessage(new ScreenMessage(
+                "Converter \"" + _displayName + "\": Maintenance complete.", 5f, ScreenMessageStyle.UPPER_CENTER));
+            UpdateEventVisibility();
+        }
+
+        [KSPEvent(guiActive = false, guiActiveEditor = false, guiName = "Execute Cycle",
+                  groupName = "khemistryisru")]
+        public void ExecuteCycle()
+        {
+            if (needsMaintenance)
+            {
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "Converter \"" + _displayName + "\": Requires maintenance.",
+                    5f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+
+            RunOneCycle(part, TimeWarp.fixedDeltaTime);
+            UpdateEventVisibility();
+
+            if (IsCurrentlyActive)
+                PlayActiveAnimationOnce();
+        }
+
+        [KSPAction("Start Converter")]
+        public void StartConverterAction(KSPActionParam param) => StartConverter();
+
+        [KSPAction("Stop Converter")]
+        public void StopConverterAction(KSPActionParam param) => StopConverter();
+
+        // ── Event visibility ───────────────────────────────────────────────────────
+
+        protected override void UpdateEventVisibility()
+        {
+            bool startStopEnabled = !_manualOperation || _manualRequiresStartup;
+
+            ApplyShowRule(Events["StartConverter"],
+                showPAW: startStopEnabled && !isRunning && !needsMaintenance && _startStopShowPAW,
+                showEVA: startStopEnabled && !isRunning && !needsMaintenance && _startStopShowEVA);
+
+            ApplyShowRule(Events["StopConverter"],
+                showPAW: startStopEnabled && isRunning && _startStopShowPAW,
+                showEVA: startStopEnabled && isRunning && _startStopShowEVA);
+
+            // Switch Recipe is never hidden based on running state — attempting to use it
+            // while running just refuses with a message instead.
+            ApplyShowRule(Events["SwitchRecipe"], showPAW: _startStopShowPAW, showEVA: _startStopShowEVA);
+
+            bool cycleEnabled = _manualOperation && !needsMaintenance && (!_manualRequiresStartup || isRunning);
+
+            ApplyShowRule(Events["ExecuteCycle"],
+                showPAW: cycleEnabled && _manualShowPAW,
+                showEVA: cycleEnabled && _manualShowEVA);
+
+            Events["PerformMaintenance"].active = needsMaintenance;
+            Events["PerformMaintenance"].guiActiveUnfocused = needsMaintenance;
+            Events["PerformMaintenance"].unfocusedRange = _maxInteractionDistance;
+        }
+
+        private static void ApplyShowRule(BaseEvent ev, bool showPAW, bool showEVA)
+        {
+            ev.guiActive = showPAW;
+            ev.guiActiveUnfocused = showEVA;
+            ev.externalToEVAOnly = showEVA;
+            ev.active = showPAW || showEVA;
+        }
     }
 
     // ── KhemistryEVAAdvancedISRU ───────────────────────────────────────────────────
@@ -4368,7 +5249,7 @@ MODULE
 
             if (optionParts.Count == 0)
             {
-                KShared.Instance.Log("No nearby parts with resource "+currentResource+" were detected.", "KhemistryKerbal/ShowPartSelectorForTake");
+                KShared.Instance.Log("No nearby parts with resource " + currentResource + " were detected.", "KhemistryKerbal/ShowPartSelectorForTake");
                 string msg = string.IsNullOrEmpty(currentResource)
                     ? "No allowed resources found within range."
                     : "No nearby parts have " + currentResource + ".";
