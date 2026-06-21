@@ -582,7 +582,7 @@ namespace Khemistry
         public readonly List<float> ChargeAmounts = new List<float>();
 
         // Used for parameters, main node of the recipe
-        public ConfigNode mainNode;
+        public ConfigNode mainNode = new ConfigNode();
 
         public KhemistryRecipe(ConfigNode node)
         {
@@ -753,6 +753,7 @@ namespace Khemistry
                     "Recipe \"" + ConverterName + "\": CHARGE_CON_NAMES and CHARGE_CON_AMOUNTS length mismatch.",
                     "KhemistryRecipe/constructor");
 
+            mainNode = new ConfigNode();
             node.CopyTo(mainNode);
         }
     }
@@ -3823,14 +3824,62 @@ MODULE
         private readonly List<string> _ownChargeNames = new List<string>();
         private readonly List<float> _ownChargeAmounts = new List<float>();
 
-        // ── Config loading (own module config — read directly from OnLoad's node,
-        //    same pattern as KhemistryFluidCell) ───────────────────────────────────
+        // ── Config loading: own module config is looked up the same robust way
+        //    KhemistryAdvancedISRU does, via partInfo.partConfig / GameDatabase,
+        //    NOT via OnLoad's node. OnLoad's node is only the full original .cfg text
+        //    the first time a part is cloned fresh from its prefab — on any later
+        //    reload (quicksave/quickload, scene switch, revert) KSP instead passes in
+        //    the *persisted* module snapshot, which only contains isPersistant=true
+        //    KSPFields. Custom fields like chargingRequired's override, the extra
+        //    INPUT_RESOURCE/OUTPUT_RESOURCE, and CHARGE_CON_NAMES/AMOUNTS are not
+        //    persistent, so reading them from OnLoad's node would silently revert them
+        //    to "not specified" on every reload. ───────────────────────────────────────
 
-        public override void OnLoad(ConfigNode node)
+        private ConfigNode FindRecipeModuleConfigNode()
         {
-            base.OnLoad(node);
+            ConfigNode result = null;
 
-            recipeType = KShared.GetStrValueFromCFG(node, "recipeType", recipeType);
+            // Try partInfo first (works for normal parts)
+            if (part.partInfo?.partConfig != null)
+            {
+                foreach (ConfigNode n in part.partInfo.partConfig.GetNodes("MODULE"))
+                {
+                    if (n.GetValue("name") != "KhemistryAdvancedRecipeISRU") continue;
+                    if (n.GetValue("recipeType") == recipeType) { result = n; break; }
+                }
+            }
+
+            if (result != null) return result;
+
+            // Fallback: search GameDatabase directly (required for kerbalEVA parts
+            // whose partInfo.partConfig is null or does not contain the expected node)
+            string targetPartName = part.partInfo?.name ?? part.name;
+            foreach (ConfigNode partNode in GameDatabase.Instance.GetConfigNodes("PART"))
+            {
+                string nodeName = partNode.GetValue("name") ?? "";
+                int slash = nodeName.LastIndexOf('/');
+                if (slash >= 0) nodeName = nodeName.Substring(slash + 1);
+                if (!nodeName.Equals(targetPartName, StringComparison.OrdinalIgnoreCase)) continue;
+
+                foreach (ConfigNode n in partNode.GetNodes("MODULE"))
+                {
+                    if (n.GetValue("name") != "KhemistryAdvancedRecipeISRU") continue;
+                    if (n.GetValue("recipeType") == recipeType) { result = n; break; }
+                }
+                if (result != null) break;
+            }
+
+            if (result == null)
+                KShared.Instance?.LogError(
+                    "Could not find MODULE KhemistryAdvancedRecipeISRU with recipeType=\"" + recipeType
+                    + "\" in partConfig or GameDatabase!",
+                    "KhemistryAdvancedRecipeISRU/FindRecipeModuleConfigNode");
+
+            return result;
+        }
+
+        private void LoadOwnModuleConfig(ConfigNode node)
+        {
             multiplier = KShared.GetFloatValueFromCFG(node, "multiplier", 1f);
 
             // Allowed recipes and multipliers
@@ -3839,7 +3888,7 @@ MODULE
                 if (!node.GetNode("RECIPES").HasValue("name"))
                     KShared.Instance?.LogError(
                             "KhemistryAdvancedRecipeISRU: Node RECIPES is present but no \"name\" values inside, skipping node.",
-                            "KhemistryAdvancedRecipeISRU/OnLoad");
+                            "KhemistryAdvancedRecipeISRU/LoadOwnModuleConfig");
                 else
                     allowedRecipes = node.GetNode("RECIPES").GetValues("name").ToList();
                 if (node.HasNode("RECIPE_MULTIPLIERS"))
@@ -3847,17 +3896,17 @@ MODULE
                     if (!node.GetNode("RECIPE_MULTIPLIERS").HasValue("amount"))
                         KShared.Instance?.LogError(
                                 "KhemistryAdvancedRecipeISRU: Node RECIPE_MULTIPLIERS is present but no \"amount\" values inside, skipping node.",
-                                "KhemistryAdvancedRecipeISRU/OnLoad");
+                                "KhemistryAdvancedRecipeISRU/LoadOwnModuleConfig");
                     else
                     {
                         multiplierRecipes.Clear();
-                        foreach(string recipe in node.GetNode("RECIPE_MULTIPLIERS").GetValues("amount"))
+                        foreach (string recipe in node.GetNode("RECIPE_MULTIPLIERS").GetValues("amount"))
                             multiplierRecipes.Add(float.Parse(recipe));
-                        if(allowedRecipes.Count != multiplierRecipes.Count)
+                        if (allowedRecipes.Count != multiplierRecipes.Count)
                         {
                             KShared.Instance?.LogError(
-                                "KhemistryAdvancedRecipeISRU: RECIPE and RECIPE_MULTIPLIERS nodes have unequal amounts of \"name\" and \"amount\" values respectively ("+allowedRecipes.Count.ToString()+", "+multiplierRecipes.Count.ToString()+"), reverting to skip those nodes.",
-                                "KhemistryAdvancedRecipeISRU/OnLoad");
+                                "KhemistryAdvancedRecipeISRU: RECIPE and RECIPE_MULTIPLIERS nodes have unequal amounts of \"name\" and \"amount\" values respectively (" + allowedRecipes.Count.ToString() + ", " + multiplierRecipes.Count.ToString() + "), reverting to skip those nodes.",
+                                "KhemistryAdvancedRecipeISRU/LoadOwnModuleConfig");
                             allowedRecipes.Clear();
                             multiplierRecipes.Clear();
                         }
@@ -3868,7 +3917,7 @@ MODULE
             {
                 KShared.Instance?.LogError(
                             "KhemistryAdvancedRecipeISRU: Node RECIPE_MULTIPLIERS is present but no RECIPES node is present.",
-                            "KhemistryAdvancedRecipeISRU/OnLoad");
+                            "KhemistryAdvancedRecipeISRU/LoadOwnModuleConfig");
             }
 
             // Recipe conditions
@@ -3927,7 +3976,7 @@ MODULE
                     else
                         KShared.Instance?.LogError(
                             "KhemistryAdvancedRecipeISRU: Unknown FlowMode \"" + flowStr + "\" for " + resName + ", defaulting to ALL_VESSEL.",
-                            "KhemistryAdvancedRecipeISRU/OnLoad");
+                            "KhemistryAdvancedRecipeISRU/LoadOwnModuleConfig");
                 }
 
                 _extraInputs.Add(new ResourceInput { resourceName = resName, ratio = ratio, flowMode = flowMode });
@@ -3958,7 +4007,7 @@ MODULE
             if (_ownChargeNames.Count != _ownChargeAmounts.Count)
                 KShared.Instance?.LogError(
                     "KhemistryAdvancedRecipeISRU: CHARGE_CON_NAMES and CHARGE_CON_AMOUNTS length mismatch.",
-                    "KhemistryAdvancedRecipeISRU/OnLoad");
+                    "KhemistryAdvancedRecipeISRU/LoadOwnModuleConfig");
         }
 
         private static bool? ParseNullableBool(ConfigNode node, string key)
@@ -3980,11 +4029,23 @@ MODULE
                 return;
             }
 
+            ConfigNode ownModuleNode = FindRecipeModuleConfigNode();
+            if (ownModuleNode == null)
+            {
+                _fatalConfigError = true;
+                return;
+            }
+            LoadOwnModuleConfig(ownModuleNode);
+
             var shared = KShared.Instance;
             if (shared == null || !shared.recipeDict.TryGetValue(recipeType, out List<KhemistryRecipe> recipeList) || recipeList.Count == 0)
             {
+                string availableKeys = (shared != null && shared.recipeDict.Count > 0)
+                    ? string.Join(", ", shared.recipeDict.Keys.Select(k => "\"" + k + "\""))
+                    : "(none loaded)";
                 KShared.Instance?.LogError(
-                    "No KHEMISTRY_RECIPE entries found for recipeType \"" + recipeType + "\"!",
+                    "No KHEMISTRY_RECIPE entries found for recipeType \"" + recipeType + "\" (length "
+                    + (recipeType?.Length ?? -1) + ")! Available recipeType keys: " + availableKeys,
                     "KhemistryAdvancedRecipeISRU/LoadConfigFromPartInfo");
                 _fatalConfigError = true;
                 return;
@@ -4005,7 +4066,7 @@ MODULE
             bool failed = false;
             foreach (KhemistryRecipe recipe in tmpRecipes)
             {
-                if(recipe.mainNode == null)
+                if (recipe.mainNode == null)
                 {
                     KShared.Instance?.LogError(
                             "mainNode is null for recipe \"" + recipe.ConverterName + "\", skipping recipe.",
@@ -4034,7 +4095,7 @@ MODULE
                         if (allowedRecipes.Count != multiplierRecipes.Count)
                         {
                             KShared.Instance?.Log(
-                                "allowedRecipes amount is not equal to the multiplierRecipes amount ("+allowedRecipes.Count.ToString()+", "+multiplierRecipes.Count.ToString()+"), skipping recipe multiplication.",
+                                "allowedRecipes amount is not equal to the multiplierRecipes amount (" + allowedRecipes.Count.ToString() + ", " + multiplierRecipes.Count.ToString() + "), skipping recipe multiplication.",
                                 "KhemistryAdvancedRecipeISRU/LoadConfigFromPartInfo");
                             break;
                         }
@@ -4050,7 +4111,7 @@ MODULE
                     }
                     else
                         KShared.Instance?.Log(
-                            recipe.ConverterName.ToString()+" was not found in allowedRecipes but is in multiplierRecipes, skipping this recipe.",
+                            recipe.ConverterName.ToString() + " was not found in allowedRecipes but is in multiplierRecipes, skipping this recipe.",
                             "KhemistryAdvancedRecipeISRU/LoadConfigFromPartInfo");
                 }
 
