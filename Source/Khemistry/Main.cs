@@ -163,7 +163,18 @@ namespace Khemistry
         // Deposit distance logic
         public float DistanceFromDeposit(float lat, float lon)
         {
-            return (float)KShared.LatLonDistanceMeters(Position[0], Position[1], lat, lon, Planet);
+            try
+            {
+                return (float)KShared.LatLonDistanceMeters(Position[0], Position[1], lat, lon, Planet);
+            }
+            catch (Exception ex)
+            {
+                KShared.Instance?.Log(
+                string.Format("An error occured, returning 0 meters. Message: {0}. Stack trace: {1}. ",
+                    ex.Message, ex.StackTrace),
+                "KhemistryDeposit/DistanceFromDeposit");
+                return 0f;
+            }
         }
         public bool IsInsideDeposit(float lat, float lon) => DistanceFromDeposit(lat, lon) <= Radius;
     }
@@ -177,38 +188,48 @@ namespace Khemistry
 
         public KhemistryUDeposit(KShared kinst, string planet, string requiredBiome, float depthStart, float depth, string resource, float minRadius, float maxRadius, float latOverride = -12345, float lonOverride = -12345)
         {
-            // Set values to make sure everything works
-            this.Planet = planet;
-            this.DepthStart = depthStart;
-            this.Depth = depth;
-            this.Resource = resource;
+            try
+            {
+                // Set values to make sure everything works
+                Planet = planet;
+                DepthStart = depthStart;
+                Depth = depth;
+                Resource = resource;
 
-            if (minRadius == maxRadius)
-            {
-                Radius = minRadius;
-            }
-            else
-            {
-                float tmp = -1.0f;
-                while (!(minRadius > tmp))
-                    tmp = (float)(kinst.rand.NextDouble() * maxRadius);
-                Radius = tmp;
-            }
-
-            // Generate position
-            if ((int)latOverride == -12345 || (int)lonOverride == -12345)  // If either of them are not set, calculate as normal
-            {
-                Position = new Vector2((float)(kinst.rand.NextDouble() * 180) - 90, (float)(kinst.rand.NextDouble() * 360) - 180);
-                if (requiredBiome != null)  // If it is null, any biome is supported
+                if (minRadius == maxRadius)
                 {
-                    // Just keep randomizing the deposit until it hits the right biome
-                    while (KShared.GetBiomeNameFromLatLon(planet, Position) != requiredBiome)
-                        Position = new Vector2((float)(kinst.rand.NextDouble() * 180) - 90, (float)(kinst.rand.NextDouble() * 360) - 180);
+                    Radius = minRadius;
+                }
+                else
+                {
+                    float tmp = -1.0f;
+                    while (!(minRadius > tmp))
+                        tmp = (float)(kinst.rand.NextDouble() * maxRadius);
+                    Radius = tmp;
+                }
+
+                // Generate position
+                if ((int)latOverride == -12345 || (int)lonOverride == -12345)  // If either of them are not set, calculate as normal
+                {
+                    Position = new Vector2((float)(kinst.rand.NextDouble() * 180) - 90, (float)(kinst.rand.NextDouble() * 360) - 180);
+                    if (requiredBiome != null)  // If it is null, any biome is supported
+                    {
+                        // Just keep randomizing the deposit until it hits the right biome
+                        while (KShared.GetBiomeNameFromLatLon(planet, Position) != requiredBiome)
+                            Position = new Vector2((float)(kinst.rand.NextDouble() * 180) - 90, (float)(kinst.rand.NextDouble() * 360) - 180);
+                    }
+                }
+                else  // If both are set, ignore requiredBiome and override the position
+                {
+                    Position = new Vector2(latOverride, lonOverride);
                 }
             }
-            else  // If both are set, ignore requiredBiome and override the position
+            catch (Exception ex)
             {
-                Position = new Vector2(latOverride, lonOverride);
+                KShared.Instance?.Log(
+                string.Format("An error occured. Message: {0}. Stack trace: {1}. ",
+                    ex.Message, ex.StackTrace),
+                "KhemistryUDeposit/constructor");
             }
         }
     }
@@ -224,31 +245,41 @@ namespace Khemistry
 
         public KhemistryGDeposit(KShared kinst, string planet, string requiredBiome, float depth, string resource, float minRadius, float maxRadius, string resource2, float underDepth)
         {
-            // Set values to make sure everything works
-            this.Planet = planet;
-            this.Depth = depth;
-            this.Resource = resource;
-
-            // if it works, it works
-            float tmp = -1.0f;
-            while (!(minRadius > tmp))
-                tmp = (float)(kinst.rand.NextDouble() * maxRadius);
-            Radius = tmp;
-
-            // Generate position
-            Position = new Vector2((float)(kinst.rand.NextDouble() * 180) - 90, (float)(kinst.rand.NextDouble() * 360) - 180);
-            if (requiredBiome != null)  // If it is null, any biome is supported
+            try
             {
-                // Just keep randomizing the deposit until it hits the right biome
-                while (KShared.GetBiomeNameFromLatLon(planet, Position) != requiredBiome)
-                    Position = new Vector2((float)(kinst.rand.NextDouble() * 180) - 90, (float)(kinst.rand.NextDouble() * 360) - 180);
-            }
+                // Set values to make sure everything works
+                Planet = planet;
+                Depth = depth;
+                Resource = resource;
 
-            // Create the underground pair of the surface deposit, giving it the counterpart resource and overriding the position to the surface deposit's position
-            // The biome is not passed here because the override will ignore it anyway
-            // If resource2 is null, the deposit is considered "surfaceOnly" and the underground deposit won't be created
-            if (resource2 != null)
-                PairGDeposit = new KhemistryUDeposit(kinst, planet, null, depth, underDepth, resource2, Position[0], Position[1]);
+                // if it works, it works
+                float tmp = -1.0f;
+                while (!(minRadius > tmp))
+                    tmp = (float)(kinst.rand.NextDouble() * maxRadius);
+                Radius = tmp;
+
+                // Generate position
+                Position = new Vector2((float)(kinst.rand.NextDouble() * 180) - 90, (float)(kinst.rand.NextDouble() * 360) - 180);
+                if (requiredBiome != null)  // If it is null, any biome is supported
+                {
+                    // Just keep randomizing the deposit until it hits the right biome
+                    while (KShared.GetBiomeNameFromLatLon(planet, Position) != requiredBiome)
+                        Position = new Vector2((float)(kinst.rand.NextDouble() * 180) - 90, (float)(kinst.rand.NextDouble() * 360) - 180);
+                }
+
+                // Create the underground pair of the surface deposit, giving it the counterpart resource and overriding the position to the surface deposit's position
+                // The biome is not passed here because the override will ignore it anyway
+                // If resource2 is null, the deposit is considered "surfaceOnly" and the underground deposit won't be created
+                if (resource2 != null)
+                    PairGDeposit = new KhemistryUDeposit(kinst, planet, null, depth, underDepth, resource2, Position[0], Position[1]);
+            }
+            catch (Exception ex)
+            {
+                KShared.Instance?.Log(
+                string.Format("An error occured. Message: {0}. Stack trace: {1}. ",
+                    ex.Message, ex.StackTrace),
+                "KhemistryGDeposit/constructor");
+            }
         }
     }
 
@@ -342,39 +373,60 @@ namespace Khemistry
         };
         public static ConditionType ParseConditionType(string condition)
         {
-            return ConditionMap.TryGetValue(condition, out ConditionType result)
-                ? result
-                : ConditionType.None;
+            try
+            {
+                return ConditionMap.TryGetValue(condition, out ConditionType result)
+                    ? result
+                    : ConditionType.None;
+            }
+            catch (Exception ex)
+            {
+                KShared.Instance?.Log(
+                string.Format("An error occured, returning ConditionType.None. Message: {0}. Stack trace: {1}. ",
+                    ex.Message, ex.StackTrace),
+                "AdvancedISRURecipeCondition/ParseConditionType");
+                return ConditionType.None;
+            }
         }
 
         public AdvancedISRURecipeCondition(string conditionStr)
         {
-            if (string.IsNullOrEmpty(conditionStr))
+            try
             {
-                Condition = ConditionType.None;
-                Value = "NONE";
-                Value2 = "NONE";
-                return;
+                if (string.IsNullOrEmpty(conditionStr))
+                {
+                    Condition = ConditionType.None;
+                    Value = "NONE";
+                    Value2 = "NONE";
+                    return;
+                }
+
+                string[] parts = conditionStr.Split(',');
+
+                // CONDITION (always exists if string is non-empty)
+                Condition = parts.Length > 0
+                    ? ParseConditionType(parts[0].Trim())
+                    : ConditionType.None;
+
+                // VALUE (optional)
+                if (parts.Length > 1 && !string.IsNullOrWhiteSpace(parts[1]))
+                    Value = parts[1].Trim();
+                else
+                    Value = "NONE";
+
+                // VALUE2 (optional)
+                if (parts.Length > 2 && !string.IsNullOrWhiteSpace(parts[2]))
+                    Value2 = parts[2].Trim();
+                else
+                    Value2 = "NONE";
             }
-
-            string[] parts = conditionStr.Split(',');
-
-            // CONDITION (always exists if string is non-empty)
-            Condition = parts.Length > 0
-                ? ParseConditionType(parts[0].Trim())
-                : ConditionType.None;
-
-            // VALUE (optional)
-            if (parts.Length > 1 && !string.IsNullOrWhiteSpace(parts[1]))
-                Value = parts[1].Trim();
-            else
-                Value = "NONE";
-
-            // VALUE2 (optional)
-            if (parts.Length > 2 && !string.IsNullOrWhiteSpace(parts[2]))
-                Value2 = parts[2].Trim();
-            else
-                Value2 = "NONE";
+            catch (Exception ex)
+            {
+                KShared.Instance?.Log(
+                string.Format("An error occured. Message: {0}. Stack trace: {1}. ",
+                    ex.Message, ex.StackTrace),
+                "AdvancedISRURecipeCondition/constructor");
+            }
         }
 
         /// <summary>
@@ -382,130 +434,141 @@ namespace Khemistry
         /// </summary>
         public bool CheckCondition(ConfigNode node)
         {
-            if (Condition == ConditionType.None)
-                return true;
-
-            ConfigNode parameters = node.GetNode("PARAMETERS");
-
-            if (parameters == null)
-                return false;
-
-            if (Condition == ConditionType.HasParam)
-                return true;
-
-            if (!parameters.HasValue(Value))
-                return false;
-
-            string configValue = parameters.GetValue(Value);
-
-            switch (Condition)
+            try
             {
-                case ConditionType.Has:
+                if (Condition == ConditionType.None)
                     return true;
 
-                case ConditionType.Equals:
-                    return configValue == Value2;
+                ConfigNode parameters = node.GetNode("PARAMETERS");
 
-                case ConditionType.IsBool:
-                    return bool.TryParse(configValue, out _);
+                if (parameters == null)
+                    return false;
 
-                case ConditionType.IsInt:
-                    return int.TryParse(configValue, out _);
+                if (Condition == ConditionType.HasParam)
+                    return true;
 
-                case ConditionType.IsFloat:
-                    return float.TryParse(
-                        configValue,
-                        NumberStyles.Float,
-                        CultureInfo.InvariantCulture,
-                        out _);
+                if (!parameters.HasValue(Value))
+                    return false;
 
-                case ConditionType.IsString:
-                    return !bool.TryParse(configValue, out _) &&
-                           !int.TryParse(configValue, out _) &&
-                           !float.TryParse(
-                               configValue,
-                               NumberStyles.Float,
-                               CultureInfo.InvariantCulture,
-                               out _);
+                string configValue = parameters.GetValue(Value);
 
-                case ConditionType.IsTrue:
-                    {
-                        return bool.TryParse(configValue, out bool result) && result;
-                    }
+                switch (Condition)
+                {
+                    case ConditionType.Has:
+                        return true;
 
-                case ConditionType.IsFalse:
-                    {
-                        return bool.TryParse(configValue, out bool result) && !result;
-                    }
+                    case ConditionType.Equals:
+                        return configValue == Value2;
 
-                case ConditionType.MoreThanInt:
-                case ConditionType.LessThanInt:
-                case ConditionType.MoreThanOrEqualsInt:
-                case ConditionType.LessThanOrEqualsInt:
-                    {
-                        if (!int.TryParse(configValue, out int actual))
-                            return false;
+                    case ConditionType.IsBool:
+                        return bool.TryParse(configValue, out _);
 
-                        if (!int.TryParse(Value2, out int expected))
-                            return false;
+                    case ConditionType.IsInt:
+                        return int.TryParse(configValue, out _);
 
-                        switch (Condition)
-                        {
-                            case ConditionType.MoreThanInt:
-                                return actual > expected;
-
-                            case ConditionType.LessThanInt:
-                                return actual < expected;
-
-                            case ConditionType.MoreThanOrEqualsInt:
-                                return actual >= expected;
-
-                            case ConditionType.LessThanOrEqualsInt:
-                                return actual <= expected;
-                        }
-
-                        return false;
-                    }
-
-                case ConditionType.MoreThanFloat:
-                case ConditionType.LessThanFloat:
-                case ConditionType.MoreThanOrEqualsFloat:
-                case ConditionType.LessThanOrEqualsFloat:
-                    {
-                        if (!float.TryParse(
+                    case ConditionType.IsFloat:
+                        return float.TryParse(
                             configValue,
                             NumberStyles.Float,
                             CultureInfo.InvariantCulture,
-                            out float actual))
-                            return false;
+                            out _);
 
-                        if (!float.TryParse(
-                            Value2,
-                            NumberStyles.Float,
-                            CultureInfo.InvariantCulture,
-                            out float expected))
-                            return false;
+                    case ConditionType.IsString:
+                        return !bool.TryParse(configValue, out _) &&
+                               !int.TryParse(configValue, out _) &&
+                               !float.TryParse(
+                                   configValue,
+                                   NumberStyles.Float,
+                                   CultureInfo.InvariantCulture,
+                                   out _);
 
-                        switch (Condition)
+                    case ConditionType.IsTrue:
                         {
-                            case ConditionType.MoreThanFloat:
-                                return actual > expected;
-
-                            case ConditionType.LessThanFloat:
-                                return actual < expected;
-
-                            case ConditionType.MoreThanOrEqualsFloat:
-                                return actual >= expected;
-
-                            case ConditionType.LessThanOrEqualsFloat:
-                                return actual <= expected;
+                            return bool.TryParse(configValue, out bool result) && result;
                         }
 
-                        return false;
-                    }
+                    case ConditionType.IsFalse:
+                        {
+                            return bool.TryParse(configValue, out bool result) && !result;
+                        }
 
-                default:
-                    return false;
+                    case ConditionType.MoreThanInt:
+                    case ConditionType.LessThanInt:
+                    case ConditionType.MoreThanOrEqualsInt:
+                    case ConditionType.LessThanOrEqualsInt:
+                        {
+                            if (!int.TryParse(configValue, out int actual))
+                                return false;
+
+                            if (!int.TryParse(Value2, out int expected))
+                                return false;
+
+                            switch (Condition)
+                            {
+                                case ConditionType.MoreThanInt:
+                                    return actual > expected;
+
+                                case ConditionType.LessThanInt:
+                                    return actual < expected;
+
+                                case ConditionType.MoreThanOrEqualsInt:
+                                    return actual >= expected;
+
+                                case ConditionType.LessThanOrEqualsInt:
+                                    return actual <= expected;
+                            }
+
+                            return false;
+                        }
+
+                    case ConditionType.MoreThanFloat:
+                    case ConditionType.LessThanFloat:
+                    case ConditionType.MoreThanOrEqualsFloat:
+                    case ConditionType.LessThanOrEqualsFloat:
+                        {
+                            if (!float.TryParse(
+                                configValue,
+                                NumberStyles.Float,
+                                CultureInfo.InvariantCulture,
+                                out float actual))
+                                return false;
+
+                            if (!float.TryParse(
+                                Value2,
+                                NumberStyles.Float,
+                                CultureInfo.InvariantCulture,
+                                out float expected))
+                                return false;
+
+                            switch (Condition)
+                            {
+                                case ConditionType.MoreThanFloat:
+                                    return actual > expected;
+
+                                case ConditionType.LessThanFloat:
+                                    return actual < expected;
+
+                                case ConditionType.MoreThanOrEqualsFloat:
+                                    return actual >= expected;
+
+                                case ConditionType.LessThanOrEqualsFloat:
+                                    return actual <= expected;
+                            }
+
+                            return false;
+                        }
+
+                    default:
+                        return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                KShared.Instance?.Log(
+                string.Format("An error occured, returning condition fail. Message: {0}. Stack trace: {1}. ",
+                    ex.Message, ex.StackTrace),
+                "AdvancedISRURecipeCondition/CheckCondition");
+                return false;
             }
         }
     }
@@ -586,175 +649,185 @@ namespace Khemistry
 
         public KhemistryRecipe(ConfigNode node)
         {
-            ConverterName = KShared.GetStrValueFromCFG(node, "ConverterName", "Converter");
-            StartActionName = KShared.GetStrValueFromCFG(node, "StartActionName", null);
-            StopActionName = KShared.GetStrValueFromCFG(node, "StopActionName", null);
-            _planetCondition = KShared.GetStrValueFromCFG(node, "planetCondition", null);
-            _biomeCondition = KShared.GetStrValueFromCFG(node, "biomeCondition", null);
-            _altMin = KShared.GetFloatValueFromCFG(node, "altitudeMinCondition", (float)double.MinValue);
-            _altMax = KShared.GetFloatValueFromCFG(node, "altitudeMaxCondition", (float)double.MaxValue);
-
-            // situationCondition
-            _situationCondition = SituationCondition.Any;
-            string sitStr = KShared.GetStrValueFromCFG(node, "situationCondition", null);
-            if (sitStr != null)
+            try
             {
-                if (sitStr.Equals("FlyindHigh", StringComparison.OrdinalIgnoreCase))
-                    sitStr = "FlyingHigh";
-                if (Enum.TryParse(sitStr, true, out SituationCondition parsed))
-                    _situationCondition = parsed;
-                else
-                    KShared.Instance?.LogError("Unknown situationCondition \"" + sitStr + "\" — condition ignored.", "KhemistryRecipe/constructor");
-            }
+                ConverterName = KShared.GetStrValueFromCFG(node, "ConverterName", "Converter");
+                StartActionName = KShared.GetStrValueFromCFG(node, "StartActionName", null);
+                StopActionName = KShared.GetStrValueFromCFG(node, "StopActionName", null);
+                _planetCondition = KShared.GetStrValueFromCFG(node, "planetCondition", null);
+                _biomeCondition = KShared.GetStrValueFromCFG(node, "biomeCondition", null);
+                _altMin = KShared.GetFloatValueFromCFG(node, "altitudeMinCondition", (float)double.MinValue);
+                _altMax = KShared.GetFloatValueFromCFG(node, "altitudeMaxCondition", (float)double.MaxValue);
 
-            // depositCondition
-            _depositCondition = KShared.GetStrValueFromCFG(node, "depositCondition", null);
-
-            // manualOperation / manualRequiresStartup
-            _manualOperation = false;
-            _manualRequiresStartup = true;
-            if (bool.TryParse(KShared.GetStrValueFromCFG(node, "manualOperation", "false"), out bool tmpB))
-                _manualOperation = tmpB;
-            if (bool.TryParse(KShared.GetStrValueFromCFG(node, "manualRequiresStartup", "true"), out tmpB))
-                _manualRequiresStartup = tmpB;
-
-            // startStopShowRules / manualShowRules
-            KShared.ParseShowRule(
-                KShared.GetStrValueFromCFG(node, "startStopShowRules", "PAW"),
-                out _startStopShowPAW, out _startStopShowEVA, "startStopShowRules");
-
-            KShared.ParseShowRule(
-                KShared.GetStrValueFromCFG(node, "manualShowRules", "PAW"),
-                out _manualShowPAW, out _manualShowEVA, "manualShowRules");
-
-            // maxInteractionDistance
-            _maxInteractionDistance = 10f;
-            if (float.TryParse(node.GetValue("maxInteractionDistance"), out float distTmp))
-                _maxInteractionDistance = distTmp;
-
-            // recipeGroup
-            _recipeGroup = KShared.GetStrValueFromCFG(node, "recipeGroup", null);
-
-            // INPUT_RESOURCE nodes
-            foreach (ConfigNode inputNode in node.GetNodes("INPUT_RESOURCE"))
-            {
-                string resName = inputNode.GetValue("ResourceName");
-                if (string.IsNullOrEmpty(resName)) continue;
-
-                double.TryParse(inputNode.GetValue("Ratio"), out double ratio);
-
-                ResourceFlowMode flowMode = ResourceFlowMode.ALL_VESSEL;
-                string flowStr = inputNode.GetValue("FlowMode");
-                if (!string.IsNullOrEmpty(flowStr))
+                // situationCondition
+                _situationCondition = SituationCondition.Any;
+                string sitStr = KShared.GetStrValueFromCFG(node, "situationCondition", null);
+                if (sitStr != null)
                 {
-                    if (Enum.TryParse(flowStr.Trim(), true, out ResourceFlowMode parsed))
-                        flowMode = parsed;
+                    if (sitStr.Equals("FlyindHigh", StringComparison.OrdinalIgnoreCase))
+                        sitStr = "FlyingHigh";
+                    if (Enum.TryParse(sitStr, true, out SituationCondition parsed))
+                        _situationCondition = parsed;
                     else
-                        KShared.Instance?.LogError(
-                            "Recipe \"" + ConverterName + "\": Unknown FlowMode \"" + flowStr + "\" for " + resName + ", defaulting to ALL_VESSEL.",
-                            "KhemistryRecipe/constructor");
+                        KShared.Instance?.LogError("Unknown situationCondition \"" + sitStr + "\" — condition ignored.", "KhemistryRecipe/constructor");
                 }
 
-                _inputs.Add(new ResourceInput { resourceName = resName, ratio = ratio, flowMode = flowMode });
-            }
+                // depositCondition
+                _depositCondition = KShared.GetStrValueFromCFG(node, "depositCondition", null);
 
-            // OUTPUT_RESOURCE nodes
-            foreach (ConfigNode outputNode in node.GetNodes("OUTPUT_RESOURCE"))
-            {
-                string resName = outputNode.GetValue("ResourceName");
-                if (string.IsNullOrEmpty(resName)) continue;
+                // manualOperation / manualRequiresStartup
+                _manualOperation = false;
+                _manualRequiresStartup = true;
+                if (bool.TryParse(KShared.GetStrValueFromCFG(node, "manualOperation", "false"), out bool tmpB))
+                    _manualOperation = tmpB;
+                if (bool.TryParse(KShared.GetStrValueFromCFG(node, "manualRequiresStartup", "true"), out tmpB))
+                    _manualRequiresStartup = tmpB;
 
-                double.TryParse(outputNode.GetValue("Ratio"), out double ratio);
+                // startStopShowRules / manualShowRules
+                KShared.ParseShowRule(
+                    KShared.GetStrValueFromCFG(node, "startStopShowRules", "PAW"),
+                    out _startStopShowPAW, out _startStopShowEVA, "startStopShowRules");
 
-                bool.TryParse(outputNode.GetValue("DumpExcess"), out bool dumpExcess);  // Defaults to false
+                KShared.ParseShowRule(
+                    KShared.GetStrValueFromCFG(node, "manualShowRules", "PAW"),
+                    out _manualShowPAW, out _manualShowEVA, "manualShowRules");
 
-                _outputs.Add(new ResourceOutput { resourceName = resName, ratio = ratio, dumpExcess = dumpExcess });
-            }
+                // maxInteractionDistance
+                _maxInteractionDistance = 10f;
+                if (float.TryParse(node.GetValue("maxInteractionDistance"), out float distTmp))
+                    _maxInteractionDistance = distTmp;
 
-            if (_inputs.Count == 0 && _outputs.Count == 0)
-                KShared.Instance?.LogError(
-                    "Recipe \"" + ConverterName + "\" has no INPUT_RESOURCE or OUTPUT_RESOURCE nodes — it will do nothing.",
-                    "KhemistryRecipe/constructor");
+                // recipeGroup
+                _recipeGroup = KShared.GetStrValueFromCFG(node, "recipeGroup", null);
 
-            // powerfailResource / powerfailResult
-            _powerfailResource = null;
-            _powerfailResult = PowerfailResult.None;
-            _powerfailExplosionPower = 0f;
-
-            string pfRes = KShared.GetStrValueFromCFG(node, "powerfailResource", null);
-            string pfResultRaw = KShared.GetStrValueFromCFG(node, "powerfailResult", null);
-
-            if (pfRes != null)
-            {
-                bool found = false;
-                foreach (ResourceInput inp in _inputs)
-                    if (inp.resourceName.Equals(pfRes, StringComparison.OrdinalIgnoreCase)) { found = true; break; }
-
-                if (!found)
+                // INPUT_RESOURCE nodes
+                foreach (ConfigNode inputNode in node.GetNodes("INPUT_RESOURCE"))
                 {
-                    KShared.Instance?.LogError("powerfailResource \"" + pfRes + "\" is not a defined INPUT_RESOURCE — powerfail disabled.", "KhemistryRecipe/constructor");
-                }
-                else
-                {
-                    _powerfailResource = pfRes;
-                    if (pfResultRaw != null)
+                    string resName = inputNode.GetValue("ResourceName");
+                    if (string.IsNullOrEmpty(resName)) continue;
+
+                    double.TryParse(inputNode.GetValue("Ratio"), out double ratio);
+
+                    ResourceFlowMode flowMode = ResourceFlowMode.ALL_VESSEL;
+                    string flowStr = inputNode.GetValue("FlowMode");
+                    if (!string.IsNullOrEmpty(flowStr))
                     {
-                        string pfResult = pfResultRaw.Trim().Trim('"').ToUpper();
-                        if (pfResult == "STOP")
+                        if (Enum.TryParse(flowStr.Trim(), true, out ResourceFlowMode parsed))
+                            flowMode = parsed;
+                        else
+                            KShared.Instance?.LogError(
+                                "Recipe \"" + ConverterName + "\": Unknown FlowMode \"" + flowStr + "\" for " + resName + ", defaulting to ALL_VESSEL.",
+                                "KhemistryRecipe/constructor");
+                    }
+
+                    _inputs.Add(new ResourceInput { resourceName = resName, ratio = ratio, flowMode = flowMode });
+                }
+
+                // OUTPUT_RESOURCE nodes
+                foreach (ConfigNode outputNode in node.GetNodes("OUTPUT_RESOURCE"))
+                {
+                    string resName = outputNode.GetValue("ResourceName");
+                    if (string.IsNullOrEmpty(resName)) continue;
+
+                    double.TryParse(outputNode.GetValue("Ratio"), out double ratio);
+
+                    bool.TryParse(outputNode.GetValue("DumpExcess"), out bool dumpExcess);  // Defaults to false
+
+                    _outputs.Add(new ResourceOutput { resourceName = resName, ratio = ratio, dumpExcess = dumpExcess });
+                }
+
+                if (_inputs.Count == 0 && _outputs.Count == 0)
+                    KShared.Instance?.LogError(
+                        "Recipe \"" + ConverterName + "\" has no INPUT_RESOURCE or OUTPUT_RESOURCE nodes — it will do nothing.",
+                        "KhemistryRecipe/constructor");
+
+                // powerfailResource / powerfailResult
+                _powerfailResource = null;
+                _powerfailResult = PowerfailResult.None;
+                _powerfailExplosionPower = 0f;
+
+                string pfRes = KShared.GetStrValueFromCFG(node, "powerfailResource", null);
+                string pfResultRaw = KShared.GetStrValueFromCFG(node, "powerfailResult", null);
+
+                if (pfRes != null)
+                {
+                    bool found = false;
+                    foreach (ResourceInput inp in _inputs)
+                        if (inp.resourceName.Equals(pfRes, StringComparison.OrdinalIgnoreCase)) { found = true; break; }
+
+                    if (!found)
+                    {
+                        KShared.Instance?.LogError("powerfailResource \"" + pfRes + "\" is not a defined INPUT_RESOURCE — powerfail disabled.", "KhemistryRecipe/constructor");
+                    }
+                    else
+                    {
+                        _powerfailResource = pfRes;
+                        if (pfResultRaw != null)
                         {
-                            _powerfailResult = PowerfailResult.Stop;
-                        }
-                        else if (pfResult == "MAINT")
-                        {
-                            _powerfailResult = PowerfailResult.Maint;
-                        }
-                        else if (pfResult.StartsWith("EXPLODE,"))
-                        {
-                            if (float.TryParse(pfResult.Substring(8), out float power))
+                            string pfResult = pfResultRaw.Trim().Trim('"').ToUpper();
+                            if (pfResult == "STOP")
                             {
-                                _powerfailResult = PowerfailResult.Explode;
-                                _powerfailExplosionPower = power;
+                                _powerfailResult = PowerfailResult.Stop;
+                            }
+                            else if (pfResult == "MAINT")
+                            {
+                                _powerfailResult = PowerfailResult.Maint;
+                            }
+                            else if (pfResult.StartsWith("EXPLODE,"))
+                            {
+                                if (float.TryParse(pfResult.Substring(8), out float power))
+                                {
+                                    _powerfailResult = PowerfailResult.Explode;
+                                    _powerfailExplosionPower = power;
+                                }
+                                else
+                                {
+                                    KShared.Instance?.LogError("Could not parse EXPLODE power \"" + pfResultRaw + "\" — defaulting to STOP.", "KhemistryRecipe/constructor");
+                                    _powerfailResult = PowerfailResult.Stop;
+                                }
                             }
                             else
                             {
-                                KShared.Instance?.LogError("Could not parse EXPLODE power \"" + pfResultRaw + "\" — defaulting to STOP.", "KhemistryRecipe/constructor");
+                                KShared.Instance?.LogError("Unknown powerfailResult \"" + pfResultRaw + "\" — defaulting to STOP.", "KhemistryRecipe/constructor");
                                 _powerfailResult = PowerfailResult.Stop;
                             }
                         }
-                        else
-                        {
-                            KShared.Instance?.LogError("Unknown powerfailResult \"" + pfResultRaw + "\" — defaulting to STOP.", "KhemistryRecipe/constructor");
-                            _powerfailResult = PowerfailResult.Stop;
-                        }
                     }
                 }
+                else if (pfResultRaw != null)
+                {
+                    KShared.Instance?.LogError("powerfailResult set without powerfailResource — powerfailResult ignored.", "KhemistryRecipe/constructor");
+                }
+
+                // Charging (usually overridden wholesale by the owning KhemistryAdvancedRecipeISRU,
+                // but a recipe may define its own charge resource needs which get merged in)
+                if (bool.TryParse(KShared.GetStrValueFromCFG(node, "chargingRequired", "false"), out tmpB))
+                    chargingRequired = tmpB;
+
+                if (float.TryParse(node.GetValue("chargeRate"), out float chgTmp)) chargeRate = chgTmp;
+                if (float.TryParse(node.GetValue("chargeDecayRate"), out chgTmp)) chargeDecayRate = chgTmp;
+
+                if (node.HasNode("CHARGE_CON_NAMES"))
+                    foreach (string n in node.GetNode("CHARGE_CON_NAMES").GetValues("name"))
+                        ChargeNames.Add(n.Trim());
+                if (node.HasNode("CHARGE_CON_AMOUNTS"))
+                    foreach (string a in node.GetNode("CHARGE_CON_AMOUNTS").GetValues("amount"))
+                    { if (float.TryParse(a, out float amtTmp)) ChargeAmounts.Add(amtTmp); }
+                if (ChargeNames.Count != ChargeAmounts.Count)
+                    KShared.Instance?.LogError(
+                        "Recipe \"" + ConverterName + "\": CHARGE_CON_NAMES and CHARGE_CON_AMOUNTS length mismatch.",
+                        "KhemistryRecipe/constructor");
+
+                mainNode = new ConfigNode();
+                node.CopyTo(mainNode);
             }
-            else if (pfResultRaw != null)
+            catch (Exception ex)
             {
-                KShared.Instance?.LogError("powerfailResult set without powerfailResource — powerfailResult ignored.", "KhemistryRecipe/constructor");
+                KShared.Instance?.Log(
+                string.Format("An error occured. Message: {0}. Stack trace: {1}. ",
+                    ex.Message, ex.StackTrace),
+                "KhemistryRecipe/constructor");
             }
-
-            // Charging (usually overridden wholesale by the owning KhemistryAdvancedRecipeISRU,
-            // but a recipe may define its own charge resource needs which get merged in)
-            if (bool.TryParse(KShared.GetStrValueFromCFG(node, "chargingRequired", "false"), out tmpB))
-                chargingRequired = tmpB;
-
-            if (float.TryParse(node.GetValue("chargeRate"), out float chgTmp)) chargeRate = chgTmp;
-            if (float.TryParse(node.GetValue("chargeDecayRate"), out chgTmp)) chargeDecayRate = chgTmp;
-
-            if (node.HasNode("CHARGE_CON_NAMES"))
-                foreach (string n in node.GetNode("CHARGE_CON_NAMES").GetValues("name"))
-                    ChargeNames.Add(n.Trim());
-            if (node.HasNode("CHARGE_CON_AMOUNTS"))
-                foreach (string a in node.GetNode("CHARGE_CON_AMOUNTS").GetValues("amount"))
-                { if (float.TryParse(a, out float amtTmp)) ChargeAmounts.Add(amtTmp); }
-            if (ChargeNames.Count != ChargeAmounts.Count)
-                KShared.Instance?.LogError(
-                    "Recipe \"" + ConverterName + "\": CHARGE_CON_NAMES and CHARGE_CON_AMOUNTS length mismatch.",
-                    "KhemistryRecipe/constructor");
-
-            mainNode = new ConfigNode();
-            node.CopyTo(mainNode);
         }
     }
 
@@ -6278,48 +6351,59 @@ MODULE
         public bool RunConversionCycle(Dictionary<string, double> resources,
             string converterName, double dt)
         {
-            ProcessorConverter? found = null;
-            foreach (var conv in _converters)
-                if (conv.name == converterName) { found = conv; break; }
-
-            if (found == null) return false;
-            var c = found.Value;
-
-            // Check all inputs are available
-            foreach (var (resourceName, ratio) in c.inputs)
+            try
             {
-                double needed = ratio * dt;
-                if (!resources.TryGetValue(resourceName, out double available)
-                    || available < needed * 0.999)
+                ProcessorConverter? found = null;
+                foreach (var conv in _converters)
+                    if (conv.name == converterName) { found = conv; break; }
+
+                if (found == null) return false;
+                var c = found.Value;
+
+                // Check all inputs are available
+                foreach (var (resourceName, ratio) in c.inputs)
+                {
+                    double needed = ratio * dt;
+                    if (!resources.TryGetValue(resourceName, out double available)
+                        || available < needed * 0.999)
+                        return false;
+                }
+
+                // Check total capacity won't be exceeded
+                double inputSum = 0.0;
+                foreach (var (resourceName, ratio) in c.inputs) inputSum += ratio * dt;
+                double outputSum = 0.0;
+                foreach (var (resourceName, ratio) in c.outputs) outputSum += ratio * dt;
+                double currentTotal = GetTotal(resources);
+                if (currentTotal - inputSum + outputSum > maxTotalStorage)
                     return false;
-            }
 
-            // Check total capacity won't be exceeded
-            double inputSum = 0.0;
-            foreach (var (resourceName, ratio) in c.inputs) inputSum += ratio * dt;
-            double outputSum = 0.0;
-            foreach (var (resourceName, ratio) in c.outputs) outputSum += ratio * dt;
-            double currentTotal = GetTotal(resources);
-            if (currentTotal - inputSum + outputSum > maxTotalStorage)
+                // Consume inputs
+                foreach (var (resourceName, ratio) in c.inputs)
+                {
+                    double needed = ratio * dt;
+                    resources[resourceName] -= needed;
+                    if (resources[resourceName] < 1e-9)
+                        resources.Remove(resourceName);
+                }
+
+                // Produce outputs
+                foreach (var (resourceName, ratio) in c.outputs)
+                {
+                    resources.TryGetValue(resourceName, out double existing);
+                    resources[resourceName] = existing + ratio * dt;
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                KShared.Instance?.Log(
+                string.Format("An error occured, returning cycle failure. Message: {0}. Stack trace: {1}. ",
+                    ex.Message, ex.StackTrace),
+                "KhemistryEVACombinedProcessor/RunConversionCycle");
                 return false;
-
-            // Consume inputs
-            foreach (var (resourceName, ratio) in c.inputs)
-            {
-                double needed = ratio * dt;
-                resources[resourceName] -= needed;
-                if (resources[resourceName] < 1e-9)
-                    resources.Remove(resourceName);
             }
-
-            // Produce outputs
-            foreach (var (resourceName, ratio) in c.outputs)
-            {
-                resources.TryGetValue(resourceName, out double existing);
-                resources[resourceName] = existing + ratio * dt;
-            }
-
-            return true;
         }
 
         // ── Display helper ─────────────────────────────────────────────────────────
