@@ -150,7 +150,101 @@ MODULE
 
 namespace Khemistry
 {
-    // Shared data
+    ////////////////////////////// Material System //////////////////////////////
+    /// <summary>
+    /// A material usually loaded from configs. It defines its name, allowed shapes, and allowed parameters.
+    /// An instance of this material used as a resource is KhemistryMaterialInstance.
+    /// </summary>
+    public class KhemistryMaterial
+    {
+        public string name = "LOADFAIL";
+        public List<string> shapes = new List<string>();
+        public List<string> parameters = new List<string>();
+        public KhemistryMaterial(ConfigNode configNode)
+        {
+            // Check if the config node is valid
+            if (!configNode.HasNode("SHAPES") || !configNode.HasValue("name") || configNode.name != "KHEMISTRY_MATERIAL")
+                KShared.Instance?.LogError("KhemistryMaterial loading failed!", "KhemistryMaterial/constructor");
+
+            // Set material name from the config
+            name = configNode.GetValue("name");
+
+            // Set shapes from the config
+            foreach (string shape in configNode.GetNode("SHAPES").GetValues("name"))
+                shapes.Add(shape);
+
+            // Set parameters (if there are any) from the config
+            if (configNode.HasNode("PARAMS"))
+                foreach (string param in configNode.GetNode("PARAMS").GetValues("name"))
+                    parameters.Add(param);
+        }
+    }
+    public class KhemistryMaterialInstance
+    {
+        public string shape = "null";
+        public string size = "null";
+        public float volume = 0f;
+        public Dictionary<string, string> parameters = new Dictionary<string, string>();
+        public KhemistryMaterial material;
+        public KhemistryMaterialInstance(KhemistryMaterial material, string shape, string size, float volume, Dictionary<string, string> parameters)
+        {
+            // Assign values
+            this.material = material;
+            this.shape = shape;
+            this.size = size;
+            this.volume = volume;
+            this.parameters = parameters;
+
+            // Check parameter validity
+            foreach (string key in parameters.Keys)
+                if (!material.parameters.Contains(key))
+                    KShared.Instance?.LogError("Material instance of material "+material.name+" has an invalid parameter "+key+" with value "+parameters[key]+"!", "KhemistryMaterialInstance/constructor");
+
+            // Check shape validity
+            if (!material.shapes.Contains(shape))
+                KShared.Instance?.LogError("Material instance of material " + material.name + " has an invalid shape " + shape + "!", "KhemistryMaterialInstance/constructor");
+        }
+
+        /// <summary>
+        /// Checks if it is possible to merge the volumes of another KhemistryMaterialInstance into this one.
+        /// For this to be true, they must be exactly the same except for the volume.
+        /// </summary>
+        /// <param name="other">The other KhemistryMaterialInstance to test merging for.</param>
+        /// <returns>If possible to merge the two KhemistryMaterialInstance.</returns>
+        public bool CanMerge(KhemistryMaterialInstance other)
+        {
+            if(shape == other.shape && size == other.size && material.name == other.material.name)
+            {
+                foreach (string key in parameters.Keys)
+                {
+                    if(!other.parameters.ContainsKey(key))
+                        return false;
+                    if (other.parameters[key] != parameters[key])
+                        return false;
+                }
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Merge the volumes of another KhemistryMaterialInstance into this one.
+        /// </summary>
+        /// <param name="other">The other KhemistryMaterialInstance to merge.</param>
+        /// <returns>If merging succeeded or not.</returns>
+        public bool Merge(KhemistryMaterialInstance other)
+        {
+            if(CanMerge(other))
+            {
+                volume += other.volume;
+                return true;
+            }
+            return false;
+        }
+    }
+
+    ////////////////////////////// Deposit System //////////////////////////////
+    // Shared deposit data
     public class KhemistryDeposit
     {
         // Shared variables
@@ -282,6 +376,9 @@ namespace Khemistry
             }
         }
     }
+
+
+    ////////////////////////////// ISRU Recipe System //////////////////////////////
 
     // Recipe condition, used in AdvancedISRURecipe to select recipes based on their PARAMETERS node
     /* There are many recipe conditions, so I listed them below:
@@ -831,6 +928,9 @@ namespace Khemistry
         }
     }
 
+
+    ////////////////////////////// Shared Data //////////////////////////////
+
     [KSPAddon(KSPAddon.Startup.MainMenu, true)]
     public class KSharedMainMenu : MonoBehaviour
     {
@@ -860,11 +960,8 @@ namespace Khemistry
             // Remotely populate the CBody list with biomes once in the main menu
             kinst.celestialBodies = FlightGlobals.Bodies.Select(b => b.bodyName).ToList();
 
-            // Fetch all resource deposits
-            ConfigNode[] nodes = GameDatabase.Instance.GetConfigNodes("KHEMISTRY_RESOURCE_DEPOSIT");
-
             // Load all resource deposits
-            foreach (ConfigNode node in nodes)
+            foreach (ConfigNode node in GameDatabase.Instance.GetConfigNodes("KHEMISTRY_RESOURCE_DEPOSIT"))
             {
                 // Fatal error checking
                 if (!node.HasValue("resource"))  // no resource, fatal error
@@ -949,11 +1046,25 @@ namespace Khemistry
                 kinst.recipeDict[recipeT].Add(new KhemistryRecipe(node));
             }
 
+            // Log recipe loading results
             kinst.Log("Created " + kinst.recipeDict.Keys.Count().ToString() + " recipe types.", "KSharedMainMenu/Awake");
             foreach (string recipeType in kinst.recipeDict.Keys)
             {
                 kinst.Log("Created " + kinst.recipeDict[recipeType].Count().ToString() + " recipes for recipe type " + recipeType, "KSharedMainMenu/Awake");
             }
+
+            // Load all material types
+            int materialCount = 0;
+            foreach (ConfigNode node in GameDatabase.Instance.GetConfigNodes("KHEMISTRY_MATERIAL"))
+            {
+                KhemistryMaterial tmp = new KhemistryMaterial(node);
+                if(tmp != null)
+                {
+                    kinst.materialList.Add(tmp);
+                    materialCount++;
+                }
+            }
+            kinst.Log("Created "+materialCount.ToString()+" material definitions.", "KSharedMainMenu/Awake");
         }
     }
 
@@ -989,12 +1100,22 @@ namespace Khemistry
         // Recipe dictionary
         public Dictionary<string, List<KhemistryRecipe>> recipeDict = new Dictionary<string, List<KhemistryRecipe>>();
 
+        // Material definiton list
+        public List<KhemistryMaterial> materialList = new List<KhemistryMaterial>();
+
         // Shared random class
         public System.Random rand = new System.Random();
         // Shared celestial body list, remotely populated from KSharedMainMenu when the game ends up at the main menu
         public List<string> celestialBodies = new List<string>();
 
         // Helper function to get a biome name from position on a body
+        /// <summary>
+        /// Returns a biome name using a latitude-longitude position on a CelestialBody.
+        /// This function will cause a NullReferenceException if the planet does not exist.
+        /// </summary>
+        /// <param name="planet">The planet used to find the biome.</param>
+        /// <param name="pos">The latitude-longitude Vector2 position to find the biome at.</param>
+        /// <returns>The name of the biome.</returns>
         public static string GetBiomeNameFromLatLon(string planet, Vector2 pos) => FlightGlobals.GetBodyByName(planet).BiomeMap.GetAtt(pos[0], pos[1]).name;
 
         // Helper functions to get values from configs with default values
@@ -1204,6 +1325,12 @@ namespace Khemistry
             GUI.DragWindow();
         }
 
+        /// <summary>
+        /// Writes a log message to the KSP.log and in-game console.
+        /// Usually, func is formatted as "class/function" or "class/constructor".
+        /// </summary>
+        /// <param name="message">The message to send.</param>
+        /// <param name="func">Optional function name the log message came from.</param>
         public void Log(string message, string func = null)
         {
             if (func != null)
@@ -1212,6 +1339,12 @@ namespace Khemistry
                 Debug.Log("Khemistry: " + message);
         }
 
+        /// <summary>
+        /// Writes an error log message to the KSP.log and in-game console.
+        /// Usually, func is formatted as "class/function" or "class/constructor".
+        /// </summary>
+        /// <param name="message">The error message to send.</param>
+        /// <param name="func">Optional function name the error log message came from.</param>
         public void LogError(string message, string func = null)
         {
             if (func != null)
@@ -1221,6 +1354,8 @@ namespace Khemistry
         }
     }
 
+
+    ////////////////////////////// Fluid Cell System //////////////////////////////
     public class KhemistryFluidCell : PartModule
     {
         [KSPField(isPersistant = false)]
@@ -1267,6 +1402,8 @@ namespace Khemistry
         }
     }
 
+
+    ////////////////////////////// Obsolete Degrading Battery System //////////////////////////////
     public class KhemistryDegradingBattery : PartModule
     {
         [KSPField(isPersistant = false)]
@@ -1333,6 +1470,9 @@ namespace Khemistry
             HealthTimeDisplay = string.Format("Time until 0%: {0:F0}s", remaining);
         }
     }
+
+
+    ////////////////////////////// Resource/Recipe Library //////////////////////////////
 
     public class KhemistryResourceInfo
     {
@@ -1727,23 +1867,23 @@ namespace Khemistry
                     GUILayout.BeginVertical(GUILayout.Width(270));
                     if (recipe.inputs.Count == 0) GUILayout.Label("-", _wrapLabel);
                     else foreach (KhemistryRecipeIO input in recipe.inputs)
-                        {
-                            string btnLabel = string.Format("{0:G4}x {1}/sec", input.ratio, input.resourceName);
-                            KhemistryResourceInfo inputRes = FindResource(input.resourceName);
-                            if (inputRes != null) { if (GUILayout.Button(btnLabel, HighLogic.Skin.button)) OpenDetailWindow(inputRes); }
-                            else GUILayout.Label(btnLabel, _wrapLabel);
-                        }
+                    {
+                        string btnLabel = string.Format("{0:G4}x {1}/sec", input.ratio, input.resourceName);
+                        KhemistryResourceInfo inputRes = FindResource(input.resourceName);
+                        if (inputRes != null) { if (GUILayout.Button(btnLabel, HighLogic.Skin.button)) OpenDetailWindow(inputRes); }
+                        else GUILayout.Label(btnLabel, _wrapLabel);
+                    }
                     GUILayout.EndVertical();
 
                     GUILayout.BeginVertical(GUILayout.Width(270));
                     if (recipe.outputs.Count == 0) GUILayout.Label("-", _wrapLabel);
                     else foreach (KhemistryRecipeIO output in recipe.outputs)
-                        {
-                            string btnLabel = string.Format("{0:G4}x {1}/sec", output.ratio, output.resourceName);
-                            KhemistryResourceInfo outputRes = FindResource(output.resourceName);
-                            if (outputRes != null) { if (GUILayout.Button(btnLabel, HighLogic.Skin.button)) OpenDetailWindow(outputRes); }
-                            else GUILayout.Label(btnLabel, _wrapLabel);
-                        }
+                    {
+                        string btnLabel = string.Format("{0:G4}x {1}/sec", output.ratio, output.resourceName);
+                        KhemistryResourceInfo outputRes = FindResource(output.resourceName);
+                        if (outputRes != null) { if (GUILayout.Button(btnLabel, HighLogic.Skin.button)) OpenDetailWindow(outputRes); }
+                        else GUILayout.Label(btnLabel, _wrapLabel);
+                    }
                     GUILayout.EndVertical();
 
                     GUILayout.EndHorizontal();
@@ -1761,6 +1901,9 @@ namespace Khemistry
             return KhemistryLibraryLoader.Resources.FirstOrDefault(r => r.name == name);
         }
     }
+
+
+    ////////////////////////////// Storage System //////////////////////////////
 
     /* Example config node
 MODULE
@@ -2590,6 +2733,10 @@ MODULE
             Events["SelectResource"].active = storageType == "multi";
         }
     }
+
+
+    ////////////////////////////// ISRU System //////////////////////////////
+    
     // Advanced ISRU module with a variety of features
     // ── Base class ─────────────────────────────────────────────────────────────────
     // Contains all shared config, cycle logic, and helpers.
@@ -2711,6 +2858,17 @@ MODULE
             public bool dumpExcess;
         }
 
+        protected struct ResourceOutputMaterial
+        {
+            public string name;
+            public string shape;
+            public string size;
+            public bool usesParams;
+            public Dictionary<string, string> parameters;
+            public double ratio;
+            public double outVolume;
+        }
+
         protected enum SituationCondition
         {
             Any, Landed, Splashed, FlyingLow, FlyingHigh, SpaceLow, SpaceHigh, SubOrbital
@@ -2720,6 +2878,10 @@ MODULE
 
         protected readonly List<ResourceInput> _inputs = new List<ResourceInput>();
         protected readonly List<ResourceOutput> _outputs = new List<ResourceOutput>();
+        protected readonly List<ResourceOutputMaterial> _outputMaterials = new List<ResourceOutputMaterial>();
+
+        // Material temporary output buffer
+        protected Dictionary<string, double> _materialOutputAmount = new Dictionary<string, double>();
 
         // Conditions
         protected string _planetCondition = null;
@@ -2800,7 +2962,9 @@ MODULE
             if (_powerfailResource != null)
             {
                 suitCell.TryGetValue(_powerfailResource, out double pfNeeded);
+#pragma warning disable IDE0059 // Claude thinks this is required for some reason, don't want to break the code
                 double pfAvailable = pfNeeded;   // reuse variable — get actual available
+#pragma warning restore IDE0059 // Claude thinks this is required for some reason, don't want to break the code
                 suitCell.TryGetValue(_powerfailResource, out pfAvailable);
                 if (pfAvailable < GetInputRatio(_powerfailResource) * dt * 0.999)
                     powerfailShort = true;
@@ -2963,9 +3127,38 @@ MODULE
                 _outputs.Add(new ResourceOutput { resourceName = resName, ratio = ratio, dumpExcess = dumpExcess });
             }
 
-            if (_inputs.Count == 0 && _outputs.Count == 0)
+            // OUTPUT_RESOURCE_MATERIAL nodes
+            _outputMaterials.Clear();
+            foreach (ConfigNode outputNode in moduleNode.GetNodes("OUTPUT_RESOURCE_MATERIAL"))
+            {
+                string matName = outputNode.GetValue("name");
+                if (string.IsNullOrEmpty(matName)) continue;
+
+                string shape = outputNode.GetValue("shape");
+                string size = outputNode.GetValue("size");
+                double.TryParse(outputNode.GetValue("Ratio"), out double ratio);  // Defaults to 0.0
+                double.TryParse(outputNode.GetValue("outVolume"), out double vol);  // Defaults to 0.0
+                bool usesParams = outputNode.HasNode("PARAMS");
+                Dictionary<string, string> parameters = new Dictionary<string, string>();
+                if (usesParams)
+                    foreach (string key in outputNode.GetNode("PARAMS").values.DistinctNames())
+                        parameters.Add(key, outputNode.GetNode("PARAMS").GetValue(key));
+
+                _outputMaterials.Add(new ResourceOutputMaterial
+                {
+                    name = matName,
+                    shape = shape,
+                    size = size,
+                    usesParams = usesParams,
+                    parameters = parameters,
+                    ratio = ratio,
+                    outVolume = vol
+                });
+            }
+
+            if (_inputs.Count == 0 && (_outputs.Count == 0 || _outputMaterials.Count == 0))
                 KShared.Instance?.LogError(
-                    "Converter \"" + ConverterName + "\" has no INPUT_RESOURCE or OUTPUT_RESOURCE nodes — it will do nothing.",
+                    "Converter \"" + ConverterName + "\" has no INPUT_RESOURCE or OUTPUT_RESOURCE/OUTPUT_RESOURCE_MATERIAL nodes — it will do nothing.",
                     moduleName + "/LoadSharedConfig");
 
             // planetCondition / biomeCondition
@@ -3118,7 +3311,7 @@ MODULE
 
             KShared.Instance?.Log(
                 string.Format("Converter \"{0}\" loaded: {1} inputs, {2} outputs, manual={3}, requiresStartup={4}, group={5}",
-                    ConverterName, _inputs.Count, _outputs.Count,
+                    ConverterName, _inputs.Count, _outputs.Count + _outputMaterials.Count,
                     _manualOperation, _manualRequiresStartup, _recipeGroup ?? "none"),
                 moduleName + "/LoadSharedConfig");
         }
@@ -3400,6 +3593,14 @@ MODULE
                 if (GetVesselResourceSpace(v, output.resourceName) < needed * 0.001)
                     return output.resourceName;
             }
+            foreach (ResourceOutputMaterial outputM in _outputMaterials)
+            {
+                double needed = outputM.ratio * dt;
+                if (needed <= 0.0) continue;
+                if (_materialOutputAmount.Keys.Contains(outputM.name))
+                    if (_materialOutputAmount[outputM.name] + needed > 2)
+                        return outputM.name;
+            }
             return null;
         }
 
@@ -3466,6 +3667,22 @@ MODULE
                 if (output.ratio <= 0.0) continue;
                 contextPart.RequestResource(output.resourceName, -(output.ratio * dt), ResourceFlowMode.ALL_VESSEL);
             }
+            foreach (ResourceOutputMaterial outputM in _outputMaterials)
+            {
+                if (outputM.ratio <= 0.0) continue;
+                if (!_materialOutputAmount.ContainsKey(outputM.name))
+                    _materialOutputAmount.Add(outputM.name, 0);
+                _materialOutputAmount[outputM.name] += outputM.ratio * dt;
+            }
+        }
+
+        protected bool TryTransferMaterialOutputBuffer()
+        {
+            foreach (string matOutput in _materialOutputAmount.Keys)
+            {
+                //TODO: Push to all material inventories on the vessel
+            }
+            return false;
         }
 
         // ── Powerfail ──────────────────────────────────────────────────────────────
@@ -3768,15 +3985,15 @@ MODULE
         }
 
         [KSPAction("Start Converter")]
-#pragma warning disable IDE0060 // Called with parameter by KSP
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE0060:Remove unused parameter", Justification = "Called by KSP with parameter")]
         public void StartConverterAction(KSPActionParam param)
         {
             StartConverter();
         }
 
         [KSPAction("Stop Converter")]
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE0060:Remove unused parameter", Justification = "Called by KSP with parameter")]
         public void StopConverterAction(KSPActionParam param)
-#pragma warning restore IDE0060 // Called with parameter by KSP
         {
             StopConverter();
         }
@@ -4678,12 +4895,12 @@ MODULE
         }
 
         [KSPAction("Start Converter")]
-#pragma warning disable IDE0060 // Called with parameter by KSP
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE0060:Remove unused parameter", Justification = "Called by KSP with parameter")]
         public void StartConverterAction(KSPActionParam param) => StartConverter();
 
         [KSPAction("Stop Converter")]
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE0060:Remove unused parameter", Justification = "Called by KSP with parameter")]
         public void StopConverterAction(KSPActionParam param) => StopConverter();
-#pragma warning restore IDE0060 // Called with parameter by KSP
 
         // ── Event visibility ───────────────────────────────────────────────────────
 
@@ -4817,6 +5034,9 @@ MODULE
         public bool ManualRequiresStartup => _manualRequiresStartup;
     }
 
+
+    ////////////////////////////// Kerbal-side Logic //////////////////////////////
+
     // ── KhemistryKerbal (updated) ─────────────────────────────────────────────────
     // Additions: detects stored parts with KhemistryEVAAdvancedISRU on their prefab,
     // shows EVA events per converter, and drives their cycles.
@@ -4838,7 +5058,9 @@ MODULE
 
         // ── Inventory part-name whitelists ─────────────────────────────────────────
 
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE0044:Add readonly modifier", Justification = "This is clearly used elsewhere in the code and shouldn't be readonly")]
         private HashSet<string> FluidCellPartNames = new HashSet<string>();
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE0044:Add readonly modifier", Justification = "This is clearly used elsewhere in the code and shouldn't be readonly")]
         private HashSet<string> _evaISRUPartNames = new HashSet<string>();
 
         private ModuleInventoryPart _inventory;
