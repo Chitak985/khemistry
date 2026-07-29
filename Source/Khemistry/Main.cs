@@ -169,7 +169,7 @@ namespace Khemistry
         {
             // Check if the config node is valid
             if (!configNode.HasNode("SHAPES") || !configNode.HasValue("name") || configNode.name != "KHEMISTRY_MATERIAL")
-                KShared.Instance?.LogError("KhemistryMaterial loading failed!", "KhemistryMaterial/constructor");
+                KShared.LogError("KhemistryMaterial loading failed!", "KhemistryMaterial/constructor");
 
             // Set material name from the config
             name = configNode.GetValue("name");
@@ -207,11 +207,11 @@ namespace Khemistry
             // Check parameter validity
             foreach (string key in parameters.Keys)
                 if (!material.parameters.Contains(key))
-                    KShared.Instance?.LogError("Material instance of material " + material.name + " has an invalid parameter " + key + " with value " + parameters[key] + "!", "KhemistryMaterialInstance/constructor");
+                    KShared.LogError("Material instance of material " + material.name + " has an invalid parameter " + key + " with value " + parameters[key] + "!", "KhemistryMaterialInstance/constructor");
 
             // Check shape validity
             if (!material.shapes.Contains(shape))
-                KShared.Instance?.LogError("Material instance of material " + material.name + " has an invalid shape " + shape + "!", "KhemistryMaterialInstance/constructor");
+                KShared.LogError("Material instance of material " + material.name + " has an invalid shape " + shape + "!", "KhemistryMaterialInstance/constructor");
         }
 
         /// <summary>
@@ -301,7 +301,7 @@ namespace Khemistry
         {
             if (part.partInfo?.partConfig == null)
             {
-                KShared.Instance?.LogError("partInfo.partConfig is null!",
+                KShared.LogError("partInfo.partConfig is null!",
                     "KhemistryMaterialStorage/LoadConfigFromPartInfo");
                 _fatalConfigError = true;
                 return;
@@ -315,7 +315,7 @@ namespace Khemistry
 
             if (moduleNode == null)
             {
-                KShared.Instance?.LogError("Could not find MODULE node in partConfig!",
+                KShared.LogError("Could not find MODULE node in partConfig!",
                     "KhemistryMaterialStorage/LoadConfigFromPartInfo");
                 _fatalConfigError = true;
                 return;
@@ -324,7 +324,7 @@ namespace Khemistry
             supportedNames.Clear();
             if (!moduleNode.HasNode("SUPPORTED_NAMES"))
             {
-                KShared.Instance?.LogError(
+                KShared.LogError(
                     "Part \"" + part.name + "\" has KhemistryMaterialStorage but no SUPPORTED_NAMES node. This module will not load.",
                     "KhemistryMaterialStorage/LoadConfigFromPartInfo");
                 _fatalConfigError = true;
@@ -334,7 +334,7 @@ namespace Khemistry
                 supportedNames.Add(n.Trim());
             if (supportedNames.Count == 0)
             {
-                KShared.Instance?.LogError(
+                KShared.LogError(
                     "Part \"" + part.name + "\" has KhemistryMaterialStorage with an empty SUPPORTED_NAMES node. This module will not load.",
                     "KhemistryMaterialStorage/LoadConfigFromPartInfo");
                 _fatalConfigError = true;
@@ -344,7 +344,7 @@ namespace Khemistry
             supportedShapes.Clear();
             if (!moduleNode.HasNode("SUPPORTED_SHAPES"))
             {
-                KShared.Instance?.LogError(
+                KShared.LogError(
                     "Part \"" + part.name + "\" has KhemistryMaterialStorage but no SUPPORTED_SHAPES node. This module will not load.",
                     "KhemistryMaterialStorage/LoadConfigFromPartInfo");
                 _fatalConfigError = true;
@@ -354,7 +354,7 @@ namespace Khemistry
                 supportedShapes.Add(n.Trim());
             if (supportedShapes.Count == 0)
             {
-                KShared.Instance?.LogError(
+                KShared.LogError(
                     "Part \"" + part.name + "\" has KhemistryMaterialStorage with an empty SUPPORTED_SHAPES node. This module will not load.",
                     "KhemistryMaterialStorage/LoadConfigFromPartInfo");
                 _fatalConfigError = true;
@@ -369,7 +369,7 @@ namespace Khemistry
             paramRequirements = KShared.NodeToDictionary(moduleNode.GetNode("PARAM_REQUIREMENTS"));
             if (paramRequirements.Keys.Count == 0)
             {
-                KShared.Instance?.LogError(
+                KShared.LogError(
                     "Part \"" + part.name + "\" has KhemistryMaterialStorage with an empty PARAM_REQUIREMENTS node. This module will not load.",
                     "KhemistryMaterialStorage/LoadConfigFromPartInfo");
                 _fatalConfigError = true;
@@ -438,7 +438,7 @@ namespace Khemistry
             }
             catch (Exception ex)
             {
-                KShared.Instance?.Log(
+                KShared.Log(
                 string.Format("An error occured, returning 0 meters. Message: {0}. Stack trace: {1}. ",
                     ex.Message, ex.StackTrace),
                 "KhemistryDeposit/DistanceFromDeposit");
@@ -497,7 +497,7 @@ namespace Khemistry
             }
             catch (Exception ex)
             {
-                KShared.Instance?.Log(
+                KShared.Log(
                 string.Format("An error occured. Message: {0}. Stack trace: {1}. ",
                     ex.Message, ex.StackTrace),
                 "KhemistryUDeposit/constructor");
@@ -513,8 +513,12 @@ namespace Khemistry
     {
         public KhemistryUDeposit PairGDeposit { get; set; }
 
-        // Helper function to see if inside the deposit based on depth, depth is in meters
-        // Using -1 to make sure 0 works
+        /// <summary>
+        /// Helper function to see if a depth is inside the deposit.
+        /// Uses -1 in the comparison to make sure 0 works as well.
+        /// </summary>
+        /// <param name="depth2">Depth of the point in meters.</param>
+        /// <returns>Whether the depth is inside the deposit.</returns>
         public bool IsDepthInsideDeposit(float depth2) => depth2 > -1 && depth2 < Depth;
 
         public KhemistryGDeposit(KShared kinst, string planet, string requiredBiome, float depth, string resource, float minRadius, float maxRadius, string resource2, float underDepth)
@@ -549,7 +553,7 @@ namespace Khemistry
             }
             catch (Exception ex)
             {
-                KShared.Instance?.Log(
+                KShared.Log(
                 string.Format("An error occured. Message: {0}. Stack trace: {1}. ",
                     ex.Message, ex.StackTrace),
                 "KhemistryGDeposit/constructor");
@@ -651,7 +655,7 @@ namespace Khemistry
             }
             catch (Exception ex)
             {
-                KShared.Instance?.Log(
+                KShared.Log(
                 string.Format("An error occured, returning ConditionType.None. Message: {0}. Stack trace: {1}. ",
                     ex.Message, ex.StackTrace),
                 "AdvancedISRURecipeCondition/ParseConditionType");
@@ -689,7 +693,7 @@ namespace Khemistry
             }
             catch (Exception ex)
             {
-                KShared.Instance?.Log(
+                KShared.Log(
                 string.Format("An error occured. Message: {0}. Stack trace: {1}. ",
                     ex.Message, ex.StackTrace),
                 "AdvancedISRURecipeCondition/constructor");
@@ -831,7 +835,7 @@ namespace Khemistry
             }
             catch (Exception ex)
             {
-                KShared.Instance?.Log(
+                KShared.Log(
                 string.Format("An error occured, returning condition fail. Message: {0}. Stack trace: {1}. ",
                     ex.Message, ex.StackTrace),
                 "AdvancedISRURecipeCondition/CheckCondition");
@@ -926,7 +930,7 @@ namespace Khemistry
                     if (Enum.TryParse(sitStr, true, out SituationCondition parsed))
                         _situationCondition = parsed;
                     else
-                        KShared.Instance?.LogError("Unknown situationCondition \"" + sitStr + "\" — condition ignored.", "KhemistryRecipe/constructor");
+                        KShared.LogError("Unknown situationCondition \"" + sitStr + "\" — condition ignored.", "KhemistryRecipe/constructor");
                 }
 
                 _depositCondition = KShared.GetStrValueFromCFG(node, "depositCondition", null);
@@ -966,7 +970,7 @@ namespace Khemistry
                         if (Enum.TryParse(flowStr.Trim(), true, out ResourceFlowMode parsed))
                             flowMode = parsed;
                         else
-                            KShared.Instance?.LogError(
+                            KShared.LogError(
                                 "Recipe \"" + ConverterName + "\": Unknown FlowMode \"" + flowStr + "\" for " + resName + ", defaulting to ALL_VESSEL.",
                                 "KhemistryRecipe/constructor");
                     }
@@ -987,7 +991,7 @@ namespace Khemistry
                 }
 
                 if (_inputs.Count == 0 && _outputs.Count == 0)
-                    KShared.Instance?.LogError(
+                    KShared.LogError(
                         "Recipe \"" + ConverterName + "\" has no INPUT_RESOURCE or OUTPUT_RESOURCE nodes — it will do nothing.",
                         "KhemistryRecipe/constructor");
 
@@ -1006,7 +1010,7 @@ namespace Khemistry
 
                     if (!found)
                     {
-                        KShared.Instance?.LogError("powerfailResource \"" + pfRes + "\" is not a defined INPUT_RESOURCE — powerfail disabled.", "KhemistryRecipe/constructor");
+                        KShared.LogError("powerfailResource \"" + pfRes + "\" is not a defined INPUT_RESOURCE — powerfail disabled.", "KhemistryRecipe/constructor");
                     }
                     else
                     {
@@ -1031,13 +1035,13 @@ namespace Khemistry
                                 }
                                 else
                                 {
-                                    KShared.Instance?.LogError("Could not parse EXPLODE power \"" + pfResultRaw + "\" — defaulting to STOP.", "KhemistryRecipe/constructor");
+                                    KShared.LogError("Could not parse EXPLODE power \"" + pfResultRaw + "\" — defaulting to STOP.", "KhemistryRecipe/constructor");
                                     _powerfailResult = PowerfailResult.Stop;
                                 }
                             }
                             else
                             {
-                                KShared.Instance?.LogError("Unknown powerfailResult \"" + pfResultRaw + "\" — defaulting to STOP.", "KhemistryRecipe/constructor");
+                                KShared.LogError("Unknown powerfailResult \"" + pfResultRaw + "\" — defaulting to STOP.", "KhemistryRecipe/constructor");
                                 _powerfailResult = PowerfailResult.Stop;
                             }
                         }
@@ -1045,7 +1049,7 @@ namespace Khemistry
                 }
                 else if (pfResultRaw != null)
                 {
-                    KShared.Instance?.LogError("powerfailResult set without powerfailResource — powerfailResult ignored.", "KhemistryRecipe/constructor");
+                    KShared.LogError("powerfailResult set without powerfailResource — powerfailResult ignored.", "KhemistryRecipe/constructor");
                 }
 
                 if (bool.TryParse(KShared.GetStrValueFromCFG(node, "chargingRequired", "false"), out tmpB))
@@ -1061,7 +1065,7 @@ namespace Khemistry
                     foreach (string a in node.GetNode("CHARGE_CON_AMOUNTS").GetValues("amount"))
                     { if (float.TryParse(a, out float amtTmp)) ChargeAmounts.Add(amtTmp); }
                 if (ChargeNames.Count != ChargeAmounts.Count)
-                    KShared.Instance?.LogError(
+                    KShared.LogError(
                         "Recipe \"" + ConverterName + "\": CHARGE_CON_NAMES and CHARGE_CON_AMOUNTS length mismatch.",
                         "KhemistryRecipe/constructor");
 
@@ -1070,7 +1074,7 @@ namespace Khemistry
             }
             catch (Exception ex)
             {
-                KShared.Instance?.Log(
+                KShared.Log(
                 string.Format("An error occured. Message: {0}. Stack trace: {1}. ",
                     ex.Message, ex.StackTrace),
                 "KhemistryRecipe/constructor");
@@ -1102,7 +1106,7 @@ namespace Khemistry
 
             if (_instance != null)
             {
-                kinst.LogError("Another instance of KSharedMainMenu was found, self destructing...", "KSharedMainMenu/Awake");
+                KShared.LogError("Another instance of KSharedMainMenu was found, self destructing...", "KSharedMainMenu/Awake");
                 Destroy(gameObject);
                 return;
             }
@@ -1114,28 +1118,28 @@ namespace Khemistry
             {
                 if (!node.HasValue("resource"))
                 {
-                    kinst.LogError("A KHEMISTRY_RESOURCE_DEPOSIT does not define a resource it contains and was not loaded.", "KSharedMainMenu/Awake");
+                    KShared.LogError("A KHEMISTRY_RESOURCE_DEPOSIT does not define a resource it contains and was not loaded.", "KSharedMainMenu/Awake");
                     continue;
                 }
                 if (!node.HasValue("type"))
                 {
-                    kinst.LogError("A KHEMISTRY_RESOURCE_DEPOSIT with resource \"" + node.GetValue("resource") + "\" does not have a type and was not loaded.", "KSharedMainMenu/Awake");
+                    KShared.LogError("A KHEMISTRY_RESOURCE_DEPOSIT with resource \"" + node.GetValue("resource") + "\" does not have a type and was not loaded.", "KSharedMainMenu/Awake");
                     continue;
                 }
                 if (!node.HasValue("body"))
                 {
-                    kinst.LogError("A KHEMISTRY_RESOURCE_DEPOSIT with resource \"" + node.GetValue("resource") + "\" does not define a body to be placed on and was not loaded.", "KSharedMainMenu/Awake");
+                    KShared.LogError("A KHEMISTRY_RESOURCE_DEPOSIT with resource \"" + node.GetValue("resource") + "\" does not define a body to be placed on and was not loaded.", "KSharedMainMenu/Awake");
                     continue;
                 }
                 if (node.GetValue("type") == "surface" && !node.HasValue("resource2"))
                 {
-                    kinst.LogError("A KHEMISTRY_RESOURCE_DEPOSIT with resource \"" + node.GetValue("resource") + "\" is a surface type deposit without a resource2 value. It was not loaded.", "KSharedMainMenu/Awake");
+                    KShared.LogError("A KHEMISTRY_RESOURCE_DEPOSIT with resource \"" + node.GetValue("resource") + "\" is a surface type deposit without a resource2 value. It was not loaded.", "KSharedMainMenu/Awake");
                     continue;
                 }
 
                 if (node.GetValue("type") != "underground" && node.GetValue("render") == "true")
                 {
-                    kinst.LogError("A KHEMISTRY_RESOURCE_DEPOSIT with resource \"" + node.GetValue("resource") + "\" attempts to render but that is not implemented yet.", "KSharedMainMenu/Awake");
+                    KShared.LogError("A KHEMISTRY_RESOURCE_DEPOSIT with resource \"" + node.GetValue("resource") + "\" attempts to render but that is not implemented yet.", "KSharedMainMenu/Awake");
                     continue;
                 }
 
@@ -1165,19 +1169,19 @@ namespace Khemistry
                 }
                 else
                 {
-                    kinst.LogError("A KHEMISTRY_RESOURCE_DEPOSIT with resource \"" + node.GetValue("resource") + "\" does not have a valid type and was not loaded. The type was \"" + node.GetValue("type") + "\".", "KSharedMainMenu/Awake");
+                    KShared.LogError("A KHEMISTRY_RESOURCE_DEPOSIT with resource \"" + node.GetValue("resource") + "\" does not have a valid type and was not loaded. The type was \"" + node.GetValue("type") + "\".", "KSharedMainMenu/Awake");
                 }
             }
 
-            kinst.Log("Created " + kinst.undergroundDeposits.Count().ToString() + " underground deposits.", "KSharedMainMenu/Awake");
-            kinst.Log("Created " + kinst.surfaceDeposits.Count().ToString() + " surface deposits.", "KSharedMainMenu/Awake");
+            KShared.Log("Created " + kinst.undergroundDeposits.Count().ToString() + " underground deposits.", "KSharedMainMenu/Awake");
+            KShared.Log("Created " + kinst.surfaceDeposits.Count().ToString() + " surface deposits.", "KSharedMainMenu/Awake");
 
             ConfigNode[] nodes2 = GameDatabase.Instance.GetConfigNodes("KHEMISTRY_RECIPE");
             foreach (ConfigNode node in nodes2)
             {
                 if (!node.HasValue("recipeType"))
                 {
-                    kinst.LogError("A KHEMISTRY_RECIPE has no recipeType!", "KSharedMainMenu/Awake");
+                    KShared.LogError("A KHEMISTRY_RECIPE has no recipeType!", "KSharedMainMenu/Awake");
                     continue;
                 }
                 string recipeT = node.GetValue("recipeType");
@@ -1187,10 +1191,10 @@ namespace Khemistry
                 kinst.recipeDict[recipeT].Add(new KhemistryRecipe(node));
             }
 
-            kinst.Log("Created " + kinst.recipeDict.Keys.Count().ToString() + " recipe types.", "KSharedMainMenu/Awake");
+            KShared.Log("Created " + kinst.recipeDict.Keys.Count().ToString() + " recipe types.", "KSharedMainMenu/Awake");
             foreach (string recipeType in kinst.recipeDict.Keys)
             {
-                kinst.Log("Created " + kinst.recipeDict[recipeType].Count().ToString() + " recipes for recipe type " + recipeType, "KSharedMainMenu/Awake");
+                KShared.Log("Created " + kinst.recipeDict[recipeType].Count().ToString() + " recipes for recipe type " + recipeType, "KSharedMainMenu/Awake");
             }
 
             int materialCount = 0;
@@ -1203,7 +1207,7 @@ namespace Khemistry
                     materialCount++;
                 }
             }
-            kinst.Log("Created " + materialCount.ToString() + " material definitions.", "KSharedMainMenu/Awake");
+            KShared.Log("Created " + materialCount.ToString() + " material definitions.", "KSharedMainMenu/Awake");
         }
     }
 
@@ -1340,9 +1344,9 @@ namespace Khemistry
                     showPAW = true; showEVA = true; break;
                 default:
                     if (moduleName == null)
-                        Instance?.LogError("Unknown " + fieldName + " value \"" + raw + "\" — defaulting to PAW.", "KShared/ParseShowRule");
+                        KShared.LogError("Unknown " + fieldName + " value \"" + raw + "\" — defaulting to PAW.", "KShared/ParseShowRule");
                     else
-                        Instance?.LogError("Converter \"" + moduleName + "\": Unknown " + fieldName + " value \"" + raw + "\" — defaulting to PAW.", "KShared/ParseShowRule");
+                        KShared.LogError("Converter \"" + moduleName + "\": Unknown " + fieldName + " value \"" + raw + "\" — defaulting to PAW.", "KShared/ParseShowRule");
                     showPAW = true; showEVA = false; break;
             }
         }
@@ -1373,7 +1377,7 @@ namespace Khemistry
         {
             if (_instance != null)
             {
-                LogError("Another instance of KShared was found, self destructing...", "KShared/Awake");
+                KShared.LogError("Another instance of KShared was found, self destructing...", "KShared/Awake");
                 Destroy(gameObject);
                 return;
             }
@@ -1381,7 +1385,7 @@ namespace Khemistry
             DontDestroyOnLoad(gameObject);
             _windowId = GUIUtility.GetControlID(FocusType.Passive);
             _amountWindowId = GUIUtility.GetControlID(FocusType.Passive);
-            Log("KShared initialized.", "KShared/Awake");
+            KShared.Log("KShared initialized.", "KShared/Awake");
         }
 
         public void ShowSelector(string title, List<string> options, Action<string> onSelect)
@@ -1482,7 +1486,7 @@ namespace Khemistry
         /// </summary>
         /// <param name="message">The message to send.</param>
         /// <param name="func">Optional function name the log message came from.</param>
-        public void Log(string message, string func = null)
+        public static void Log(string message, string func = null)
         {
             if (func != null)
                 Debug.Log("Khemistry (" + func + "): " + message);
@@ -1496,7 +1500,7 @@ namespace Khemistry
         /// </summary>
         /// <param name="message">The error message to send.</param>
         /// <param name="func">Optional function name the error log message came from.</param>
-        public void LogError(string message, string func = null)
+        public static void LogError(string message, string func = null)
         {
             if (func != null)
                 Debug.LogError("Khemistry (" + func + "): " + message);
@@ -1510,7 +1514,7 @@ namespace Khemistry
         /// </summary>
         /// <param name="message">The warning message to send.</param>
         /// <param name="func">Optional function name the warning log message came from.</param>
-        public void LogWarning(string message, string func = null)
+        public static void LogWarning(string message, string func = null)
         {
             if (func != null)
                 Debug.LogWarning("Khemistry (" + func + "): " + message);
@@ -1550,13 +1554,13 @@ namespace Khemistry
             {
                 foreach (string name in node.GetNode("ALLOWED_RESOURCES").GetValues("name"))
                     AllowedResources.Add(name.Trim());
-                KShared.Instance?.Log(
+                KShared.Log(
                     "Loaded " + AllowedResources.Count + " allowed resources.",
                     "KhemistryFluidCell/OnLoad");
             }
             else
             {
-                KShared.Instance?.LogError(
+                KShared.LogError(
                     "Part \"" + part.name + "\" has KhemistryFluidCell but no ALLOWED_RESOURCES node. This part is now capable of storing anything.",
                     "KhemistryFluidCell/OnLoad");
             }
@@ -1605,7 +1609,7 @@ namespace Khemistry
             PartResource resource = part.Resources.Get(ResourceName);
             if (resource == null)
             {
-                KShared.Instance?.LogError(
+                KShared.LogError(
                     "Part \"" + part.name + "\" has KhemistryDegradingBattery but no resource node for " + ResourceName,
                     "KhemistryDegradingBattery/OnStart");
                 return;
@@ -1703,7 +1707,7 @@ namespace Khemistry
 
         private void LoadData()
         {
-            KShared.Instance?.Log("Loading resource and recipe library...", "KhemistryLibraryLoader/LoadData");
+            KShared.Log("Loading resource and recipe library...", "KhemistryLibraryLoader/LoadData");
 
             var descriptions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (ConfigNode node in GameDatabase.Instance.GetConfigNodes("RESOURCE_DEFINITION"))
@@ -1772,7 +1776,7 @@ namespace Khemistry
             }
 
             IsLoaded = true;
-            KShared.Instance?.Log(
+            KShared.Log(
                 string.Format("Library loaded: {0} resources, {1} recipes.", Resources.Count, Recipes.Count),
                 "KhemistryLibraryLoader/LoadData");
         }
@@ -2233,7 +2237,7 @@ MODULE
             if (!chargingRequired) return;
             if (state == StorageState.On) return;
             state = StorageState.Charging;
-            KShared.Instance?.Log("Charging enabled.", "KhemistryAdvancedStorage/EnableCharging");
+            KShared.Log("Charging enabled.", "KhemistryAdvancedStorage/EnableCharging");
         }
 
         [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Disable Charging",
@@ -2243,7 +2247,7 @@ MODULE
             if (!chargingRequired) return;
             if (state != StorageState.Charging) return;
             state = StorageState.Off;
-            KShared.Instance?.Log("Charging disabled.", "KhemistryAdvancedStorage/DisableCharging");
+            KShared.Log("Charging disabled.", "KhemistryAdvancedStorage/DisableCharging");
         }
 
         [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Turn on container",
@@ -2258,7 +2262,7 @@ MODULE
             }
             state = StorageState.On;
             _passiveUnsatisfiedFired = false;
-            KShared.Instance?.Log("Container turned ON.", "KhemistryAdvancedStorage/TurnOnContainer");
+            KShared.Log("Container turned ON.", "KhemistryAdvancedStorage/TurnOnContainer");
         }
 
         [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Turn off container",
@@ -2266,7 +2270,7 @@ MODULE
         public void TurnOffContainer()
         {
             state = StorageState.Off;
-            KShared.Instance?.Log("Container turned OFF.", "KhemistryAdvancedStorage/TurnOffContainer");
+            KShared.Log("Container turned OFF.", "KhemistryAdvancedStorage/TurnOffContainer");
         }
 
         [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Select resource",
@@ -2309,7 +2313,7 @@ MODULE
             shared.ShowSelector("Select active resource", new List<string>(_supportedResources), label =>
             {
                 activeResource = label;
-                KShared.Instance?.Log("Active resource set to " + activeResource,
+                KShared.Log("Active resource set to " + activeResource,
                     "KhemistryAdvancedStorage/SelectResource");
                 ZeroNonActiveResources();
             });
@@ -2367,7 +2371,7 @@ MODULE
         {
             if (part.partInfo?.partConfig == null)
             {
-                KShared.Instance?.LogError("partInfo.partConfig is null!",
+                KShared.LogError("partInfo.partConfig is null!",
                     "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
                 _fatalConfigError = true;
                 return;
@@ -2381,7 +2385,7 @@ MODULE
 
             if (moduleNode == null)
             {
-                KShared.Instance?.LogError("Could not find MODULE node in partConfig!",
+                KShared.LogError("Could not find MODULE node in partConfig!",
                     "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
                 _fatalConfigError = true;
                 return;
@@ -2390,7 +2394,7 @@ MODULE
             _supportedResources.Clear();
             if (!moduleNode.HasNode("SUPPORTED_RESOURCES"))
             {
-                KShared.Instance?.LogError(
+                KShared.LogError(
                     "Part \"" + part.name + "\" has KhemistryAdvancedStorage but no SUPPORTED_RESOURCES node. This module will not load.",
                     "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
                 _fatalConfigError = true;
@@ -2400,7 +2404,7 @@ MODULE
                 _supportedResources.Add(n.Trim());
             if (_supportedResources.Count == 0)
             {
-                KShared.Instance?.LogError(
+                KShared.LogError(
                     "Part \"" + part.name + "\" has KhemistryAdvancedStorage with an empty SUPPORTED_RESOURCES node. This module will not load.",
                     "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
                 _fatalConfigError = true;
@@ -2437,7 +2441,7 @@ MODULE
                     foreach (string a in moduleNode.GetNode("PASSIVE_CON_AMOUNTS").GetValues("amount"))
                     { if (float.TryParse(a, out tmp)) _passiveAmounts.Add(tmp); }
                 if (_passiveNames.Count != _passiveAmounts.Count)
-                    KShared.Instance?.LogError("PASSIVE_CON_NAMES and PASSIVE_CON_AMOUNTS length mismatch.",
+                    KShared.LogError("PASSIVE_CON_NAMES and PASSIVE_CON_AMOUNTS length mismatch.",
                         "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
             }
 
@@ -2452,7 +2456,7 @@ MODULE
                     foreach (string a in moduleNode.GetNode("CHARGE_CON_AMOUNTS").GetValues("amount"))
                     { if (float.TryParse(a, out tmp)) _chargeAmounts.Add(tmp); }
                 if (_chargeNames.Count != _chargeAmounts.Count)
-                    KShared.Instance?.LogError("CHARGE_CON_NAMES and CHARGE_CON_AMOUNTS length mismatch.",
+                    KShared.LogError("CHARGE_CON_NAMES and CHARGE_CON_AMOUNTS length mismatch.",
                         "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
             }
 
@@ -2461,7 +2465,7 @@ MODULE
 
             if (storageType == "single" && _supportedResources.Count > 1)
             {
-                KShared.Instance?.LogError(
+                KShared.LogError(
                     "storageType=single but multiple SUPPORTED_RESOURCES defined; only first will be used.",
                     "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
                 string keep = _supportedResources[0];
@@ -2470,7 +2474,7 @@ MODULE
                 activeResource = keep;
             }
 
-            KShared.Instance?.Log(
+            KShared.Log(
                 string.Format("Config loaded. storageType={0}, max={1}, chargingRequired={2}, passiveConsumption={3}, passiveUnsatisfiedResult={4}, filledUnpoweredResult={5}",
                     storageType, maximumResources, chargingRequired, passiveConsumption,
                     _passiveUnsatisfiedResult.type, _filledUnpoweredResult.type),
@@ -2492,7 +2496,7 @@ MODULE
             {
                 if (float.TryParse(src.Substring(8), out float v))
                     return new ConsequenceConfig { type = ConsequenceType.Destroy, value = v };
-                KShared.Instance?.LogError("Could not parse destroy power in " + fieldName + "=\"" + raw + "\". Defaulting to off.",
+                KShared.LogError("Could not parse destroy power in " + fieldName + "=\"" + raw + "\". Defaulting to off.",
                     "KhemistryAdvancedStorage/ParseConsequence");
                 return new ConsequenceConfig { type = ConsequenceType.Off };
             }
@@ -2501,12 +2505,12 @@ MODULE
             {
                 if (float.TryParse(src.Substring(8), out float v))
                     return new ConsequenceConfig { type = ConsequenceType.Boiloff, value = v };
-                KShared.Instance?.LogError("Could not parse boiloff rate in " + fieldName + "=\"" + raw + "\". Defaulting to off.",
+                KShared.LogError("Could not parse boiloff rate in " + fieldName + "=\"" + raw + "\". Defaulting to off.",
                     "KhemistryAdvancedStorage/ParseConsequence");
                 return new ConsequenceConfig { type = ConsequenceType.Off };
             }
 
-            KShared.Instance?.LogError("Unknown consequence value " + fieldName + "=\"" + raw + "\". Defaulting to off.",
+            KShared.LogError("Unknown consequence value " + fieldName + "=\"" + raw + "\". Defaulting to off.",
                 "KhemistryAdvancedStorage/ParseConsequence");
             return new ConsequenceConfig { type = ConsequenceType.Off };
         }
@@ -2518,7 +2522,7 @@ MODULE
                 var def = PartResourceLibrary.Instance.GetDefinition(resName);
                 if (def == null)
                 {
-                    KShared.Instance?.LogError("Unknown resource \"" + resName + "\" in SUPPORTED_RESOURCES.",
+                    KShared.LogError("Unknown resource \"" + resName + "\" in SUPPORTED_RESOURCES.",
                         "KhemistryAdvancedStorage/EnsureResourcesExistOnPart");
                     continue;
                 }
@@ -2573,7 +2577,7 @@ MODULE
             {
                 chargePercent = 100f;
                 state = StorageState.On;
-                KShared.Instance?.Log("Container fully charged, now ON.",
+                KShared.Log("Container fully charged, now ON.",
                     "KhemistryAdvancedStorage/HandleCharging");
                 return;
             }
@@ -2646,7 +2650,7 @@ MODULE
                     break;
 
                 case ConsequenceType.Void:
-                    KShared.Instance?.Log("Voiding all stored resources (" + source + ").",
+                    KShared.Log("Voiding all stored resources (" + source + ").",
                         "KhemistryAdvancedStorage/ApplyConsequence");
                     foreach (PartResource pr in part.Resources)
                     {
@@ -2656,7 +2660,7 @@ MODULE
                     break;
 
                 case ConsequenceType.Destroy:
-                    KShared.Instance?.Log(
+                    KShared.Log(
                         string.Format("Destroying part with power {0:F1} ({1}).", cfg.value, source),
                         "KhemistryAdvancedStorage/ApplyConsequence");
                     part.explode();
@@ -2695,7 +2699,7 @@ MODULE
                 _frozenAmounts[pr.resourceName] = pr.amount;
             }
 
-            KShared.Instance?.Log(
+            KShared.Log(
                 string.Format("Boiloff: drained {0:F4} units ({1}).", toDrain, source),
                 "KhemistryAdvancedStorage/ApplyBoiloff");
         }
@@ -2723,7 +2727,7 @@ MODULE
                 var def = PartResourceLibrary.Instance.GetDefinition(names[i]);
                 if (def == null)
                 {
-                    KShared.Instance?.LogError("Unknown resource \"" + names[i] + "\" in consumption list.",
+                    KShared.LogError("Unknown resource \"" + names[i] + "\" in consumption list.",
                         "KhemistryAdvancedStorage/ConsumeVesselResources");
                     pulled.Add(0.0);
                     allSatisfied = false;
@@ -2904,7 +2908,7 @@ MODULE
             if (!chargingRequired) return;
             if (state == ConverterState.On) return;
             state = ConverterState.Charging;
-            KShared.Instance?.Log("Charging enabled.", "KhemistryAdvancedISRUBase/EnableCharging");
+            KShared.Log("Charging enabled.", "KhemistryAdvancedISRUBase/EnableCharging");
         }
 
         [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Disable Charging",
@@ -2914,7 +2918,7 @@ MODULE
             if (!chargingRequired) return;
             if (state != ConverterState.Charging) return;
             state = ConverterState.Off;
-            KShared.Instance?.Log("Charging disabled.", "KhemistryAdvancedISRUBase/DisableCharging");
+            KShared.Log("Charging disabled.", "KhemistryAdvancedISRUBase/DisableCharging");
         }
 
         [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Prepare converter",
@@ -2928,7 +2932,7 @@ MODULE
                 return;
             }
             state = ConverterState.On;
-            KShared.Instance?.Log("Converter turned ON.", "KhemistryAdvancedISRUBase/TurnOnContainer");
+            KShared.Log("Converter turned ON.", "KhemistryAdvancedISRUBase/TurnOnContainer");
         }
 
         [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Turn off converter",
@@ -2936,7 +2940,7 @@ MODULE
         public void TurnOffContainer()
         {
             state = ConverterState.Off;
-            KShared.Instance?.Log("Converter turned OFF.", "KhemistryAdvancedISRUBase/TurnOffContainer");
+            KShared.Log("Converter turned OFF.", "KhemistryAdvancedISRUBase/TurnOffContainer");
         }
 
         [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Enable Auto Manual Cycle",
@@ -3187,7 +3191,7 @@ MODULE
             }
 
             if (result == null)
-                KShared.Instance?.LogError(
+                KShared.LogError(
                     "Could not find MODULE " + moduleName + " with ConverterName=\"" + ConverterName
                     + "\" in partConfig or GameDatabase!",
                     moduleName + "/FindModuleConfigNode");
@@ -3212,7 +3216,7 @@ MODULE
                     if (Enum.TryParse(flowStr.Trim(), true, out ResourceFlowMode parsed))
                         flowMode = parsed;
                     else
-                        KShared.Instance?.LogError(
+                        KShared.LogError(
                             "Converter \"" + ConverterName + "\": Unknown FlowMode \"" + flowStr + "\" for " + resName + ", defaulting to ALL_VESSEL.",
                             moduleName + "/LoadSharedConfig");
                 }
@@ -3262,7 +3266,7 @@ MODULE
             }
 
             if (_outputs.Count == 0 && _outputMaterials.Count == 0)
-                KShared.Instance?.LogError(
+                KShared.LogError(
                     "Converter \"" + ConverterName + "\" has no OUTPUT_RESOURCE nor OUTPUT_RESOURCE_MATERIAL nodes — it will do nothing.",
                     moduleName + "/LoadSharedConfig");
 
@@ -3270,7 +3274,7 @@ MODULE
             _biomeCondition = NullIfEmpty(moduleNode.GetValue("biomeCondition"));
             if (_biomeCondition != null && _planetCondition == null)
             {
-                KShared.Instance?.LogError(
+                KShared.LogError(
                     "Converter \"" + ConverterName + "\": biomeCondition set without planetCondition — biomeCondition ignored.",
                     moduleName + "/LoadSharedConfig");
                 _biomeCondition = null;
@@ -3290,7 +3294,7 @@ MODULE
                 if (Enum.TryParse(sitStr, true, out SituationCondition parsed))
                     _situationCondition = parsed;
                 else
-                    KShared.Instance?.LogError(
+                    KShared.LogError(
                         "Converter \"" + ConverterName + "\": Unknown situationCondition \"" + sitStr + "\" — condition ignored.",
                         moduleName + "/LoadSharedConfig");
             }
@@ -3313,7 +3317,7 @@ MODULE
                     foreach (string a in moduleNode.GetNode("CHARGE_CON_AMOUNTS").GetValues("amount"))
                     { if (float.TryParse(a, out tmp)) _chargeAmounts.Add(tmp); }
                 if (_chargeNames.Count != _chargeAmounts.Count)
-                    KShared.Instance?.LogError("CHARGE_CON_NAMES and CHARGE_CON_AMOUNTS length mismatch.",
+                    KShared.LogError("CHARGE_CON_NAMES and CHARGE_CON_AMOUNTS length mismatch.",
                         "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
             }
 
@@ -3332,7 +3336,7 @@ MODULE
 
                 if (!found)
                 {
-                    KShared.Instance?.LogError(
+                    KShared.LogError(
                         "Converter \"" + ConverterName + "\": powerfailResource \"" + pfRes + "\" is not a defined INPUT_RESOURCE — powerfail disabled.",
                         moduleName + "/LoadSharedConfig");
                 }
@@ -3359,7 +3363,7 @@ MODULE
                             }
                             else
                             {
-                                KShared.Instance?.LogError(
+                                KShared.LogError(
                                     "Converter \"" + ConverterName + "\": Could not parse EXPLODE power \"" + pfResultRaw + "\" — defaulting to STOP.",
                                     moduleName + "/LoadSharedConfig");
                                 _powerfailResult = PowerfailResult.Stop;
@@ -3367,7 +3371,7 @@ MODULE
                         }
                         else
                         {
-                            KShared.Instance?.LogError(
+                            KShared.LogError(
                                 "Converter \"" + ConverterName + "\": Unknown powerfailResult \"" + pfResultRaw + "\" — defaulting to STOP.",
                                 moduleName + "/LoadSharedConfig");
                             _powerfailResult = PowerfailResult.Stop;
@@ -3377,7 +3381,7 @@ MODULE
             }
             else if (pfResultRaw != null)
             {
-                KShared.Instance?.LogError(
+                KShared.LogError(
                     "Converter \"" + ConverterName + "\": powerfailResult set without powerfailResource — powerfailResult ignored.",
                     moduleName + "/LoadSharedConfig");
             }
@@ -3403,7 +3407,7 @@ MODULE
 
             _recipeGroup = NullIfEmpty(moduleNode.GetValue("recipeGroup"));
 
-            KShared.Instance?.Log(
+            KShared.Log(
                 string.Format("Converter \"{0}\" loaded: {1} inputs, {2} outputs, manual={3}, requiresStartup={4}, group={5}",
                     ConverterName, _inputs.Count, _outputs.Count + _outputMaterials.Count,
                     _manualOperation, _manualRequiresStartup, _recipeGroup ?? "none"),
@@ -3432,7 +3436,7 @@ MODULE
                 var def = PartResourceLibrary.Instance.GetDefinition(names[i]);
                 if (def == null)
                 {
-                    KShared.Instance?.LogError("Unknown resource \"" + names[i] + "\" in consumption list.",
+                    KShared.LogError("Unknown resource \"" + names[i] + "\" in consumption list.",
                         "KhemistryAdvancedStorage/ConsumeVesselResources");
                     pulled.Add(0.0);
                     allSatisfied = false;
@@ -3498,7 +3502,7 @@ MODULE
             {
                 chargePercent = 100f;
                 state = ConverterState.On;
-                KShared.Instance?.Log("Container fully charged, now ON.",
+                KShared.Log("Container fully charged, now ON.",
                     "KhemistryAdvancedISRUBase/HandleCharging");
                 return;
             }
@@ -3552,7 +3556,7 @@ MODULE
                     // This kerbal cannot be occupied
                     if (!module.canBeOccupied) continue;
 
-                    KShared.Instance?.Log(
+                    KShared.Log(
                         string.Format("Found free kerbal {0} for occupation \"{1}\" at distance {2:F1}m.",
                             module.name, occupation, distance),
                         "KhemistryAdvancedISRUBase/FreeKerbalNearby");
@@ -3856,7 +3860,7 @@ MODULE
             KhemistryMaterial material = KShared.Instance?.materialList.FirstOrDefault(m => m.name == outputM.name);
             if (material == null)
             {
-                KShared.Instance?.LogError(
+                KShared.LogError(
                     "Converter \"" + ConverterName + "\": OUTPUT_RESOURCE_MATERIAL \"" + outputM.name
                     + "\" does not match any loaded KHEMISTRY_MATERIAL definition.",
                     "KhemistryAdvancedISRUBase/ConstructMaterialInstanceFromOutputMaterial");
@@ -3874,7 +3878,7 @@ MODULE
 
         protected void TriggerPowerfail(Part contextPart)
         {
-            KShared.Instance?.Log(
+            KShared.Log(
                 "Converter \"" + _displayName + "\" powerfailed. Result: " + _powerfailResult,
                 "KhemistryAdvancedISRUBase/TriggerPowerfail");
 
@@ -3969,7 +3973,7 @@ MODULE
             Animation[] animators = part.FindModelAnimators(animName);
             if (animators.Length == 0)
             {
-                KShared.Instance?.LogError(
+                KShared.LogError(
                     "Converter \"" + ConverterName + "\": No animator found for clip \"" + animName + "\".",
                     "KhemistryAdvancedISRU/SetupActiveAnimation");
                 _activeAnim = null;
@@ -3981,7 +3985,7 @@ MODULE
             _activeAnimationName = animName;
             _activeAnim[_activeAnimationName].wrapMode = _manualOperation ? WrapMode.Once : WrapMode.Loop;
 
-            KShared.Instance?.Log(
+            KShared.Log(
                 "Converter \"" + ConverterName + "\": Hooked active animation \"" + animName + "\""
                 + (animGroup != null ? " (from ModuleAnimationGroup)." : " (from activeAnimationNameOverride)."),
                 "KhemistryAdvancedISRU/SetupActiveAnimation");
@@ -4115,7 +4119,7 @@ MODULE
             if (!CheckRecipeGroup(part)) return;
             if (state != ConverterState.On) return;
             isRunning = true;
-            KShared.Instance?.Log("Converter \"" + _displayName + "\" started.", "KhemistryAdvancedISRU/StartConverter");
+            KShared.Log("Converter \"" + _displayName + "\" started.", "KhemistryAdvancedISRU/StartConverter");
             UpdateEventVisibility();
         }
 
@@ -4124,7 +4128,7 @@ MODULE
         public void StopConverter()
         {
             isRunning = false;
-            KShared.Instance?.Log("Converter \"" + _displayName + "\" stopped.", "KhemistryAdvancedISRU/StopConverter");
+            KShared.Log("Converter \"" + _displayName + "\" stopped.", "KhemistryAdvancedISRU/StopConverter");
             UpdateEventVisibility();
         }
 
@@ -4142,7 +4146,7 @@ MODULE
                 return;
             }
             needsMaintenance = false;
-            KShared.Instance?.Log("Converter \"" + _displayName + "\" maintained by " + kerbal.name + ".",
+            KShared.Log("Converter \"" + _displayName + "\" maintained by " + kerbal.name + ".",
                 "KhemistryAdvancedISRU/PerformMaintenance");
             ScreenMessages.PostScreenMessage(new ScreenMessage(
                 "Converter \"" + _displayName + "\": Maintenance complete.", 5f, ScreenMessageStyle.UPPER_CENTER));
@@ -4186,7 +4190,7 @@ MODULE
 
         protected override void LoadConfigFromPartInfo()
         {
-            KShared.Instance?.Log("Called!", "KhemistryAdvancedISRU/LoadConfigFromPartInfo");
+            KShared.Log("Called!", "KhemistryAdvancedISRU/LoadConfigFromPartInfo");
             ConfigNode moduleNode = FindModuleConfigNode("KhemistryAdvancedISRU");
             if (moduleNode == null) { _fatalConfigError = true; return; }
             LoadSharedConfig(moduleNode, "KhemistryAdvancedISRU");
@@ -4333,7 +4337,7 @@ MODULE
             }
 
             if (result == null)
-                KShared.Instance?.LogError(
+                KShared.LogError(
                     "Could not find MODULE KhemistryAdvancedRecipeISRU with recipeType=\"" + recipeType
                     + "\" in partConfig or GameDatabase!",
                     "KhemistryAdvancedRecipeISRU/FindRecipeModuleConfigNode");
@@ -4348,7 +4352,7 @@ MODULE
             if (node.HasNode("RECIPES"))
             {
                 if (!node.GetNode("RECIPES").HasValue("name"))
-                    KShared.Instance?.LogError(
+                    KShared.LogError(
                             "KhemistryAdvancedRecipeISRU: Node RECIPES is present but no \"name\" values inside, skipping node.",
                             "KhemistryAdvancedRecipeISRU/LoadOwnModuleConfig");
                 else
@@ -4356,7 +4360,7 @@ MODULE
                 if (node.HasNode("RECIPE_MULTIPLIERS"))
                 {
                     if (!node.GetNode("RECIPE_MULTIPLIERS").HasValue("amount"))
-                        KShared.Instance?.LogError(
+                        KShared.LogError(
                                 "KhemistryAdvancedRecipeISRU: Node RECIPE_MULTIPLIERS is present but no \"amount\" values inside, skipping node.",
                                 "KhemistryAdvancedRecipeISRU/LoadOwnModuleConfig");
                     else
@@ -4366,7 +4370,7 @@ MODULE
                             multiplierRecipes.Add(float.Parse(recipe));
                         if (allowedRecipes.Count != multiplierRecipes.Count)
                         {
-                            KShared.Instance?.LogError(
+                            KShared.LogError(
                                 "KhemistryAdvancedRecipeISRU: RECIPE and RECIPE_MULTIPLIERS nodes have unequal amounts of \"name\" and \"amount\" values respectively (" + allowedRecipes.Count.ToString() + ", " + multiplierRecipes.Count.ToString() + "), reverting to skip those nodes.",
                                 "KhemistryAdvancedRecipeISRU/LoadOwnModuleConfig");
                             allowedRecipes.Clear();
@@ -4377,7 +4381,7 @@ MODULE
             }
             else if (node.HasNode("RECIPE_MULTIPLIERS"))
             {
-                KShared.Instance?.LogError(
+                KShared.LogError(
                             "KhemistryAdvancedRecipeISRU: Node RECIPE_MULTIPLIERS is present but no RECIPES node is present.",
                             "KhemistryAdvancedRecipeISRU/LoadOwnModuleConfig");
             }
@@ -4434,7 +4438,7 @@ MODULE
                     if (Enum.TryParse(flowStr.Trim(), true, out ResourceFlowMode parsed))
                         flowMode = parsed;
                     else
-                        KShared.Instance?.LogError(
+                        KShared.LogError(
                             "KhemistryAdvancedRecipeISRU: Unknown FlowMode \"" + flowStr + "\" for " + resName + ", defaulting to ALL_VESSEL.",
                             "KhemistryAdvancedRecipeISRU/LoadOwnModuleConfig");
                 }
@@ -4464,7 +4468,7 @@ MODULE
                 foreach (string a in node.GetNode("CHARGE_CON_AMOUNTS").GetValues("amount"))
                 { if (float.TryParse(a, out float tmp)) _ownChargeAmounts.Add(tmp); }
             if (_ownChargeNames.Count != _ownChargeAmounts.Count)
-                KShared.Instance?.LogError(
+                KShared.LogError(
                     "KhemistryAdvancedRecipeISRU: CHARGE_CON_NAMES and CHARGE_CON_AMOUNTS length mismatch.",
                     "KhemistryAdvancedRecipeISRU/LoadOwnModuleConfig");
         }
@@ -4479,7 +4483,7 @@ MODULE
         {
             if (string.IsNullOrEmpty(recipeType))
             {
-                KShared.Instance?.LogError(
+                KShared.LogError(
                     "Part \"" + part.name + "\" has a KhemistryAdvancedRecipeISRU with no recipeType set!",
                     "KhemistryAdvancedRecipeISRU/LoadConfigFromPartInfo");
                 _fatalConfigError = true;
@@ -4500,7 +4504,7 @@ MODULE
                 string availableKeys = (shared != null && shared.recipeDict.Count > 0)
                     ? string.Join(", ", shared.recipeDict.Keys.Select(k => "\"" + k + "\""))
                     : "(none loaded)";
-                KShared.Instance?.LogError(
+                KShared.LogError(
                     "No KHEMISTRY_RECIPE entries found for recipeType \"" + recipeType + "\" (length "
                     + (recipeType?.Length ?? -1) + ")! Available recipeType keys: " + availableKeys,
                     "KhemistryAdvancedRecipeISRU/LoadConfigFromPartInfo");
@@ -4523,7 +4527,7 @@ MODULE
             {
                 if (recipe.mainNode == null)
                 {
-                    KShared.Instance?.LogError(
+                    KShared.LogError(
                             "mainNode is null for recipe \"" + recipe.ConverterName + "\", skipping recipe.",
                             "KhemistryAdvancedRecipeISRU/LoadConfigFromPartInfo");
                     continue;
@@ -4548,7 +4552,7 @@ MODULE
                     {
                         if (allowedRecipes.Count != multiplierRecipes.Count)
                         {
-                            KShared.Instance?.Log(
+                            KShared.Log(
                                 "allowedRecipes amount is not equal to the multiplierRecipes amount (" + allowedRecipes.Count.ToString() + ", " + multiplierRecipes.Count.ToString() + "), skipping recipe multiplication.",
                                 "KhemistryAdvancedRecipeISRU/LoadConfigFromPartInfo");
                             break;
@@ -4564,7 +4568,7 @@ MODULE
                             .ToList();
                     }
                     else
-                        KShared.Instance?.Log(
+                        KShared.Log(
                             recipe.ConverterName.ToString() + " was not found in allowedRecipes but is in multiplierRecipes, skipping this recipe.",
                             "KhemistryAdvancedRecipeISRU/LoadConfigFromPartInfo");
                 }
@@ -4580,7 +4584,7 @@ MODULE
             ApplyRecipe(initial);
             activeRecipeName = _activeRecipe.ConverterName;
 
-            KShared.Instance?.Log(
+            KShared.Log(
                 "Loaded " + _recipes.Count + " recipe(s) for recipeType \"" + recipeType + "\", active: \"" + _activeRecipe.ConverterName + "\".",
                 "KhemistryAdvancedRecipeISRU/LoadConfigFromPartInfo");
         }
@@ -4605,7 +4609,7 @@ MODULE
                 if (Enum.TryParse(sitRaw, true, out SituationCondition parsedSit))
                     _situationCondition = parsedSit;
                 else
-                    KShared.Instance?.LogError(
+                    KShared.LogError(
                         "Converter \"" + recipe.ConverterName + "\": Unknown situationCondition \"" + sitRaw + "\" — condition ignored.",
                         "KhemistryAdvancedRecipeISRU/ApplyRecipe");
             }
@@ -4689,7 +4693,7 @@ MODULE
             _outputs.AddRange(workingOutputs);
 
             if (_inputs.Count == 0 && _outputs.Count == 0)
-                KShared.Instance?.LogError(
+                KShared.LogError(
                     "Converter \"" + ConverterName + "\" (recipe) has no INPUT_RESOURCE or OUTPUT_RESOURCE — it will do nothing.",
                     "KhemistryAdvancedRecipeISRU/ApplyRecipe");
 
@@ -4720,7 +4724,7 @@ MODULE
 
                 if (duplicate)
                 {
-                    KShared.Instance?.LogError(
+                    KShared.LogError(
                         "Converter \"" + ConverterName + "\": Duplicate charge resource \"" + name + "\" ignored (already defined).",
                         "KhemistryAdvancedRecipeISRU/ApplyRecipe");
                     continue;
@@ -4756,7 +4760,7 @@ MODULE
 
                 if (!found)
                 {
-                    KShared.Instance?.LogError(
+                    KShared.LogError(
                         "Converter \"" + ConverterName + "\": powerfailResource \"" + pfRes + "\" is not a defined INPUT_RESOURCE — powerfail disabled.",
                         "KhemistryAdvancedRecipeISRU/ResolvePowerfail");
                 }
@@ -4783,7 +4787,7 @@ MODULE
                             }
                             else
                             {
-                                KShared.Instance?.LogError(
+                                KShared.LogError(
                                     "Converter \"" + ConverterName + "\": Could not parse EXPLODE power \"" + pfResultRaw + "\" — defaulting to STOP.",
                                     "KhemistryAdvancedRecipeISRU/ResolvePowerfail");
                                 _powerfailResult = PowerfailResult.Stop;
@@ -4791,7 +4795,7 @@ MODULE
                         }
                         else
                         {
-                            KShared.Instance?.LogError(
+                            KShared.LogError(
                                 "Converter \"" + ConverterName + "\": Unknown powerfailResult \"" + pfResultRaw + "\" — defaulting to STOP.",
                                 "KhemistryAdvancedRecipeISRU/ResolvePowerfail");
                             _powerfailResult = PowerfailResult.Stop;
@@ -4801,7 +4805,7 @@ MODULE
             }
             else if (pfResultRaw != null)
             {
-                KShared.Instance?.LogError(
+                KShared.LogError(
                     "Converter \"" + ConverterName + "\": powerfailResult set without powerfailResource — powerfailResult ignored.",
                     "KhemistryAdvancedRecipeISRU/ResolvePowerfail");
             }
@@ -4824,7 +4828,7 @@ MODULE
             Animation[] animators = part.FindModelAnimators(animName);
             if (animators.Length == 0)
             {
-                KShared.Instance?.LogError(
+                KShared.LogError(
                     "Converter \"" + ConverterName + "\": No animator found for clip \"" + animName + "\".",
                     "KhemistryAdvancedRecipeISRU/SetupActiveAnimation");
                 _activeAnim = null;
@@ -4836,7 +4840,7 @@ MODULE
             _activeAnimationName = animName;
             _activeAnim[_activeAnimationName].wrapMode = _manualOperation ? WrapMode.Once : WrapMode.Loop;
 
-            KShared.Instance?.Log(
+            KShared.Log(
                 "Converter \"" + ConverterName + "\": Hooked active animation \"" + animName + "\""
                 + (animGroup != null ? " (from ModuleAnimationGroup)." : " (from activeAnimationNameOverride)."),
                 "KhemistryAdvancedRecipeISRU/SetupActiveAnimation");
@@ -4972,7 +4976,7 @@ MODULE
 
                 ScreenMessages.PostScreenMessage(new ScreenMessage(
                     "Switched to recipe \"" + _displayName + "\".", 5f, ScreenMessageStyle.UPPER_CENTER));
-                KShared.Instance?.Log("Switched active recipe to \"" + _displayName + "\".",
+                KShared.Log("Switched active recipe to \"" + _displayName + "\".",
                     "KhemistryAdvancedRecipeISRU/SwitchRecipe");
             });
         }
@@ -4990,7 +4994,7 @@ MODULE
             }
             if (state != ConverterState.On) return;
             isRunning = true;
-            KShared.Instance?.Log("Converter \"" + _displayName + "\" started.", "KhemistryAdvancedRecipeISRU/StartConverter");
+            KShared.Log("Converter \"" + _displayName + "\" started.", "KhemistryAdvancedRecipeISRU/StartConverter");
             UpdateEventVisibility();
         }
 
@@ -4999,7 +5003,7 @@ MODULE
         public void StopConverter()
         {
             isRunning = false;
-            KShared.Instance?.Log("Converter \"" + _displayName + "\" stopped.", "KhemistryAdvancedRecipeISRU/StopConverter");
+            KShared.Log("Converter \"" + _displayName + "\" stopped.", "KhemistryAdvancedRecipeISRU/StopConverter");
             UpdateEventVisibility();
         }
 
@@ -5020,7 +5024,7 @@ MODULE
                 return;
             }
             needsMaintenance = false;
-            KShared.Instance?.Log("Converter \"" + _displayName + "\" maintained by " + kerbal.name + ".",
+            KShared.Log("Converter \"" + _displayName + "\" maintained by " + kerbal.name + ".",
                 "KhemistryAdvancedRecipeISRU/PerformMaintenance");
             ScreenMessages.PostScreenMessage(new ScreenMessage(
                 "Converter \"" + _displayName + "\": Maintenance complete.", 5f, ScreenMessageStyle.UPPER_CENTER));
@@ -5109,13 +5113,13 @@ MODULE
             {
                 foreach (string name in node.GetNode("SUPPORTED_RESOURCES").GetValues("name"))
                     SupportedResources.Add(name.Trim());
-                KShared.Instance?.Log(
+                KShared.Log(
                     "Loaded " + SupportedResources.Count + " allowed resources.",
                     "KhemistryEVAAdvancedISRU/OnLoad");
             }
             else
             {
-                KShared.Instance?.Log(
+                KShared.Log(
                     "Part \"" + part.name + "\" has KhemistryEVAAdvancedISRU with no SUPPORTED_RESOURCES node " +
                     "(OK for kerbal-native modules; inventory-item modules won't accept any resource).",
                     "KhemistryEVAAdvancedISRU/OnLoad");
@@ -5141,14 +5145,14 @@ MODULE
 
         protected override void LoadConfigFromPartInfo()
         {
-            KShared.Instance?.Log("Called!", "KhemistryEVAAdvancedISRU/LoadConfigFromPartInfo");
+            KShared.Log("Called!", "KhemistryEVAAdvancedISRU/LoadConfigFromPartInfo");
             ConfigNode moduleNode = FindModuleConfigNode("KhemistryEVAAdvancedISRU");
             if (moduleNode == null) { _fatalConfigError = true; return; }
             LoadSharedConfig(moduleNode, "KhemistryEVAAdvancedISRU");
 
             if (_outputMaterials.Count > 0)
             {
-                KShared.Instance?.LogError(
+                KShared.LogError(
                     "Converter \"" + ConverterName + "\" (KhemistryEVAAdvancedISRU) defines OUTPUT_RESOURCE_MATERIAL, "
                     + "which is not supported for EVA converters — EVA output goes to fluid cells, not vessel "
                     + "KhemistryMaterialStorage modules. This module will not load.",
@@ -5256,7 +5260,7 @@ MODULE
 
         private void LoadConfigFromPartInfo()
         {
-            KShared.Instance?.Log("Called!", "KhemistryKerbal/LoadConfigFromPartInfo");
+            KShared.Log("Called!", "KhemistryKerbal/LoadConfigFromPartInfo");
             FluidCellPartNames.Clear();
             _evaISRUPartNames.Clear();
             _suitCellMaxAmount = 0f;
@@ -5293,7 +5297,7 @@ MODULE
 
             if (moduleNode == null)
             {
-                KShared.Instance?.LogError(
+                KShared.LogError(
                     "Could not find KhemistryKerbal MODULE node for part \"" + part.name + "\".",
                     "KhemistryKerbal/LoadConfigFromPartInfo");
                 return;
@@ -5319,7 +5323,7 @@ MODULE
                         _suitCellAllowedResources.Add(n.Trim());
             }
 
-            KShared.Instance?.Log(
+            KShared.Log(
                 string.Format("Loaded {0} fluid cell part names, {1} EVA ISRU part names, suitCell={2}.",
                     FluidCellPartNames.Count, _evaISRUPartNames.Count, _suitCellMaxAmount > 0f),
                 "KhemistryKerbal/LoadConfigFromPartInfo");
@@ -5334,7 +5338,7 @@ MODULE
             var allHandlers = part.FindModulesImplementing<KhemistryKerbal>();
             if (allHandlers.Count > 1 && allHandlers[0] != this)
             {
-                KShared.Instance?.Log("Duplicate handler found, removing self.", "KhemistryKerbal/OnStart");
+                KShared.Log("Duplicate handler found, removing self.", "KhemistryKerbal/OnStart");
                 return;
             }
 
@@ -5342,11 +5346,11 @@ MODULE
 
             _inventory = part.FindModuleImplementing<ModuleInventoryPart>();
             if (_inventory == null)
-                KShared.Instance?.LogError("No ModuleInventoryPart on Kerbal.", "KhemistryKerbal/OnStart");
+                KShared.LogError("No ModuleInventoryPart on Kerbal.", "KhemistryKerbal/OnStart");
             else
-                KShared.Instance?.Log("Inventory found.", "KhemistryKerbal/OnStart");
+                KShared.Log("Inventory found.", "KhemistryKerbal/OnStart");
 
-            KShared.Instance?.Log("OnStart complete!", "KhemistryKerbal/OnStart");
+            KShared.Log("OnStart complete!", "KhemistryKerbal/OnStart");
         }
 
         public override void OnUpdate()
@@ -5551,13 +5555,13 @@ MODULE
         {
             var shared = KShared.Instance;
             if (shared == null) return;
-            KShared.Instance.Log("Called! (Use Held Converter button)", "KhemistryKerbal/EVAUseConverter");
+            KShared.Log("Called! (Use Held Converter button)", "KhemistryKerbal/EVAUseConverter");
 
             var options = GetAllISRUHandles();
 
             if (options.Count == 0)
             {
-                KShared.Instance.Log("No EVA converters were found.", "KhemistryKerbal/EVAUseConverter");
+                KShared.Log("No EVA converters were found.", "KhemistryKerbal/EVAUseConverter");
                 ScreenMessages.PostScreenMessage(new ScreenMessage(
                     "No EVA converters available.", 5f, ScreenMessageStyle.UPPER_CENTER));
                 return;
@@ -5631,7 +5635,7 @@ MODULE
                 case "Start":
                     if (!handle.Config.CheckRecipeGroup(part)) return;
                     WriteISRUBool(handle, "isRunning", true);
-                    KShared.Instance?.Log("EVA converter \"" + handle.DisplayName + "\" started.",
+                    KShared.Log("EVA converter \"" + handle.DisplayName + "\" started.",
                         "KhemistryKerbal/ExecuteConverterAction");
                     ScreenMessages.PostScreenMessage(new ScreenMessage(
                         "Converter \"" + handle.DisplayName + "\" started.", 4f, ScreenMessageStyle.UPPER_CENTER));
@@ -5639,7 +5643,7 @@ MODULE
 
                 case "Stop":
                     WriteISRUBool(handle, "isRunning", false);
-                    KShared.Instance?.Log("EVA converter \"" + handle.DisplayName + "\" stopped.",
+                    KShared.Log("EVA converter \"" + handle.DisplayName + "\" stopped.",
                         "KhemistryKerbal/ExecuteConverterAction");
                     ScreenMessages.PostScreenMessage(new ScreenMessage(
                         "Converter \"" + handle.DisplayName + "\" stopped.", 4f, ScreenMessageStyle.UPPER_CENTER));
@@ -5665,7 +5669,7 @@ MODULE
                     {
                         handle.Config.RunOneCycle(part, TimeWarp.fixedDeltaTime);
                     }
-                    KShared.Instance?.Log("EVA converter \"" + handle.DisplayName + "\" cycle executed.",
+                    KShared.Log("EVA converter \"" + handle.DisplayName + "\" cycle executed.",
                         "KhemistryKerbal/ExecuteConverterAction");
                     break;
 
@@ -5678,7 +5682,7 @@ MODULE
                         return;
                     }
                     WriteISRUBool(handle, "needsMaintenance", false);
-                    KShared.Instance?.Log("EVA converter \"" + handle.DisplayName + "\" maintained.",
+                    KShared.Log("EVA converter \"" + handle.DisplayName + "\" maintained.",
                         "KhemistryKerbal/ExecuteConverterAction");
                     ScreenMessages.PostScreenMessage(new ScreenMessage(
                         "Converter \"" + handle.DisplayName + "\": Maintenance complete.",
@@ -5764,7 +5768,7 @@ MODULE
                 if (!cycled)
                 {
                     WriteProcessorField(stored, "isRunning", "False");
-                    KShared.Instance?.Log(
+                    KShared.Log(
                         "Processor converter \"" + converterName + "\" stopped: insufficient inputs.",
                         "KhemistryKerbal/FixedUpdate");
                     ScreenMessages.PostScreenMessage(new ScreenMessage(
@@ -5825,7 +5829,7 @@ MODULE
 
         private List<Part> GetPartsInRange(float range)
         {
-            KShared.Instance?.Log("Called with range " + range.ToString(), "KhemistryKerbal/GetPartsInRange");
+            KShared.Log("Called with range " + range.ToString(), "KhemistryKerbal/GetPartsInRange");
             var result = new List<Part>();
             foreach (Vessel v in FlightGlobals.VesselsLoaded)
                 foreach (Part p in v.parts)
@@ -5834,7 +5838,7 @@ MODULE
                     if (Vector3.Distance(this.part.transform.position, p.transform.position) <= range)
                         result.Add(p);
                 }
-            KShared.Instance?.Log("Acquired " + result.Count.ToString() + " parts.", "KhemistryKerbal/GetPartsInRange");
+            KShared.Log("Acquired " + result.Count.ToString() + " parts.", "KhemistryKerbal/GetPartsInRange");
             return result;
         }
 
@@ -5844,7 +5848,7 @@ MODULE
         {
             var shared = KShared.Instance;
             if (shared == null) { Debug.LogError("Khemistry: KShared null in EVASendResources!"); return; }
-            KShared.Instance.Log("Called! (Transfer from ... to nearby part button)", "KhemistryKerbal/EVASendResources");
+            KShared.Log("Called! (Transfer from ... to nearby part button)", "KhemistryKerbal/EVASendResources");
 
             var cells = GetAllCellRefs();
             if (cells.Count == 0)
@@ -5957,7 +5961,7 @@ MODULE
         {
             var shared = KShared.Instance;
             if (shared == null) { Debug.LogError("Khemistry: KShared null in EVATakeResources!"); return; }
-            KShared.Instance.Log("Called! (Transfer from ... to cell button)", "KhemistryKerbal/EVATakeResources");
+            KShared.Log("Called! (Transfer from ... to cell button)", "KhemistryKerbal/EVATakeResources");
 
             var cells = GetAllCellRefs();
             if (cells.Count == 0)
@@ -5995,7 +5999,7 @@ MODULE
         private void ShowPartSelectorForTake(FluidCellRef cell)
         {
             if (cell.isSuit) { ShowSuitCellPartSelectorForTake(); return; }
-            KShared.Instance.Log("Called!", "KhemistryKerbal/ShowPartSelectorForTake");
+            KShared.Log("Called!", "KhemistryKerbal/ShowPartSelectorForTake");
 
             string currentResource = ReadResourceName(cell.stored);
             float currentAmount = ReadResourceAmount(cell.stored);
@@ -6032,7 +6036,7 @@ MODULE
 
             if (optionParts.Count == 0)
             {
-                KShared.Instance.Log("No nearby parts with resource " + currentResource + " were detected.", "KhemistryKerbal/ShowPartSelectorForTake");
+                KShared.Log("No nearby parts with resource " + currentResource + " were detected.", "KhemistryKerbal/ShowPartSelectorForTake");
                 string msg = string.IsNullOrEmpty(currentResource)
                     ? "No allowed resources found within range."
                     : "No nearby parts have " + currentResource + ".";
@@ -6040,7 +6044,7 @@ MODULE
                 return;
             }
 
-            KShared.Instance.Log("Calling ShowSelector to take resources from a part.", "KhemistryKerbal/ShowPartSelectorForTake");
+            KShared.Log("Calling ShowSelector to take resources from a part.", "KhemistryKerbal/ShowPartSelectorForTake");
             KShared.Instance.ShowSelector("Take resources from...", optionParts.Keys.ToList(), label =>
             {
                 Part source = optionParts[label];
@@ -6051,7 +6055,7 @@ MODULE
                 if (sourceResource == null) return;
                 float maxTake = (float)Math.Min(sourceResource.amount, spaceRemaining);
 
-                KShared.Instance.Log("Calling ShowAmountSelector to get exact amount.", "KhemistryKerbal/ShowPartSelectorForTake");
+                KShared.Log("Calling ShowAmountSelector to get exact amount.", "KhemistryKerbal/ShowPartSelectorForTake");
                 KShared.Instance.ShowAmountSelector(
                     string.Format("How much {0} to take?", resourceName),
                     0f, maxTake, maxTake, amount =>
@@ -6070,14 +6074,14 @@ MODULE
 
         private void ShowSuitCellPartSelectorForTake()
         {
-            KShared.Instance.Log("Called!", "KhemistryKerbal/ShowSuitCellPartSelectorForTake");
+            KShared.Log("Called!", "KhemistryKerbal/ShowSuitCellPartSelectorForTake");
             var dict = GetSuitCellDict();
             double currentTotal = KhemistryEVACombinedProcessor.GetTotal(dict);
             double spaceRemaining = _suitCellMaxAmount - currentTotal;
 
             if (spaceRemaining <= 0.0)
             {
-                KShared.Instance.Log("Unable to take resources: suit cell is full.", "KhemistryKerbal/ShowSuitCellPartSelectorForTake");
+                KShared.Log("Unable to take resources: suit cell is full.", "KhemistryKerbal/ShowSuitCellPartSelectorForTake");
                 ScreenMessages.PostScreenMessage(new ScreenMessage(
                     "Suit cell is full.", 5f, ScreenMessageStyle.UPPER_CENTER));
                 return;
@@ -6098,20 +6102,20 @@ MODULE
 
             if (options.Count == 0)
             {
-                KShared.Instance.Log("No nearby parts have any of the allowed resources.", "KhemistryKerbal/ShowSuitCellPartSelectorForTake");
+                KShared.Log("No nearby parts have any of the allowed resources.", "KhemistryKerbal/ShowSuitCellPartSelectorForTake");
                 ScreenMessages.PostScreenMessage(new ScreenMessage(
                     "No nearby parts have allowed resources.", 5f, ScreenMessageStyle.UPPER_CENTER));
                 return;
             }
 
-            KShared.Instance.Log("Calling ShowSelector to take resources from a part.", "KhemistryKerbal/ShowSuitCellPartSelectorForTake");
+            KShared.Log("Calling ShowSelector to take resources from a part.", "KhemistryKerbal/ShowSuitCellPartSelectorForTake");
             KShared.Instance.ShowSelector("Take from...", new List<string>(options.Keys), label =>
             {
                 var (sourcePart, sourceResource) = options[label];
                 string resourceName = sourceResource.resourceName;
                 float maxTake = (float)Math.Min(sourceResource.amount, spaceRemaining);
 
-                KShared.Instance.Log("Calling ShowAmountSelector to get exact amount.", "KhemistryKerbal/ShowSuitCellPartSelectorForTake");
+                KShared.Log("Calling ShowAmountSelector to get exact amount.", "KhemistryKerbal/ShowSuitCellPartSelectorForTake");
                 KShared.Instance.ShowAmountSelector(
                     string.Format("How much {0} to take?", resourceName),
                     0f, maxTake, maxTake, amount =>
@@ -6179,7 +6183,7 @@ MODULE
                   externalToEVAOnly = true, guiActiveUnfocused = false, unfocusedRange = 10f)]
         public void EVAUseProcessor()
         {
-            KShared.Instance.Log("Called! (Use Held Processor button)", "KhemistryKerbal/EVAUseProcessor");
+            KShared.Log("Called! (Use Held Processor button)", "KhemistryKerbal/EVAUseProcessor");
             var shared = KShared.Instance;
             if (shared == null) return;
 
@@ -6298,7 +6302,7 @@ MODULE
         private void ShowProcessorTransferInMenu(StoredPart stored,
             KhemistryEVACombinedProcessor prefab)
         {
-            KShared.Instance?.Log("Called!", "KhemistryKerbal/ShowProcessorTransferInMenu");
+            KShared.Log("Called!", "KhemistryKerbal/ShowProcessorTransferInMenu");
             var shared = KShared.Instance;
             var resources = DeserializeProcessorResources(stored);
             double currentTotal = KhemistryEVACombinedProcessor.GetTotal(resources);
@@ -6346,7 +6350,7 @@ MODULE
                 res[resourceName] = existing + taken;
                 WriteProcessorResources(stored, res);
 
-                KShared.Instance?.Log(
+                KShared.Log(
                     string.Format("Processor received {0:F4} of {1} from {2}.",
                         taken, resourceName, sourcePart.partInfo.title),
                     "KhemistryKerbal/ProcessorTransferIn");
@@ -6437,7 +6441,7 @@ MODULE
                     else res[resourceName] = remaining;
                     WriteProcessorResources(stored, res);
 
-                    KShared.Instance?.Log(
+                    KShared.Log(
                         string.Format("Processor sent {0:F4} of {1} to {2}.",
                             pushed, resourceName, target.partInfo.title),
                         "KhemistryKerbal/ProcessorTransferOut");
@@ -6586,7 +6590,7 @@ MODULE
 
             if (!node.HasNode("SUPPORTED_RESOURCES"))
             {
-                KShared.Instance?.LogError(
+                KShared.LogError(
                     "Part \"" + part.name + "\" has KhemistryEVACombinedProcessor but no SUPPORTED_RESOURCES node.",
                     "KhemistryEVACombinedProcessor/OnLoad");
                 _fatalConfigError = true;
@@ -6597,7 +6601,7 @@ MODULE
 
             if (_supportedResources.Count == 0)
             {
-                KShared.Instance?.LogError(
+                KShared.LogError(
                     "Part \"" + part.name + "\" has an empty SUPPORTED_RESOURCES node.",
                     "KhemistryEVACombinedProcessor/OnLoad");
                 _fatalConfigError = true;
@@ -6609,7 +6613,7 @@ MODULE
                 string convName = convNode.GetValue("ConverterName");
                 if (string.IsNullOrEmpty(convName))
                 {
-                    KShared.Instance?.LogError("A CONVERTER node is missing ConverterName, skipping.",
+                    KShared.LogError("A CONVERTER node is missing ConverterName, skipping.",
                         "KhemistryEVACombinedProcessor/OnLoad");
                     continue;
                 }
@@ -6640,7 +6644,7 @@ MODULE
                 _converters.Add(conv);
             }
 
-            KShared.Instance?.Log(
+            KShared.Log(
                 string.Format("OnLoad: {0} supported resources, {1} converters, maxStorage={2}, transferDist={3}",
                     _supportedResources.Count, _converters.Count, maxTotalStorage, transferDistance),
                 "KhemistryEVACombinedProcessor/OnLoad");
@@ -6738,7 +6742,7 @@ MODULE
             }
             catch (Exception ex)
             {
-                KShared.Instance?.Log(
+                KShared.Log(
                 string.Format("An error occured, returning cycle failure. Message: {0}. Stack trace: {1}. ",
                     ex.Message, ex.StackTrace),
                 "KhemistryEVACombinedProcessor/RunConversionCycle");
