@@ -3328,7 +3328,6 @@ namespace Khemistry
                 if (node.GetValue("type") != "underground" && node.GetValue("render") == "true")
                 {
                     KShared.LogWarning("A KHEMISTRY_RESOURCE_DEPOSIT with resource \"" + node.GetValue("resource") + "\" attempts to render but that is not implemented yet.", "KSharedMainMenu/Awake");
-                    continue;
                 }
 
                 int maxAmount = KShared.GetIntValueFromCFG(node, "maxAmount", 10) + 1;
