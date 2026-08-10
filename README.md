@@ -9,7 +9,7 @@ It also has some very unique features, including but not limited to:
 - Complex processing lines that require deep understanding of the mod and its machines, making it a similar challenge to GregTech: New Horizons, Factorio, and Satisfactory!
 
 ## Khemistry Construction Overhaul
-An addon for Khemistry, this mod overhauls VAB construction to require resources! This mod must be installed with Khemistry and makes it play a bigger role than just more complicated ISRU processes. This mod is currently in development and including it as of now (05/03/2026 8:36 PM EST) will make some parts impossible to construct due to various required resources being impossible to obtain or even hold.
+An addon for Khemistry, this mod overhauls VAB construction to require resources! This mod must be installed with Khemistry and makes it play a bigger role than just more complicated ISRU processes. This mod is currently in development and including it as of now (08/10/2026 7:41 PM EST) will make some parts impossible to construct due to various required resources being impossible to obtain or even hold.
 
 ## Known Issues:
 - Far Future Technologies does not work properly with the mod in many ways. 
@@ -26,10 +26,11 @@ An addon for Khemistry, this mod overhauls VAB construction to require resources
 - **B9 Part Switch** (used to assign the custom per planet ores to cargo tanks, mod may break without it)
 - **SystemHeat** (used for many things, many ISRU and drills will become unusable)
 - **CustomPrelaunchChecks** (used for the KhemistryConstructionOverhaul addon so not strictly required for the base mod)
+- **Resourceful Technologies** (my ISRU parts mod, Khemistry uses various parts from there)
+- **Far Future Technologies** (while not strictly required and the game will work without it, its parts are used for progression) 
 
 ## Fully Supported Mods:
 - **Station Parts Expansion Redux** (cargo parts can hold some planet-speciifc resources) 
-- **Far Future Technologies** (WARNING: Very broken! changes resources used and some recipes) 
 - **Near Future Propulsion** 
 - **Near Future Construction** (patches from this mod have full support) 
 - **Near Future Electrical** (parts and patches from this mod have full support, even deprecated ones. May have some problems with reactor core lifetime calculations. IMPORTANT: The "Legacy" folder inside the mod needs to be deleted in order for the game to finish loading!) 
@@ -79,24 +80,40 @@ These mods are confirmed to work flawlessly with Khemistry and need no patches t
 - **Connected Living Space (CLS)**
 
 ## Current Resource Counts:
-(As of 05/03/2026, 8:36 PM EST)
+(As of 08/10/2026, 7:41 PM EST)
 
-- 222x Alloys
-- 1x Composite Material
-- 43x Construction Resources
+- 234x Alloys
+- ULV-MAX Circuits
+- 6x Composite Material
+- 71x Construction Resources
 - 25x Electric Resources (All GT tiers + additional MAX voltages, ULV through MAX+10)
 - 1x Electronium Resource (temporary, used for Oprissmian's TheFiveEchoes mod)
+- 702x EPDM polymers (will be replaced with a material)
 - 3x Fuel Assemblies
 - 3x Fuel Pellets
-- 3x Fuel Rods
 - 4x Fuel Resources
-- 4x Impure Resource
+- 3x Fuel Rods
+- 45x Impure Resource
 - 18x Isotopes
 - 81x Natural Resources
 - 76x Not So Procedural Resources (these resources will be replaced by procedural generation)
 - All Periodic Table Elements
 - 5x Ores
-- 28x Other Resources
+- 75x Other Resources
 - 3x Powders
-- 54x SandLine-related Resources
+- 58x SandLine-related Resources
 - 7x "Snack"s
+
+- 2x Deposit types
+- 2x Material types
+- 5x SpaceDust bands
+
+- 4x Cooling recipes
+- 3x Electrolysis recipes
+- 2x Furnace recipes
+- 4x Gravitational Collapser recipes
+- 5x Gravitational Separator recipes
+- 3x Mixer recipes
+- 4x Name Converter recipes
+- 2x Metallurgical Roasting recipes
+- 30x Transformer recipes
