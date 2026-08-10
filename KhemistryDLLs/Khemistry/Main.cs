@@ -670,7 +670,7 @@ namespace Khemistry
             foreach (KhemistryMaterialInstance m in contents)
                 if (m.volume > 0)
                     contentsDisplayNames.Add(m.material.name + " as " + m.shape + " (" + KShared.DictToString(m.parameters) + ")");
-            contentsDisplay = string.Join("\n",contentsDisplayNames);
+            contentsDisplay = string.Join("\n", contentsDisplayNames);
             volumeDisplay = $"{ComputeCurrentVolume():F10} / {volume:F10}";
         }
     }
@@ -1410,7 +1410,7 @@ namespace Khemistry
         /// </summary>
         /// <param name="node">The node BIOME_CONFIG in PLANET_CONFIG in a BatchISRU module.</param>
         /// <param name="ConverterName">The name of the converter the biome config belongs to.</param>
-        public BatchISRUBiomeConfig(ConfigNode node, string ConverterName="UNKNOWN")
+        public BatchISRUBiomeConfig(ConfigNode node, string ConverterName = "UNKNOWN")
         {
             if (node.HasValue("name"))
             {
@@ -1973,6 +1973,252 @@ namespace Khemistry
             if (recipeSubsubtype != null && !_recipeSubsubtypes.Contains(recipeSubsubtype)) return false;
             return true;
         }
+
+        ///// Module-level recipe overrides /////
+
+        // Values on the MODULE node that belong to the module itself (identity, converter naming,
+        // recipe-selection filters, and RECIPE/RECIPE_NAMES/RECIPE_MULTIPLIERS bookkeeping) rather
+        // than being a recipe field to override. These are never applied on top of a loaded recipe.
+        private static readonly HashSet<string> _moduleOnlyValueKeys = new HashSet<string>
+        {
+            "name", "ConverterName", "StartActionName", "StopActionName",
+            "recipeType", "recipeSubtype", "recipeSubsubtype",
+            "recipeMultiplier", "maxInteractionDistance", "workersCrewSamePart"
+        };
+        private static readonly HashSet<string> _moduleOnlyNodeKeys = new HashSet<string>
+        {
+            "RECIPE", "RECIPE_NAMES", "RECIPE_MULTIPLIERS"
+        };
+
+        // Node types that are merged by their "name" value (resource name) instead of being wholesale
+        // replaced: a module entry with a resource name matching a base entry overrides just that
+        // entry, and a module entry with a new resource name is added alongside the base entries.
+        private static readonly HashSet<string> _keyedByNameNodeKeys = new HashSet<string>
+        {
+            "INPUT_RESOURCE", "OUTPUT_RESOURCE", "PINPUT_RESOURCE", "OUTPUT_RESOURCE_MATERIAL"
+        };
+
+        // Node types that hold a single node full of repeated values (e.g. CHARGE_CON_NAMES holding
+        // several "name" values), where the module's values are appended after the recipe's own,
+        // rather than the module's node replacing the recipe's node outright. Maps the node name to
+        // the value key it repeats.
+        private static readonly Dictionary<string, string> _appendedValueNodeKeys = new Dictionary<string, string>
+        {
+            { "CHARGE_CON_NAMES", "name" },
+            { "CHARGE_CON_AMOUNTS", "amount" }
+        };
+
+        /// <summary>
+        /// Merges a node type that holds a single set of repeated values (e.g. CHARGE_CON_NAMES'
+        /// repeated "name" values) by concatenating every base occurrence's values followed by every
+        /// override occurrence's values, into one node, preserving order.
+        /// </summary>
+        private static ConfigNode MergeAppendedValueNode(ConfigNode baseRecipeNode, ConfigNode overrideModuleNode, string nodeName, string valueKey)
+        {
+            ConfigNode merged = new ConfigNode(nodeName);
+            foreach (ConfigNode n in baseRecipeNode.GetNodes(nodeName))
+                foreach (string v in n.GetValues(valueKey))
+                    merged.AddValue(valueKey, v);
+            foreach (ConfigNode n in overrideModuleNode.GetNodes(nodeName))
+                foreach (string v in n.GetValues(valueKey))
+                    merged.AddValue(valueKey, v);
+            return merged;
+        }
+
+        /// <summary>
+        /// Merges all nodes of a given name (e.g. all PINPUT_RESOURCE nodes) between a base recipe
+        /// node and an override (MODULE) node, keyed by each node's "name" value. A base entry whose
+        /// "name" also appears on the override is replaced entirely by the override's entry; base
+        /// entries with no matching override entry are kept; override entries with a "name" not
+        /// present on the base are appended as new entries.
+        /// </summary>
+        private static List<ConfigNode> MergeKeyedByName(ConfigNode baseRecipeNode, ConfigNode overrideModuleNode, string nodeName)
+        {
+            List<string> keyOrder = new List<string>();
+            Dictionary<string, ConfigNode> keyed = new Dictionary<string, ConfigNode>();
+
+            foreach (ConfigNode n in baseRecipeNode.GetNodes(nodeName))
+            {
+                string key = n.GetValue("name") ?? ("\0unnamed" + keyOrder.Count);
+                if (!keyed.ContainsKey(key)) keyOrder.Add(key);
+                keyed[key] = n;
+            }
+
+            foreach (ConfigNode n in overrideModuleNode.GetNodes(nodeName))
+            {
+                string key = n.GetValue("name") ?? ("\0unnamed" + keyOrder.Count);
+                if (!keyed.ContainsKey(key)) keyOrder.Add(key);
+                keyed[key] = n;
+            }
+
+            List<ConfigNode> result = new List<ConfigNode>();
+            foreach (string key in keyOrder)
+            {
+                ConfigNode copy = new ConfigNode(nodeName);
+                keyed[key].CopyTo(copy);
+                result.Add(copy);
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Merges a single override PLANET_CONFIG node onto a (possibly null) base PLANET_CONFIG node.
+        /// BIOME_CONFIG entries are merged by name: an override biome fully replaces the base biome of
+        /// the same name, and any base biomes not touched by the override are kept as-is.
+        /// </summary>
+        private static ConfigNode MergePlanetConfigNode(ConfigNode basePlanet, ConfigNode overridePlanet)
+        {
+            ConfigNode merged = new ConfigNode("PLANET_CONFIG");
+            merged.AddValue("name", KShared.GetStrValueFromCFG(overridePlanet, "name", "ALL"));
+
+            List<string> biomeOrder = new List<string>();
+            Dictionary<string, ConfigNode> biomeNodes = new Dictionary<string, ConfigNode>();
+
+            if (basePlanet != null)
+            {
+                foreach (ConfigNode biomeNode in basePlanet.GetNodes("BIOME_CONFIG"))
+                {
+                    string biomeName = KShared.GetStrValueFromCFG(biomeNode, "name", "ALL");
+                    if (!biomeNodes.ContainsKey(biomeName)) biomeOrder.Add(biomeName);
+                    biomeNodes[biomeName] = biomeNode;
+                }
+            }
+
+            foreach (ConfigNode biomeNode in overridePlanet.GetNodes("BIOME_CONFIG"))
+            {
+                string biomeName = KShared.GetStrValueFromCFG(biomeNode, "name", "ALL");
+                if (!biomeNodes.ContainsKey(biomeName)) biomeOrder.Add(biomeName);
+                biomeNodes[biomeName] = biomeNode;
+            }
+
+            foreach (string biomeName in biomeOrder)
+            {
+                ConfigNode copy = new ConfigNode("BIOME_CONFIG");
+                biomeNodes[biomeName].CopyTo(copy);
+                merged.AddNode(copy);
+            }
+
+            return merged;
+        }
+
+        /// <summary>
+        /// Merges all PLANET_CONFIG nodes on a base recipe node with all PLANET_CONFIG nodes on an
+        /// override (MODULE) node: planets present in both are merged (see MergePlanetConfigNode),
+        /// planets only in the base are kept unchanged, and planets only in the override are added
+        /// as new entries.
+        /// </summary>
+        private static List<ConfigNode> MergePlanetConfigs(ConfigNode baseRecipeNode, ConfigNode overrideModuleNode)
+        {
+            List<string> planetOrder = new List<string>();
+            Dictionary<string, ConfigNode> basePlanets = new Dictionary<string, ConfigNode>();
+            foreach (ConfigNode p in baseRecipeNode.GetNodes("PLANET_CONFIG"))
+            {
+                string pName = KShared.GetStrValueFromCFG(p, "name", "ALL");
+                if (!basePlanets.ContainsKey(pName)) planetOrder.Add(pName);
+                basePlanets[pName] = p;
+            }
+
+            List<string> overridePlanetOrder = new List<string>();
+            Dictionary<string, ConfigNode> overridePlanets = new Dictionary<string, ConfigNode>();
+            foreach (ConfigNode p in overrideModuleNode.GetNodes("PLANET_CONFIG"))
+            {
+                string pName = KShared.GetStrValueFromCFG(p, "name", "ALL");
+                if (!overridePlanets.ContainsKey(pName)) overridePlanetOrder.Add(pName);
+                overridePlanets[pName] = p;
+            }
+
+            List<ConfigNode> result = new List<ConfigNode>();
+            HashSet<string> handled = new HashSet<string>();
+
+            foreach (string pName in planetOrder)
+            {
+                if (overridePlanets.TryGetValue(pName, out ConfigNode ovPlanet))
+                {
+                    result.Add(MergePlanetConfigNode(basePlanets[pName], ovPlanet));
+                    handled.Add(pName);
+                }
+                else
+                {
+                    ConfigNode copy = new ConfigNode("PLANET_CONFIG");
+                    basePlanets[pName].CopyTo(copy);
+                    result.Add(copy);
+                }
+            }
+
+            foreach (string pName in overridePlanetOrder)
+            {
+                if (handled.Contains(pName)) continue;
+                ConfigNode copy = new ConfigNode("PLANET_CONFIG");
+                overridePlanets[pName].CopyTo(copy);
+                result.Add(copy);
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Applies the recipe-related values and nodes on a KhemistryBatchISRU MODULE node on top of
+        /// a loaded recipe's config node, returning a new merged node suitable for re-parsing into a
+        /// KhemistryBatchISRURecipe. Module-only bookkeeping (identity, converter naming, recipe
+        /// selection filters, RECIPE/RECIPE_NAMES/RECIPE_MULTIPLIERS) is ignored. Every other value
+        /// or node present on the MODULE node fully overrides the matching key on the recipe, except
+        /// PLANET_CONFIG (and its BIOME_CONFIG children), which are merged instead — see
+        /// MergePlanetConfigs/MergePlanetConfigNode.
+        /// </summary>
+        public static ConfigNode ApplyModuleOverrides(ConfigNode moduleNode, ConfigNode baseRecipeNode)
+        {
+            ConfigNode merged = new ConfigNode();
+            baseRecipeNode.CopyTo(merged);
+
+            foreach (string valueName in moduleNode.values.DistinctNames())
+            {
+                if (_moduleOnlyValueKeys.Contains(valueName)) continue;
+
+                while (merged.HasValue(valueName)) merged.RemoveValue(valueName);
+                foreach (string v in moduleNode.GetValues(valueName))
+                    merged.AddValue(valueName, v);
+            }
+
+            foreach (string nodeName in moduleNode.nodes.DistinctNames())
+            {
+                if (_moduleOnlyNodeKeys.Contains(nodeName) || nodeName == "PLANET_CONFIG") continue;
+
+                if (_appendedValueNodeKeys.TryGetValue(nodeName, out string valueKey))
+                {
+                    ConfigNode mergedAppended = MergeAppendedValueNode(merged, moduleNode, nodeName, valueKey);
+                    while (merged.HasNode(nodeName)) merged.RemoveNode(nodeName);
+                    merged.AddNode(mergedAppended);
+                    continue;
+                }
+
+                if (_keyedByNameNodeKeys.Contains(nodeName))
+                {
+                    List<ConfigNode> mergedKeyed = MergeKeyedByName(merged, moduleNode, nodeName);
+                    while (merged.HasNode(nodeName)) merged.RemoveNode(nodeName);
+                    foreach (ConfigNode n in mergedKeyed)
+                        merged.AddNode(n);
+                    continue;
+                }
+
+                while (merged.HasNode(nodeName)) merged.RemoveNode(nodeName);
+                foreach (ConfigNode n in moduleNode.GetNodes(nodeName))
+                {
+                    ConfigNode copy = new ConfigNode(nodeName);
+                    n.CopyTo(copy);
+                    merged.AddNode(copy);
+                }
+            }
+
+            if (moduleNode.HasNode("PLANET_CONFIG"))
+            {
+                List<ConfigNode> mergedPlanets = MergePlanetConfigs(merged, moduleNode);
+                while (merged.HasNode("PLANET_CONFIG")) merged.RemoveNode("PLANET_CONFIG");
+                foreach (ConfigNode p in mergedPlanets)
+                    merged.AddNode(p);
+            }
+
+            return merged;
+        }
     }
 
     /// <summary>
@@ -2311,7 +2557,10 @@ namespace Khemistry
             if (moduleNode.HasNode("RECIPE"))
             {
                 foreach (ConfigNode recipeNode in moduleNode.GetNodes("RECIPE"))
-                    recipes.Add(new KhemistryBatchISRURecipe(recipeNode, ConverterName));
+                {
+                    ConfigNode mergedNode = KhemistryBatchISRURecipe.ApplyModuleOverrides(moduleNode, recipeNode);
+                    recipes.Add(new KhemistryBatchISRURecipe(mergedNode, ConverterName));
+                }
             }
 
             ///// Recipes: imported by name (RECIPE_NAMES / RECIPE_MULTIPLIERS) /////
@@ -2374,7 +2623,9 @@ namespace Khemistry
                         // Global recipeMultiplier and the per-name RECIPE_MULTIPLIERS entry stack:
                         // global is applied first, then the local (per-name) multiplier.
                         float localMult = (i < _recipeMultipliers.Count) ? _recipeMultipliers[i] : 1f;
-                        recipes.Add(found.ScaledCopy(recipeMultiplier * localMult));
+                        ConfigNode mergedFoundNode = KhemistryBatchISRURecipe.ApplyModuleOverrides(moduleNode, found.mainNode);
+                        KhemistryBatchISRURecipe overriddenFound = new KhemistryBatchISRURecipe(mergedFoundNode, ConverterName);
+                        recipes.Add(overriddenFound.ScaledCopy(recipeMultiplier * localMult));
                     }
                 }
                 else if (recipeType != null || recipeSubtype != null || recipeSubsubtype != null)
@@ -2382,7 +2633,11 @@ namespace Khemistry
                     foreach (KhemistryBatchISRURecipe candidate in shared.batchRecipeList)
                     {
                         if (candidate.MatchesTypes(recipeType, recipeSubtype, recipeSubsubtype))
-                            recipes.Add(candidate.ScaledCopy(recipeMultiplier));
+                        {
+                            ConfigNode mergedCandidateNode = KhemistryBatchISRURecipe.ApplyModuleOverrides(moduleNode, candidate.mainNode);
+                            KhemistryBatchISRURecipe overriddenCandidate = new KhemistryBatchISRURecipe(mergedCandidateNode, ConverterName);
+                            recipes.Add(overriddenCandidate.ScaledCopy(recipeMultiplier));
+                        }
                     }
                 }
             }
@@ -4976,7 +5231,7 @@ MODULE
 
             contentsDisplay = parts.Count == 0 ? "Empty" : string.Join(", ", parts.ToArray());
             volumeDisplay = string.Format("{0:F2} / {1:F2}", total, maximumResources);
-            
+
             chargeDisplay = chargingRequired
                 ? string.Format("{0:F1}%", chargePercent)
                 : "N/A";
