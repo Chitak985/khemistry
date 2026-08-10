@@ -1,4 +1,4 @@
-using CustomPreLaunchChecks;
+﻿using CustomPreLaunchChecks;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -104,17 +104,17 @@ namespace KhemistryConstructionOverhaul
         public void Log(string message, string func = null)
         {
             if (func != null)
-                Debug.Log("KhemistryConstructionOverhaul (" + func + "): " + message);
+                UnityEngine.Debug.Log("KhemistryConstructionOverhaul (" + func + "): " + message);
             else
-                Debug.Log("KhemistryConstructionOverhaul: " + message);
+                UnityEngine.Debug.Log("KhemistryConstructionOverhaul: " + message);
         }
 
         public void LogError(string message, string func = null)
         {
             if (func != null)
-                Debug.LogError("KhemistryConstructionOverhaul (" + func + "): " + message);
+                UnityEngine.Debug.LogError("KhemistryConstructionOverhaul (" + func + "): " + message);
             else
-                Debug.LogError("KhemistryConstructionOverhaul: " + message);
+                UnityEngine.Debug.LogError("KhemistryConstructionOverhaul: " + message);
         }
     }
 
@@ -131,7 +131,7 @@ namespace KhemistryConstructionOverhaul
             var shared = KCOShared.Instance;
             if (shared == null)
             {
-                Debug.LogError("KhemistryConstructionOverhaul: Shared instance is null in SendResources!");
+                UnityEngine.Debug.LogError("KhemistryConstructionOverhaul: Shared instance is null in SendResources!");
                 return;
             }
 
@@ -175,7 +175,7 @@ namespace KhemistryConstructionOverhaul
             var shared = KCOShared.Instance;
             if (shared == null)
             {
-                Debug.LogError("KhemistryConstructionOverhaul: Shared instance is null in TransferResource!");
+                UnityEngine.Debug.LogError("KhemistryConstructionOverhaul: Shared instance is null in TransferResource!");
                 return;
             }
 
@@ -249,7 +249,7 @@ namespace KhemistryConstructionOverhaul
             {
                 tmp.Add("A null reference error occurred! Info: Shared instance is null.");
                 tmp.Add("0");
-                Debug.LogError("KhemistryConstructionOverhaul: Shared instance is null in BuyCheck!");
+                UnityEngine.Debug.LogError("KhemistryConstructionOverhaul: Shared instance is null in BuyCheck!");
                 return tmp;
             }
             if (shared.ResourceDict == null)
