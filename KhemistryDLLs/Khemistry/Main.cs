@@ -1409,7 +1409,8 @@ namespace Khemistry
         /// Make a biome config from a biome config node in a BatchISRU recipe.
         /// </summary>
         /// <param name="node">The node BIOME_CONFIG in PLANET_CONFIG in a BatchISRU module.</param>
-        public BatchISRUBiomeConfig(ConfigNode node, string ConverterName)
+        /// <param name="ConverterName">The name of the converter the biome config belongs to.</param>
+        public BatchISRUBiomeConfig(ConfigNode node, string ConverterName="UNKNOWN")
         {
             if (node.HasValue("name"))
             {
@@ -1653,7 +1654,13 @@ namespace Khemistry
                 }
                 else
                 {
-                    KShared.LogNoNode("PLANET_CONFIG", "Converter \"" + ConverterName + "\": Recipe \"" + _name + "\" ", "KhemistryBatchISRURecipe/constructor");
+                    // Instead of requiring a node just use an empty one with name=ALL
+                    //KShared.LogNoNode("PLANET_CONFIG", "Converter \"" + ConverterName + "\": Recipe \"" + _name + "\" ", "KhemistryBatchISRURecipe/constructor");
+                    Dictionary<string, BatchISRUBiomeConfig> biomeDict = new Dictionary<string, BatchISRUBiomeConfig>();
+                    ConfigNode configNode = new ConfigNode("BIOME_CONFIG");
+                    configNode.AddValue("name", "ALL");
+                    biomeDict.Add("ALL", new BatchISRUBiomeConfig(configNode, ConverterName));
+                    _planetConfigs.Add("ALL", biomeDict);
                 }
 
                 ///// Inputs /////
@@ -2347,7 +2354,7 @@ namespace Khemistry
                     "KhemistryBatchISRU/LoadConfigFromPartInfo");
             }
 
-            var shared = KShared.Instance;
+            KShared shared = KShared.Instance;
             if (shared != null)
             {
                 if (_recipeNames.Count > 0)
@@ -3036,8 +3043,10 @@ namespace Khemistry
             }
             _instance = this;
 
+            // Celestial body list
             kinst.celestialBodies = FlightGlobals.Bodies.Select(b => b.bodyName).ToList();
 
+            // Resource deposits
             foreach (ConfigNode node in GameDatabase.Instance.GetConfigNodes("KHEMISTRY_RESOURCE_DEPOSIT"))
             {
                 if (!node.HasValue("resource"))
@@ -3063,7 +3072,7 @@ namespace Khemistry
 
                 if (node.GetValue("type") != "underground" && node.GetValue("render") == "true")
                 {
-                    KShared.LogError("A KHEMISTRY_RESOURCE_DEPOSIT with resource \"" + node.GetValue("resource") + "\" attempts to render but that is not implemented yet.", "KSharedMainMenu/Awake");
+                    KShared.LogWarning("A KHEMISTRY_RESOURCE_DEPOSIT with resource \"" + node.GetValue("resource") + "\" attempts to render but that is not implemented yet.", "KSharedMainMenu/Awake");
                     continue;
                 }
 
@@ -3096,10 +3105,10 @@ namespace Khemistry
                     KShared.LogError("A KHEMISTRY_RESOURCE_DEPOSIT with resource \"" + node.GetValue("resource") + "\" does not have a valid type and was not loaded. The type was \"" + node.GetValue("type") + "\".", "KSharedMainMenu/Awake");
                 }
             }
-
             KShared.Log("Created " + kinst.undergroundDeposits.Count().ToString() + " underground deposits.", "KSharedMainMenu/Awake");
             KShared.Log("Created " + kinst.surfaceDeposits.Count().ToString() + " surface deposits.", "KSharedMainMenu/Awake");
 
+            // KhemistryRecipeISRU recipes
             ConfigNode[] nodes2 = GameDatabase.Instance.GetConfigNodes("KHEMISTRY_RECIPE");
             foreach (ConfigNode node in nodes2)
             {
@@ -3115,12 +3124,14 @@ namespace Khemistry
                 kinst.recipeDict[recipeT].Add(new KhemistryRecipe(node));
             }
 
+            // KhemistryRecipeISRU recipe counts
             KShared.Log("Created " + kinst.recipeDict.Keys.Count().ToString() + " recipe types.", "KSharedMainMenu/Awake");
             foreach (string recipeType in kinst.recipeDict.Keys)
             {
                 KShared.Log("Created " + kinst.recipeDict[recipeType].Count().ToString() + " recipes for recipe type " + recipeType, "KSharedMainMenu/Awake");
             }
 
+            // KhemistryBatchISRU recipes
             foreach (ConfigNode node in GameDatabase.Instance.GetConfigNodes("KHEMISTRYBATCHISRU_RECIPE"))
             {
                 if (!node.HasValue("name"))
@@ -3132,6 +3143,7 @@ namespace Khemistry
             }
             KShared.Log("Created " + kinst.batchRecipeList.Count.ToString() + " KhemistryBatchISRU recipes.", "KSharedMainMenu/Awake");
 
+            // Material definitions
             int materialCount = 0;
             foreach (ConfigNode node in GameDatabase.Instance.GetConfigNodes("KHEMISTRY_MATERIAL"))
             {
