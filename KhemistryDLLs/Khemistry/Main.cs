@@ -1160,8 +1160,6 @@ namespace Khemistry
 
         public float _maxInteractionDistance = 10f;
 
-        public string _recipeGroup = null;
-
         public bool chargingRequired = false;
         public float chargeRate = 0f;
         public float chargeDecayRate = 0f;
@@ -1214,8 +1212,6 @@ namespace Khemistry
                 _maxInteractionDistance = 10f;
                 if (float.TryParse(node.GetValue("maxInteractionDistance"), out float distTmp))
                     _maxInteractionDistance = distTmp;
-
-                _recipeGroup = KShared.GetStrValueFromCFG(node, "recipeGroup", null);
 
                 foreach (ConfigNode inputNode in node.GetNodes("INPUT_RESOURCE"))
                 {
@@ -1378,7 +1374,6 @@ namespace Khemistry
         public List<KShared.SituationCondition> situationOperating = new List<KShared.SituationCondition>();
         public List<KShared.SituationCondition> situationDestructive = new List<KShared.SituationCondition>();
 
-        // ALL of the temperature is in Celsius
         public double minOperatingTemperature = double.MinValue;
         public double maxOperatingTemperature = double.MaxValue;
         public double minTemperature = double.MinValue;
@@ -1400,13 +1395,14 @@ namespace Khemistry
         public double outputMultiplier = 1.0;
 
         public double speedMul = 1.0;
-        public double recipeTimeMultiplier = 1.0;
 
         public double workersPilotsMultiplier = 1.0;
         public double workersEngineersMultiplier = 1.0;
         public double workersScientistsMultiplier = 1.0;
 
         public double maxInteractionDistanceMultiplier = 1.0;
+
+        public List<string> depositConditions = new List<string>();
 
         ///// Functions /////
         /// <summary>
@@ -1419,16 +1415,19 @@ namespace Khemistry
             {
                 biomeName = node.GetValue("name");
 
+                // Altitude
                 minOperatingAltitude = KShared.GetDoubleValueFromCFG(node, "minOperatingAltitude", minOperatingAltitude);
                 maxOperatingAltitude = KShared.GetDoubleValueFromCFG(node, "maxOperatingAltitude", maxOperatingAltitude);
                 minAltitude = KShared.GetDoubleValueFromCFG(node, "minAltitude", minAltitude);
                 maxAltitude = KShared.GetDoubleValueFromCFG(node, "maxAltitude", maxAltitude);
 
+                // G-Force
                 minOperatingG = KShared.GetDoubleValueFromCFG(node, "minOperatingG", minOperatingG);
                 maxOperatingG = KShared.GetDoubleValueFromCFG(node, "maxOperatingG", maxOperatingG);
                 maxG = KShared.GetDoubleValueFromCFG(node, "maxG", maxG);
                 minG = KShared.GetDoubleValueFromCFG(node, "minG", minG);
 
+                // Situation
                 situationOperating.Clear();
                 foreach (string situationOperatingStr in node.GetValues("situationOperating"))
                 {
@@ -1450,35 +1449,46 @@ namespace Khemistry
                             "KhemistryBatchISRU/LoadSharedConfig");
                 }
 
+                // Conditions
+                depositConditions.Clear();
+                foreach (string depositConditionStr in node.GetValues("depositCondition"))
+                    depositConditions.Add(depositConditionStr);
+
+                // Temperature
                 minOperatingTemperature = KShared.GetDoubleTemperatureValueFromCFG(node, "minOperatingTemperature", minOperatingTemperature);
                 maxOperatingTemperature = KShared.GetDoubleTemperatureValueFromCFG(node, "maxOperatingTemperature", maxOperatingTemperature);
                 minTemperature = KShared.GetDoubleTemperatureValueFromCFG(node, "minTemperature", minTemperature);
                 maxTemperature = KShared.GetDoubleTemperatureValueFromCFG(node, "maxTemperature", maxTemperature);
 
+                // Pressure
                 minOperatingPressure = KShared.GetDoubleValueFromCFG(node, "minOperatingPressure", minOperatingPressure);
                 maxOperatingPressure = KShared.GetDoubleValueFromCFG(node, "maxOperatingPressure", maxOperatingPressure);
                 minPressure = KShared.GetDoubleValueFromCFG(node, "minPressure", minPressure);
                 maxPressure = KShared.GetDoubleValueFromCFG(node, "maxPressure", maxPressure);
 
+
+                // Passive multipliers
                 passiveMultiplier = KShared.GetDoubleValueFromCFG(node, "passiveMul", passiveMultiplier);
                 passivePeriodMultiplier = KShared.GetDoubleValueFromCFG(node, "passivePeriodMul", passivePeriodMultiplier);
 
+                // Charge multipliers
                 chargeRateMultiplier = KShared.GetDoubleValueFromCFG(node, "chargeRateMul", chargeRateMultiplier);
                 chargeDecayMultiplier = KShared.GetDoubleValueFromCFG(node, "chargeDecayMul", chargeDecayMultiplier);
                 chargeConsumptionMultiplier = KShared.GetDoubleValueFromCFG(node, "chargeConMul", chargeConsumptionMultiplier);
 
+                // I/O multipliers
                 inputMultiplier = KShared.GetDoubleValueFromCFG(node, "inMul", inputMultiplier);
                 outputMultiplier = KShared.GetDoubleValueFromCFG(node, "outMul", outputMultiplier);
 
+                // Speed multiplier
                 speedMul = KShared.GetDoubleValueFromCFG(node, "speedMul", speedMul);
-                // recipeTimeMultiplier isn't a documented BIOME_CONFIG key; speedMul is the
-                // intended lever (higher speed = shorter effective batch time), so derive it.
-                recipeTimeMultiplier = (speedMul > 0.0) ? 1.0 / speedMul : 1.0;
 
+                // Worker multipliers
                 workersPilotsMultiplier = KShared.GetDoubleValueFromCFG(node, "workersPilotsMul", workersPilotsMultiplier);
                 workersEngineersMultiplier = KShared.GetDoubleValueFromCFG(node, "workersEngineersMul", workersEngineersMultiplier);
                 workersScientistsMultiplier = KShared.GetDoubleValueFromCFG(node, "workersScientistsMul", workersScientistsMultiplier);
 
+                // Max interaction distance multiplier
                 maxInteractionDistanceMultiplier = KShared.GetDoubleValueFromCFG(node, "maxInteractionDistanceMul", maxInteractionDistanceMultiplier);
             }
             else
@@ -1963,7 +1973,7 @@ namespace Khemistry
     /// Stock and Advanced ISRU modules always use units/second, but this module uses batches of resouces.
     /// It has a similar amount of features as AdvancedISRU but has a few new ones.
     /// </summary>
-    public class KhemistryBatchISRU : PartModule  // Move the fields to a recipe class and just override them with configs
+    public class KhemistryBatchISRU : PartModule
     {
         ///// Activity and displays /////        
         [KSPField(isPersistant = true)] public bool isRunning = false;
@@ -4954,7 +4964,7 @@ MODULE
 
             contentsDisplay = parts.Count == 0 ? "Empty" : string.Join(", ", parts.ToArray());
             volumeDisplay = string.Format("{0:F2} / {1:F2}", total, maximumResources);
-
+            
             chargeDisplay = chargingRequired
                 ? string.Format("{0:F1}%", chargePercent)
                 : "N/A";
