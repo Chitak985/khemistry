@@ -733,9 +733,26 @@ namespace Khemistry
                 }
                 else
                 {
+                    // Keep rolling a radius until it clears minRadius, up to a sane attempt cap —
+                    // a misconfigured minRadius >= maxRadius (or a negative value reaching this
+                    // constructor via a mislabeled call) would otherwise spin forever.
+                    const int maxRadiusAttempts = 10000;
                     float tmp = -1.0f;
+                    int radiusAttempts = 0;
                     while (!(minRadius > tmp))
+                    {
+                        radiusAttempts++;
+                        if (radiusAttempts >= maxRadiusAttempts)
+                        {
+                            KShared.LogError(
+                                "Could not roll a radius above minRadius " + minRadius + " with maxRadius " + maxRadius +
+                                " after " + maxRadiusAttempts + " attempts (minRadius >= maxRadius?). Using maxRadius instead.",
+                                "KhemistryUDeposit/constructor");
+                            tmp = maxRadius;
+                            break;
+                        }
                         tmp = (float)(kinst.rand.NextDouble() * maxRadius);
+                    }
                     Radius = tmp;
                 }
 
@@ -745,9 +762,25 @@ namespace Khemistry
                     Position = new Vector2((float)(kinst.rand.NextDouble() * 180) - 90, (float)(kinst.rand.NextDouble() * 360) - 180);
                     if (requiredBiome != null)  // If it is null, any biome is supported
                     {
-                        // Just keep randomizing the deposit until it hits the right biome
+                        // Just keep randomizing the deposit until it hits the right biome, up to a
+                        // sane attempt cap — an unmatched/misspelled biome name would otherwise spin
+                        // forever since GetBiomeNameFromLatLon always returns *some* biome name.
+                        const int maxBiomeAttempts = 10000;
+                        int attempts = 0;
                         while (KShared.GetBiomeNameFromLatLon(planet, Position) != requiredBiome)
+                        {
+                            attempts++;
+                            if (attempts >= maxBiomeAttempts)
+                            {
+                                KShared.LogError(
+                                    "Could not find a position on \"" + planet + "\" matching biome \"" + requiredBiome +
+                                    "\" after " + maxBiomeAttempts + " attempts (bad body/biome name?), using last random position instead. " +
+                                    "Available biomes for the planet: " + KShared.ListToString(KShared.GetBiomeNames(planet)),
+                                    "KhemistryUDeposit/constructor");
+                                break;
+                            }
                             Position = new Vector2((float)(kinst.rand.NextDouble() * 180) - 90, (float)(kinst.rand.NextDouble() * 360) - 180);
+                        }
                     }
                 }
                 else  // If both are set, ignore requiredBiome and override the position
@@ -790,26 +823,57 @@ namespace Khemistry
                 Depth = depth;
                 Resource = resource;
 
-                // if it works, it works
+                // if it works, it works — keep rolling a radius until it clears minRadius, up to a
+                // sane attempt cap; a misconfigured minRadius >= maxRadius would otherwise spin forever.
+                const int maxRadiusAttempts = 10000;
                 float tmp = -1.0f;
+                int radiusAttempts = 0;
                 while (!(minRadius > tmp))
+                {
+                    radiusAttempts++;
+                    if (radiusAttempts >= maxRadiusAttempts)
+                    {
+                        KShared.LogError(
+                            "Could not roll a radius above minRadius " + minRadius + " with maxRadius " + maxRadius +
+                            " after " + maxRadiusAttempts + " attempts (minRadius >= maxRadius?). Using maxRadius instead.",
+                            "KhemistryGDeposit/constructor");
+                        tmp = maxRadius;
+                        break;
+                    }
                     tmp = (float)(kinst.rand.NextDouble() * maxRadius);
+                }
                 Radius = tmp;
 
                 // Generate position
                 Position = new Vector2((float)(kinst.rand.NextDouble() * 180) - 90, (float)(kinst.rand.NextDouble() * 360) - 180);
                 if (requiredBiome != null)
                 {
-                    // Just keep randomizing the deposit until it hits the right biome
+                    // Just keep randomizing the deposit until it hits the right biome, up to a sane
+                    // attempt cap — an unmatched/misspelled biome name would otherwise spin forever
+                    // since GetBiomeNameFromLatLon always returns *some* biome name.
+                    const int maxBiomeAttempts = 10000;
+                    int attempts = 0;
                     while (KShared.GetBiomeNameFromLatLon(planet, Position) != requiredBiome)
+                    {
+                        attempts++;
+                        if (attempts >= maxBiomeAttempts)
+                        {
+                            KShared.LogError(
+                                "Could not find a position on \"" + planet + "\" matching biome \"" + requiredBiome +
+                                "\" after " + maxBiomeAttempts + " attempts (bad body/biome name?), using last random position instead. " +
+                                "Available biomes for the planet: " + KShared.ListToString(KShared.GetBiomeNames(planet)),
+                                "KhemistryGDeposit/constructor");
+                            break;
+                        }
                         Position = new Vector2((float)(kinst.rand.NextDouble() * 180) - 90, (float)(kinst.rand.NextDouble() * 360) - 180);
+                    }
                 }
 
                 // Create the underground pair of the surface deposit, giving it the counterpart resource and overriding the position to the surface deposit's position
                 // The biome is not passed here because the override will ignore it anyway
                 // If resource2 is null, the deposit is considered "surfaceOnly" and the underground deposit won't be created
                 if (resource2 != null)
-                    PairGDeposit = new KhemistryUDeposit(kinst, planet, null, depth, underDepth, resource2, Position[0], Position[1]);
+                    PairGDeposit = new KhemistryUDeposit(kinst, planet, null, depth, underDepth, resource2, minRadius, maxRadius, latOverride: Position[0], lonOverride: Position[1]);
             }
             catch (Exception ex)
             {
@@ -3504,7 +3568,25 @@ namespace Khemistry
         /// <param name="planet">The planet used to find the biome.</param>
         /// <param name="pos">The latitude-longitude Vector2 position to find the biome at.</param>
         /// <returns>The name of the biome.</returns>
-        public static string GetBiomeNameFromLatLon(string planet, Vector2 pos) => FlightGlobals.GetBodyByName(planet).BiomeMap.GetAtt(pos[0], pos[1]).name;
+        public static string GetBiomeNameFromLatLon(string planet, Vector2 pos) => FlightGlobals.GetBodyByName(planet).BiomeMap.GetAtt(pos[0] * Mathf.Deg2Rad, pos[1] * Mathf.Deg2Rad).name;
+
+        /// <summary>
+        /// Gets a list of biome names for a planet.
+        /// Will return an empty list if the planet does not exist or has no biomes.
+        /// </summary>
+        /// <param name="planet">The internal name of the planet to fetch biomes for.</param>
+        /// <returns>List of biomes for the planet.</returns>
+        public static List<string> GetBiomeNames(string planet)
+        {
+            CelestialBody body = FlightGlobals.GetBodyByName(planet);
+            if (body == null || body.BiomeMap == null)
+                return new List<string>();
+
+            return body.BiomeMap.Attributes
+                .Where(b => b != null)
+                .Select(b => b.name)
+                .ToList();
+        }
 
         public static int GetIntValueFromCFG(ConfigNode node, string value, int defaultValue)
         {
@@ -3649,14 +3731,26 @@ namespace Khemistry
             return dict;
         }
 
+        /// <summary>
+        /// Converts a list into a readable string.
+        /// Example: ["a", "b", "c"] becomes "a, b, c".
+        /// </summary>
+        /// <param name="list">The List<string> to convert into a string.</param>
+        /// <returns>The list as a readable string.</returns>
+        public static string ListToString(List<string> list) => string.Join(", ", list);
+
+        /// <summary>
+        /// Converts a dictionary into a readable string.
+        /// Example: {a: 1, b: 2, c: 3} becomes "a: 1, b: 2, c: 3".
+        /// </summary>
+        /// <param name="dict">The Dictionary<string, string> to convert into a string.</param>
+        /// <returns>The dictionary as a readable string.</returns>
         public static string DictToString(Dictionary<string, string> dict)
         {
-            string tmp = "";
+            List<string> tmp = new List<string>();
             foreach (string key in dict.Keys)
-            {
-                tmp += key + " = " + dict[key] + "; ";
-            }
-            return tmp;
+                tmp.Add(key + " = " + dict[key]);
+            return ListToString(tmp);
         }
 
         public enum SituationCondition
