@@ -1,14 +1,9 @@
 using KSP.UI.Screens;
-using KSPAchievements;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
-using System.Runtime.Remoting.Contexts;
 using UnityEngine;
-
-// TODO:
-// - AdvancedEVAISRU cannot auto-cycle if it is manual
 
 // NOTES:
 // Deposit generation does not save biomes as they aren't needed anywhere other than placing the deposit at the correct position
@@ -162,7 +157,6 @@ KHEMISTRYBATCHISRU_RECIPE
     recipeSubsubtype = highHeat  // Defaults to NONE
     // Multiple recipeType, recipeSubtype, and recipeSubsubtype can be included
 
-
     // Everything else is the same as in RECIPE nodes inside KhemistryBatchISRU
 
     // Charging
@@ -224,6 +218,7 @@ KHEMISTRYBATCHISRU_RECIPE
 			workersPilotsMul = 1.0
 			workersScientistsMul = 1.0
             maxInteractionDistanceMul = 1.0
+            maxDisplayDistanceMul = 1.0
 		}
 	}
     // No INPUT_RESOURCE nodes means the converter makes things out of nothing
@@ -352,6 +347,7 @@ MODULE
 				workersPilotsMul = 1.0
 				workersScientistsMul = 1.0
                 maxInteractionDistanceMul = 1.0
+                maxDisplayDistanceMul = 1.0
 			}
 		}
         // No INPUT_RESOURCE nodes means the converter makes things out of nothing
@@ -396,7 +392,8 @@ MODULE
         workersScientists = 1  // Defaults to 0
         workersType = EVA+CREW  // EVA, CREW, or EVA+CREW. Defaults to EVA
 	}
-	maxInteractionDistance = 2  // Meters. Required
+	maxInteractionDistance = 2  // Meters. Defaults to 7. Controls how far away the ISRU can be interacted with.
+	maxDisplayDistance = 2  // Meters. Defaults to 10. Controls how far away the ISRU will show its display fields.
     workersCrewSamePart = false  // If workersType is CREW or EVA+CREW, this will only check those that are on the same part as the converter. Defaults to false
 }
 */
@@ -417,7 +414,10 @@ namespace Khemistry
         {
             // Check if the config node is valid
             if (!configNode.HasNode("SHAPES") || !configNode.HasValue("name") || configNode.name != "KHEMISTRY_MATERIAL")
+            {
                 KShared.LogError("KhemistryMaterial loading failed!", "KhemistryMaterial/constructor");
+                return;
+            }
 
             // Set material name from the config
             name = configNode.GetValue("name");
@@ -1448,12 +1448,12 @@ namespace Khemistry
         public double minPressure = double.MinValue;
         public double maxPressure = double.MaxValue;
 
-        public double passiveMultiplier = 1.0;
-        public double passivePeriodMultiplier = 1.0;
+        public double passiveMultiplier = 1.0;  // unused!
+        public double passivePeriodMultiplier = 1.0;  // unused!
 
-        public double chargeRateMultiplier = 1.0;
-        public double chargeDecayMultiplier = 1.0;
-        public double chargeConsumptionMultiplier = 1.0;
+        public double chargeRateMultiplier = 1.0;  // unused!
+        public double chargeDecayMultiplier = 1.0;  // unused!
+        public double chargeConsumptionMultiplier = 1.0;  // unused!
 
         public double inputMultiplier = 1.0;
         public double outputMultiplier = 1.0;
@@ -1465,6 +1465,7 @@ namespace Khemistry
         public double workersScientistsMultiplier = 1.0;
 
         public double maxInteractionDistanceMultiplier = 1.0;
+        public double maxDisplayDistanceMultiplier = 1.0;
 
         public List<string> depositConditions = new List<string>();
 
@@ -1553,8 +1554,9 @@ namespace Khemistry
                 workersEngineersMultiplier = KShared.GetDoubleValueFromCFG(node, "workersEngineersMul", workersEngineersMultiplier);
                 workersScientistsMultiplier = KShared.GetDoubleValueFromCFG(node, "workersScientistsMul", workersScientistsMultiplier);
 
-                // Max interaction distance multiplier
+                // Max distances multipliers
                 maxInteractionDistanceMultiplier = KShared.GetDoubleValueFromCFG(node, "maxInteractionDistanceMul", maxInteractionDistanceMultiplier);
+                maxDisplayDistanceMultiplier = KShared.GetDoubleValueFromCFG(node, "maxDisplayDistanceMul", maxDisplayDistanceMultiplier);
             }
             else
             {
@@ -2517,7 +2519,15 @@ namespace Khemistry
         protected bool _controlsShowPAW = true;
         protected bool _controlsShowEVA = false;
 
-        protected float _maxInteractionDistance = 10f;
+        protected KhemistryRuntimeData _runtimeData = null;
+
+        // The actual values, multiplied by a multiplier
+        protected float _maxInteractionDistance = 7f;
+        protected float _maxDisplayDistance = 10f;
+
+        // The values loaded from the config
+        protected float _configMaxInteractionDistance = 7f;
+        protected float _configMaxDisplayDistance = 10f;
 
         protected List<KhemistryBatchISRURecipe> recipes = new List<KhemistryBatchISRURecipe>();
 
@@ -2716,7 +2726,10 @@ namespace Khemistry
 
             if (bool.TryParse(KShared.GetStrValueFromCFG(moduleNode, "workersCrewSamePart", "false"), out bool wcspTmp))
                 workersCrewSamePart = wcspTmp;
-            _maxInteractionDistance = KShared.GetFloatValueFromCFG(moduleNode, "maxInteractionDistance", _maxInteractionDistance);
+            _configMaxInteractionDistance = KShared.GetFloatValueFromCFG(moduleNode, "maxInteractionDistance", _configMaxInteractionDistance);
+            _configMaxDisplayDistance = KShared.GetFloatValueFromCFG(moduleNode, "maxDisplayDistance", _configMaxDisplayDistance);
+            _maxInteractionDistance = _configMaxInteractionDistance;
+            _maxDisplayDistance = _configMaxDisplayDistance;
 
             ///// Select active recipe /////
             KhemistryBatchISRURecipe initial = null;
@@ -2843,18 +2856,25 @@ namespace Khemistry
                 return;
             }
 
+            Fields["statusDisplay"].guiUnfocusedRange = _maxDisplayDistance;
+            Fields["chargeDisplay"].guiUnfocusedRange = _maxDisplayDistance;
+            Fields["progressDisplay"].guiUnfocusedRange = _maxDisplayDistance;
+            Fields["stateDisplay"].guiUnfocusedRange = _maxDisplayDistance;
+
             Events["StartConverter"].guiName = StartActionName;
             Events["StopConverter"].guiName = StopActionName;
             Actions["StartConverterAction"].guiName = StartActionName;
             Actions["StopConverterAction"].guiName = StopActionName;
 
-            Events["StartConverter"].unfocusedRange = _maxInteractionDistance;
-            Events["StopConverter"].unfocusedRange = _maxInteractionDistance;
-            Events["PerformMaintenance"].unfocusedRange = _maxInteractionDistance;
-            Events["SwitchRecipe"].unfocusedRange = _maxInteractionDistance;
+            Events["StartConverter"].unfocusedRange = _configMaxInteractionDistance;
+            Events["StopConverter"].unfocusedRange = _configMaxInteractionDistance;
+            Events["PerformMaintenance"].unfocusedRange = _configMaxInteractionDistance;
+            Events["SwitchRecipe"].unfocusedRange = _configMaxInteractionDistance;
 
             if (!chargingRequired)
                 this.state = ConverterState.On;
+
+            _runtimeData = new KhemistryRuntimeData(vessel);
 
             SetupActiveAnimation();
 
@@ -3001,6 +3021,8 @@ namespace Khemistry
             if (vessel == null || part == null) return;
             if (_fatalConfigError) return;
 
+            _runtimeData.Update(vessel);
+
             double dt = TimeWarp.fixedDeltaTime;
             _outputWarnCooldown = Math.Max(0.0, _outputWarnCooldown - dt);
 
@@ -3022,6 +3044,39 @@ namespace Khemistry
         }
 
         /// <summary>
+        /// Check the current BIOME_CONFIG to update values and explode if needed.
+        /// </summary>
+        /// <param name="biomeConfig">The <see cref="BatchISRUBiomeConfig"/> fetched outside the function.</param>
+        /// <returns>If <see langword="true"/>, an explosion or error happened.</returns>
+        protected bool CheckBiomeConfig(BatchISRUBiomeConfig biomeConfig)
+        {
+            if (biomeConfig == null)
+            {
+                statusDisplay = "ERROR, please report this to the dev with the KSP.log.";
+                KShared.LogError($"Biome config is null for recipe \"{_activeRecipe._name}\" on planet \"{_runtimeData.planet}\" in biome \"{_runtimeData.biome}\"!",
+                    "KhemistryBatchISRU/CheckBiomeConfig");
+                return true;
+            }
+
+            // One hundred and one ways to explode
+            if (biomeConfig.situationDestructive.Contains(_runtimeData.sitCon) ||
+                _runtimeData.alt < biomeConfig.minAltitude || _runtimeData.alt > biomeConfig.maxAltitude ||
+                _runtimeData.g < biomeConfig.minG || _runtimeData.g > biomeConfig.maxG ||
+                _runtimeData.temperature < biomeConfig.minTemperature || _runtimeData.temperature > biomeConfig.maxTemperature ||
+                _runtimeData.pressure < biomeConfig.minPressure || _runtimeData.pressure > biomeConfig.maxPressure)
+            {
+                TriggerPowerfail(part, KhemistryBatchISRURecipe.PowerfailResult.Explode);
+                return true;
+            }
+
+            // Apply multipliers
+            _maxInteractionDistance = _configMaxInteractionDistance * (float)biomeConfig.maxInteractionDistanceMultiplier;
+            _maxDisplayDistance = _configMaxDisplayDistance * (float)biomeConfig.maxDisplayDistanceMultiplier;
+
+            return false;
+        }
+
+        /// <summary>
         /// Looks up the applicable biome config for the active recipe at the vessel's current
         /// location and, if found and operable, advances batch progress; consumes the full
         /// batch of inputs and produces the full batch of outputs once recipeTime is reached.
@@ -3032,53 +3087,43 @@ namespace Khemistry
             // "on" but may be paused this tick); recomputed again once progress actually advances.
             progressDisplay = FormatProgress(batchProgress, _activeRecipe._recipeTime);
 
-            string planet = vessel.mainBody?.name ?? "";
-            string biome = ScienceUtil.GetExperimentBiome(vessel.mainBody, vessel.latitude, vessel.longitude);
-
-            BatchISRUBiomeConfig biomeConfig = _activeRecipe.GetBiomeConfig(planet, biome);
+            BatchISRUBiomeConfig biomeConfig = _activeRecipe.GetBiomeConfig(_runtimeData.planet, _runtimeData.biome);
             if (biomeConfig == null)
             {
-                statusDisplay = "Cannot operate here (" + planet + ")";
+                statusDisplay = "ERROR, please report this to the dev with the KSP.log.";
+                KShared.LogError($"Biome config is null for recipe \"{_activeRecipe._name}\" on planet \"{_runtimeData.planet}\" in biome \"{_runtimeData.biome}\"!",
+                    "KhemistryBatchISRU/RunBatchCycle");
                 return;
             }
 
-            KShared.SituationCondition currentSituation = KShared.GetVesselSituation(vessel);
+            if (CheckBiomeConfig(biomeConfig))
+                return;
 
-            if (biomeConfig.situationDestructive.Contains(currentSituation))
+            if (biomeConfig.situationOperating.Count > 0 && !biomeConfig.situationOperating.Contains(_runtimeData.sitCon))
             {
-                TriggerPowerfail(part, KhemistryBatchISRURecipe.PowerfailResult.Explode);
+                statusDisplay = "Wrong situation (" + _runtimeData.sitCon + ")";
                 return;
             }
 
-            if (biomeConfig.situationOperating.Count > 0 && !biomeConfig.situationOperating.Contains(currentSituation))
-            {
-                statusDisplay = "Wrong situation (" + currentSituation + ")";
-                return;
-            }
-
-            double alt = vessel.altitude;
-            if (alt < biomeConfig.minOperatingAltitude || alt > biomeConfig.maxOperatingAltitude)
+            if (_runtimeData.alt < biomeConfig.minOperatingAltitude || _runtimeData.alt > biomeConfig.maxOperatingAltitude)
             {
                 statusDisplay = "Out of operating altitude range";
                 return;
             }
 
-            double g = vessel.geeForce;
-            if (g < biomeConfig.minOperatingG || g > biomeConfig.maxOperatingG)
+            if (_runtimeData.g < biomeConfig.minOperatingG || _runtimeData.g > biomeConfig.maxOperatingG)
             {
                 statusDisplay = "Out of operating G range";
                 return;
             }
 
-            double temperature = vessel.externalTemperature;
-            if (temperature < biomeConfig.minOperatingTemperature || temperature > biomeConfig.maxOperatingTemperature)
+            if (_runtimeData.temperature < biomeConfig.minOperatingTemperature || _runtimeData.temperature > biomeConfig.maxOperatingTemperature)
             {
                 statusDisplay = "Out of operating temperature range";
                 return;
             }
 
-            double pressure = vessel.staticPressurekPa;
-            if (pressure < biomeConfig.minOperatingPressure || pressure > biomeConfig.maxOperatingPressure)
+            if (_runtimeData.pressure < biomeConfig.minOperatingPressure || _runtimeData.pressure > biomeConfig.maxOperatingPressure)
             {
                 statusDisplay = "Out of operating pressure range";
                 return;
@@ -3140,8 +3185,8 @@ namespace Khemistry
         }
 
         /// <summary>
-        /// Processes every PINPUT_RESOURCE on the active recipe: consumes `amount` every
-        /// `period` seconds, tracking the cumulative amount taken from each since the batch
+        /// Processes every PINPUT_RESOURCE on the active recipe: consumes <c>amount</c> every
+        /// <c>period</c> seconds, tracking the cumulative amount taken from each since the batch
         /// last completed/reset. On insufficient resource: if ignorePowerfail, silently skips
         /// consumption for that tick and the batch continues normally; otherwise applies the
         /// configured powefail result — PAUSE (default) just stalls this tick, STOP refunds
@@ -3333,6 +3378,32 @@ namespace Khemistry
     }
 
     ////////////////////////////// Shared Data //////////////////////////////
+    
+    public class KhemistryRuntimeData
+    {
+        public double alt;
+        public double g;
+        public double temperature;
+        public double pressure;
+        public KShared.SituationCondition sitCon;
+        public string planet;
+        public string biome;
+
+        public KhemistryRuntimeData(Vessel vessel)
+        {
+            Update(vessel);
+        }
+        public void Update(Vessel vessel)
+        {
+            alt = vessel.altitude;  // meters
+            g = vessel.geeForce;  // Gs
+            temperature = vessel.externalTemperature;  // Kelvin
+            pressure = vessel.staticPressurekPa;  // kPa
+            sitCon = KShared.GetVesselSituation(vessel);
+            planet = vessel.mainBody?.name ?? "";
+            biome = ScienceUtil.GetExperimentBiome(vessel.mainBody, vessel.latitude, vessel.longitude);
+        }
+    }
 
     /// <summary>
     /// A version of KShared that loads during the MainMenu scene.
