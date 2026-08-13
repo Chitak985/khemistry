@@ -403,7 +403,7 @@ namespace Khemistry
     ////////////////////////////// Material System //////////////////////////////
     /// <summary>
     /// A material usually loaded from configs. It defines its name, allowed shapes, and allowed parameters.
-    /// An instance of this material used as a resource is KhemistryMaterialInstance.
+    /// An instance of this material used as a resource is <see cref="KhemistryMaterialInstance"/>.
     /// </summary>
     public class KhemistryMaterial
     {
@@ -413,9 +413,14 @@ namespace Khemistry
         public KhemistryMaterial(ConfigNode configNode)
         {
             // Check if the config node is valid
-            if (!configNode.HasNode("SHAPES") || !configNode.HasValue("name") || configNode.name != "KHEMISTRY_MATERIAL")
+            if (configNode.name != "KHEMISTRY_MATERIAL")
             {
-                KShared.LogError("KhemistryMaterial loading failed!", "KhemistryMaterial/constructor");
+                KShared.LogError("KhemistryMaterial loading failed because the node isn't named KHEMISTRY_MATERIAL!", "KhemistryMaterial/constructor");
+                return;
+            }
+            if (!configNode.HasNode("SHAPES") || !configNode.HasValue("name"))
+            {
+                KShared.LogError("KhemistryMaterial loading failed because one of the nodes isn't present!", "KhemistryMaterial/constructor");
                 return;
             }
 
@@ -433,7 +438,7 @@ namespace Khemistry
         }
     }
     /// <summary>
-    /// Instance of a KhemistryMaterial with its own shape, size, volume, and parameters.
+    /// Instance of a <see cref="KhemistryMaterial"/> with its own shape, size, volume, and parameters.
     /// </summary>
     public class KhemistryMaterialInstance
     {
@@ -463,11 +468,11 @@ namespace Khemistry
         }
 
         /// <summary>
-        /// Checks if it is possible to merge the volumes of another KhemistryMaterialInstance into this one.
+        /// Checks if it is possible to merge the volumes of another <see cref="KhemistryMaterialInstance"/> into this one.
         /// For this to be true, they must be exactly the same except for the volume.
         /// </summary>
-        /// <param name="other">The other KhemistryMaterialInstance to test merging for.</param>
-        /// <returns>If possible to merge the two KhemistryMaterialInstance.</returns>
+        /// <param name="other">The other <see cref="KhemistryMaterialInstance"/> to test merging for.</param>
+        /// <returns>If possible to merge the two <see cref="KhemistryMaterialInstance"/>.</returns>
         public bool CanMerge(KhemistryMaterialInstance other)
         {
             if (shape == other.shape && size == other.size && material.name == other.material.name)
@@ -485,9 +490,9 @@ namespace Khemistry
         }
 
         /// <summary>
-        /// Merge the volumes of another KhemistryMaterialInstance into this one.
+        /// Merge the volumes of another <see cref="KhemistryMaterialInstance"/> into this one.
         /// </summary>
-        /// <param name="other">The other KhemistryMaterialInstance to merge.</param>
+        /// <param name="other">The other <see cref="KhemistryMaterialInstance"/> to merge.</param>
         /// <returns>If merging succeeded or not.</returns>
         public bool Merge(KhemistryMaterialInstance other)
         {
@@ -501,7 +506,7 @@ namespace Khemistry
     }
 
     /// <summary>
-    /// A PartModule that stores KhemistryMaterialInstance and merges them as needed.
+    /// A PartModule that stores <see cref="KhemistryMaterialInstance"/> and merges them as needed.
     /// Uses a completely different resource system than stock KSP.
     /// </summary>
     public class KhemistryMaterialStorage : PartModule
@@ -678,7 +683,7 @@ namespace Khemistry
     ////////////////////////////// Deposit System //////////////////////////////
 
     /// <summary>
-    /// Shared data for both deposit types, KhemistryUDeposit and KhemistryGDeposit.
+    /// Shared data for both deposit types, <see cref="KhemistryUDeposit"/> and <see cref="KhemistryGDeposit"/>.
     /// </summary>
     public class KhemistryDeposit
     {
@@ -710,7 +715,7 @@ namespace Khemistry
 
     /// <summary>
     /// A deposit where resources can be extracted from.
-    /// This is the underground version of a deposit, see KhemistryGDeposit for its aboveground counterpart.
+    /// This is the underground version of a deposit, see <see cref="KhemistryGDeposit"/> for its aboveground counterpart.
     /// </summary>
     public class KhemistryUDeposit : KhemistryDeposit
     {
@@ -800,7 +805,7 @@ namespace Khemistry
 
     /// <summary>
     /// A deposit where resources can be extracted from. Can have a pair underground deposit.
-    /// This is the aboveground version of a deposit, see KhemistryUDeposit for its underground counterpart.
+    /// This is the aboveground version of a deposit, see <see cref="KhemistryUDeposit"/> for its underground counterpart.
     /// </summary>
     public class KhemistryGDeposit : KhemistryDeposit
     {
@@ -939,7 +944,7 @@ namespace Khemistry
     }
 
     /// <summary>
-    /// Stores a recipe condition for KhemistryAdvancedRecipeISRU.
+    /// Stores a recipe condition for <see cref="KhemistryAdvancedRecipeISRU"/>.
     /// </summary>
     public class AdvancedISRURecipeCondition
     {
@@ -1169,8 +1174,8 @@ namespace Khemistry
     }
 
     /// <summary>
-    /// A recipe to use in KhemistryAdvancedRecipeISRU.
-    /// It defines everything a KhemistryAdvancedISRU does but can be overriden by values in the ISRU loading it.
+    /// A recipe to use in <see cref="KhemistryAdvancedRecipeISRU"/>.
+    /// It defines everything a <see cref="KhemistryAdvancedISRU"/> does but can be overriden by values in the ISRU loading it.
     /// </summary>
     public class KhemistryRecipe
     {
@@ -1419,7 +1424,8 @@ namespace Khemistry
     ////////////////////////////// Batch ISRU System //////////////////////////////
 
     /// <summary>
-    /// A config used in BatchISRU for each biome. Contains a lot of conditions when the recipe can work.
+    /// A config used in <see cref="KhemistryBatchISRU"/> for each biome.
+    /// Contains a lot of conditions when the recipe can work.
     /// </summary>
     public class BatchISRUBiomeConfig
     {
@@ -1567,7 +1573,8 @@ namespace Khemistry
     }
 
     /// <summary>
-    /// A recipe for KhemistryBatchISRU.
+    /// A recipe for <see cref="KhemistryBatchISRU"/>.
+    /// Contains inputs, outputs and multiple <see cref="BatchISRUBiomeConfig"/> to use.
     /// </summary>
     public class KhemistryBatchISRURecipe
     {
@@ -2290,7 +2297,7 @@ namespace Khemistry
     /// <summary>
     /// An ISRU module that uses batches.
     /// Stock and Advanced ISRU modules always use units/second, but this module uses batches of resouces.
-    /// It has a similar amount of features as AdvancedISRU but has a few new ones.
+    /// It has a similar amount of features as <see cref="KhemistryAdvancedISRU"/> but also has a few new ones.
     /// </summary>
     public class KhemistryBatchISRU : PartModule
     {
@@ -2360,6 +2367,11 @@ namespace Khemistry
                 "KhemistryBatchISRU/SetupActiveAnimation");
         }
 
+        /// <summary>
+        /// Start or stop the active animation.
+        /// Will play it until it is turned off.
+        /// </summary>
+        /// <param name="playing">Whether to play the active animation or not.</param>
         private void SetActiveAnimationPlaying(bool playing)
         {
             if (_activeAnim == null || string.IsNullOrEmpty(_activeAnimationName)) return;
@@ -2371,6 +2383,9 @@ namespace Khemistry
             _animationPlaying = playing;
         }
 
+        /// <summary>
+        /// Play the active animation once, without looping.
+        /// </summary>
         private void PlayActiveAnimationOnce()
         {
             if (_activeAnim == null || string.IsNullOrEmpty(_activeAnimationName)) return;
@@ -2378,8 +2393,17 @@ namespace Khemistry
         }
 
         ///// State /////
+        /// <summary>
+        /// The state of a converter.
+        /// <list type="bullet">Off: The converter is currently turned off and is not running.</list>
+        /// <list type="bullet">Charging: Same as Off but the converter is charging.</list>
+        /// <list type="bullet">On: The converter is currently turned on and is running.</list>
+        /// </summary>
         public enum ConverterState { Off, Charging, On }
 
+        /// <summary>
+        /// The current state of this converter, see <see cref="ConverterState"/> for options.
+        /// </summary>
         [KSPField(isPersistant = true)]
         public ConverterState state = ConverterState.Off;
 
@@ -2472,7 +2496,9 @@ namespace Khemistry
             }
         }
 
-        /// <summary>Gives back everything withdrawn by passive inputs during the in-progress batch.</summary>
+        /// <summary>
+        /// Gives back everything withdrawn by passive inputs during the in-progress batch.
+        /// </summary>
         protected void RefundPassiveConsumption()
         {
             if (_activeRecipe == null) return;
@@ -2485,7 +2511,9 @@ namespace Khemistry
             }
         }
 
-        /// <summary>Discards the tracked in-progress-batch consumption without refunding it.</summary>
+        /// <summary>
+        /// Discards the tracked in-progress-batch consumption without refunding it.
+        /// </summary>
         protected void ClearPassiveConsumption()
         {
             for (int i = 0; i < _passiveConsumedThisBatch.Count; i++)
@@ -3378,7 +3406,11 @@ namespace Khemistry
     }
 
     ////////////////////////////// Shared Data //////////////////////////////
-    
+
+    /// <summary>
+    /// Runtime data used by <see cref="KhemistryBatchISRU"/>.
+    /// This is checked by <see cref="BatchISRUBiomeConfig"/> to see if a recipe can run.
+    /// </summary>
     public class KhemistryRuntimeData
     {
         public double alt;
@@ -3406,7 +3438,7 @@ namespace Khemistry
     }
 
     /// <summary>
-    /// A version of KShared that loads during the MainMenu scene.
+    /// A version of <see cref="KShared"/> that loads during the MainMenu scene.
     /// Mainly loads many top-level configs.
     /// </summary>
     [KSPAddon(KSPAddon.Startup.MainMenu, true)]
@@ -4121,8 +4153,8 @@ namespace Khemistry
     ////////////////////////////// Obsolete Degrading Battery System //////////////////////////////
 
     /// <summary>
-    /// An obsolete PartModule that simulates a battery that degrades over time.
-    /// Should be ported over to the KhemistryFluidCell and KhemistryAdvancedStorage modules.
+    /// An obsolete <see cref="PartModule"/> that simulates a battery that degrades over time.
+    /// Should be ported over to the <see cref="KhemistryFluidCell"/> and <see cref="KhemistryAdvancedStorage"/> modules.
     /// </summary>
     public class KhemistryDegradingBattery : PartModule
     {
@@ -4233,7 +4265,7 @@ namespace Khemistry
     }
 
     /// <summary>
-    /// Loads the data for the Resource and Recipe Library from the GameDatabase.
+    /// Loads the data for the Resource and Recipe Library from the <see cref="GameDatabase"/>.
     /// The Resource Library is unusable until this finishes loading.
     /// </summary>
     [KSPAddon(KSPAddon.Startup.MainMenu, true)]
@@ -6470,7 +6502,7 @@ MODULE
     }
 
     /// <summary>
-    /// The simplest version of an AdvancedISRU.
+    /// The simplest version of an <see cref="KhemistryAdvancedISRUBase"/>.
     /// It behaves similarly to the stock and SystemHeat converters.
     /// </summary>
     public class KhemistryAdvancedISRU : KhemistryAdvancedISRUBase
@@ -6755,9 +6787,9 @@ MODULE
     }
 
     /// <summary>
-    /// An AdvancedISRU that uses KHEMISTRY_RECIPE recipes, see config at the top of source.
+    /// An <see cref="KhemistryAdvancedISRUBase"/> that uses KHEMISTRY_RECIPE recipes, see config at the top of source.
     ///
-    /// The module's own MODULE config may define any field a normal KhemistryAdvancedISRU
+    /// The module's own MODULE config may define any field a normal <see cref="KhemistryAdvancedISRU"/>
     /// would (conditions, powerfail, manual operation, show rules,
     /// maxInteractionDistance, charging...). If present, that value overrides the same
     /// field on every loaded recipe wholesale. ConverterName, StartActionName, and
@@ -7635,7 +7667,7 @@ MODULE
     }
 
     /// <summary>
-    /// A version of AdvancedISRU that runs on a kerbal.
+    /// A version of <see cref="KhemistryAdvancedISRUBase"/> that runs on a kerbal.
     /// Does not use the stock resource system and instead uses fluid cells.
     /// </summary>
     public class KhemistryEVAAdvancedISRU : KhemistryAdvancedISRUBase
@@ -7721,7 +7753,7 @@ MODULE
     ////////////////////////////// Kerbal-side Logic //////////////////////////////
 
     /// <summary>
-    /// A PartModule applied to kerbals, it handles all EVA-side logic and rendering.
+    /// A <see cref="PartModule"/> applied to kerbals, it handles all EVA-side logic and rendering.
     /// </summary>
     public class KhemistryKerbal : PartModule
     {
@@ -9069,7 +9101,7 @@ MODULE
     }
 
     /// <summary>
-    /// An AdvancedISRU that is both an ISRU and a FluidCell.
+    /// An <see cref="KhemistryAdvancedISRUBase"/> that is both an ISRU and a <see cref="KhemistryFluidCell"/>.
     /// This is used in EVA parts that must work from a kerbal's inventory.
     /// </summary>
     public class KhemistryEVACombinedProcessor : PartModule
