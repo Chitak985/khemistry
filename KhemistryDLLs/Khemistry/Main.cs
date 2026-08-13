@@ -2910,7 +2910,7 @@ namespace Khemistry
             if (!chargingRequired)
                 this.state = ConverterState.On;
 
-            _runtimeData = new KhemistryRuntimeData(vessel);
+            _runtimeData = new KhemistryRuntimeData(vessel);  // vessel could be null
 
             SetupActiveAnimation();
 
@@ -3421,27 +3421,34 @@ namespace Khemistry
     /// </summary>
     public class KhemistryRuntimeData
     {
-        public double alt;
-        public double g;
-        public double temperature;
-        public double pressure;
-        public KShared.SituationCondition sitCon;
-        public string planet;
-        public string biome;
+        // While vessel is null this tries to mimick Kerbin
+        public double alt = 0;
+        public double g = 0;
+        public double temperature = 293.15;
+        public double pressure = 104;
+        public KShared.SituationCondition sitCon = new KShared.SituationCondition();
+        public string planet = "Kerbin";
+        public string biome = "Grasslands";
 
         public KhemistryRuntimeData(Vessel vessel)
         {
-            Update(vessel);
+            // If vessel is null just don't update
+            if(vessel != null)
+                Update(vessel);
         }
         public void Update(Vessel vessel)
         {
-            alt = vessel.altitude;  // meters
-            g = vessel.geeForce;  // Gs
-            temperature = vessel.externalTemperature;  // Kelvin
-            pressure = vessel.staticPressurekPa;  // kPa
-            sitCon = KShared.GetVesselSituation(vessel);
-            planet = vessel.mainBody?.name ?? "";
-            biome = ScienceUtil.GetExperimentBiome(vessel.mainBody, vessel.latitude, vessel.longitude);
+            // If vessel is null just don't update
+            if (vessel != null)
+            {
+                alt = vessel.altitude;  // meters
+                g = vessel.geeForce;  // Gs
+                temperature = vessel.externalTemperature;  // Kelvin
+                pressure = vessel.staticPressurekPa;  // kPa
+                sitCon = KShared.GetVesselSituation(vessel);
+                planet = vessel.mainBody?.name ?? "";
+                biome = ScienceUtil.GetExperimentBiome(vessel.mainBody, vessel.latitude, vessel.longitude);
+            }
         }
     }
 
