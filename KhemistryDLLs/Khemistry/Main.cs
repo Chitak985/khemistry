@@ -2230,13 +2230,13 @@ namespace Khemistry
         }
 
         /// <summary>
-        /// Applies the recipe-related values and nodes on a KhemistryBatchISRU MODULE node on top of
+        /// Applies the recipe-related values and nodes on a <see cref="KhemistryBatchISRU"/> MODULE node on top of
         /// a loaded recipe's config node, returning a new merged node suitable for re-parsing into a
-        /// KhemistryBatchISRURecipe. Module-only bookkeeping (identity, converter naming, recipe
+        /// <see cref="KhemistryBatchISRURecipe"/>. Module-only bookkeeping (identity, converter naming, recipe
         /// selection filters, RECIPE/RECIPE_NAMES/RECIPE_MULTIPLIERS) is ignored. Every other value
         /// or node present on the MODULE node fully overrides the matching key on the recipe, except
         /// PLANET_CONFIG (and its BIOME_CONFIG children), which are merged instead — see
-        /// MergePlanetConfigs/MergePlanetConfigNode.
+        /// <see cref="MergePlanetConfigs"/>/<see cref="MergePlanetConfigNode"/>.
         /// </summary>
         public static ConfigNode ApplyModuleOverrides(ConfigNode moduleNode, ConfigNode baseRecipeNode)
         {
@@ -2633,9 +2633,13 @@ namespace Khemistry
         }
 
         ///// Config loading /////
+        /// <summary>
+        /// Load the config values from part information.
+        /// </summary>
         protected void LoadConfigFromPartInfo()
         {
             ConfigNode moduleNode = KShared.FindModuleConfigNode(part, ConverterName, "KhemistryBatchISRU");
+            KShared shared = KShared.Instance;
 
             ///// Charging /////
             _chargeNames.Clear();
@@ -2665,7 +2669,7 @@ namespace Khemistry
                 }
             }
 
-            ///// Recipes: imported by name (RECIPE_NAMES / RECIPE_MULTIPLIERS) /////
+            ///// Recipes: imported by name (RECIPE_NAMES & RECIPE_MULTIPLIERS) /////
             recipeMultiplier = KShared.GetFloatValueFromCFG(moduleNode, "recipeMultiplier", 1f);
 
             recipeType = KShared.GetStrValueFromCFG(moduleNode, "recipeType", null);
@@ -2685,8 +2689,9 @@ namespace Khemistry
 
                 if (moduleNode.HasNode("RECIPE_MULTIPLIERS"))
                 {
-                    foreach (string amt in moduleNode.GetNode("RECIPE_MULTIPLIERS").GetValues("name"))
-                        if (float.TryParse(amt, out float mTmp)) _recipeMultipliers.Add(mTmp);
+                    foreach (string amt in moduleNode.GetNode("RECIPE_MULTIPLIERS").GetValues("amount"))
+                        if (float.TryParse(amt, out float mTmp))
+                            _recipeMultipliers.Add(mTmp);
 
                     if (_recipeMultipliers.Count != _recipeNames.Count)
                     {
@@ -2699,13 +2704,10 @@ namespace Khemistry
                 }
             }
             else if (moduleNode.HasNode("RECIPE_MULTIPLIERS"))
-            {
                 KShared.LogError(
                     "Converter \"" + ConverterName + "\": Node RECIPE_MULTIPLIERS is present but no RECIPE_NAMES node is present.",
                     "KhemistryBatchISRU/LoadConfigFromPartInfo");
-            }
 
-            KShared shared = KShared.Instance;
             if (shared != null)
             {
                 if (_recipeNames.Count > 0)
@@ -2730,7 +2732,7 @@ namespace Khemistry
                         recipes.Add(overriddenFound.ScaledCopy(recipeMultiplier * localMult));
                     }
                 }
-                else if (recipeType != null || recipeSubtype != null || recipeSubsubtype != null)
+                if (recipeType != null || recipeSubtype != null || recipeSubsubtype != null)
                 {
                     foreach (KhemistryBatchISRURecipe candidate in shared.batchRecipeList)
                     {
@@ -2738,6 +2740,12 @@ namespace Khemistry
                         {
                             ConfigNode mergedCandidateNode = KhemistryBatchISRURecipe.ApplyModuleOverrides(moduleNode, candidate.mainNode);
                             KhemistryBatchISRURecipe overriddenCandidate = new KhemistryBatchISRURecipe(mergedCandidateNode, ConverterName);
+                            
+                            // Check if this wasn't already added by RECIPE_NAMES logic
+                            foreach (KhemistryBatchISRURecipe recipe in recipes)
+                                if (recipe._name == overriddenCandidate._name)
+                                    continue;  // skip this candidate
+
                             recipes.Add(overriddenCandidate.ScaledCopy(recipeMultiplier));
                         }
                     }
