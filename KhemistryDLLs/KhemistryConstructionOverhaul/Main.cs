@@ -1,123 +1,11 @@
 ﻿using CustomPreLaunchChecks;
-using System;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
+using Khemistry;
 
 namespace KhemistryConstructionOverhaul
 {
-    // Single shared singleton: handles logging, resource storage, and the
-    // resource selector GUI window.
-    // KSPAddon with once=true means KSP creates this once at boot and
-    // DontDestroyOnLoad keeps it alive across all scene transitions.
-    [KSPAddon(KSPAddon.Startup.Instantly, true)]
-    public class KCOShared : MonoBehaviour
-    {
-        private static KCOShared _instance;
-        public static KCOShared Instance => _instance;
-
-        public Dictionary<string, float> ResourceDict = new Dictionary<string, float>();
-
-        // Resource selector window state
-        private bool _selectorVisible = false;
-        private Vector2 _selectorScroll = Vector2.zero;
-        private List<string> _selectorResources;
-        private Action<string> _selectorCallback;
-        private Rect _windowRect = new Rect(0, 0, 320, 300);
-        private readonly int _windowId = GUIUtility.GetControlID(FocusType.Passive);
-
-        public void Awake()
-        {
-            // If a duplicate somehow exists, destroy it and keep the first
-            if (_instance != null)
-            {
-                LogError("Another instance of KCOShared was found, self destructing...", "KCOShared/Awake");
-                Destroy(gameObject);
-                return;
-            }
-            _instance = this;
-            DontDestroyOnLoad(gameObject);
-            // Starting resources
-            ResourceDict.Add("CuWiring", 10.0f);       // Copper wires
-            ResourceDict.Add("Sn60Pb40Alloy", 10.0f);  // Soldering
-            ResourceDict.Add("Aluminium6061", 10.0f);   // Simple construction material
-            Log("KCOShared initialized.", "KCOShared/Awake");
-        }
-
-        // Opens the resource selector window, centered on screen.
-        // onSelect is called with the chosen resource name when the player picks one.
-        public void ShowResourceSelector(List<string> resources, Action<string> onSelect)
-        {
-            _selectorResources = resources;
-            _selectorCallback = onSelect;
-            _selectorScroll = Vector2.zero;
-            _windowRect = new Rect(
-                (Screen.width - _windowRect.width) / 2f,
-                (Screen.height - _windowRect.height) / 2f,
-                _windowRect.width,
-                _windowRect.height
-            );
-            _selectorVisible = true;
-        }
-
-        private void OnGUI()
-        {
-            if (!_selectorVisible) return;
-            _windowRect = GUILayout.Window(
-                _windowId,
-                _windowRect,
-                DrawSelectorWindow,
-                "Send Resources",
-                HighLogic.Skin.window
-            );
-        }
-
-        private void DrawSelectorWindow(int windowId)
-        {
-            GUILayout.Label("Select a resource to send to the KSC:", HighLogic.Skin.label);
-
-            // GUILayout.BeginScrollView is Unity's legacy IMGUI scroller,
-            // compatible with all KSP-supported Unity versions and reliably
-            // handles any number of items without content height issues.
-            _selectorScroll = GUILayout.BeginScrollView(
-                _selectorScroll,
-                HighLogic.Skin.scrollView,
-                GUILayout.Height(180f)
-            );
-            foreach (string res in _selectorResources)
-            {
-                if (GUILayout.Button(res, HighLogic.Skin.button))
-                {
-                    _selectorVisible = false;
-                    _selectorCallback(res);
-                }
-            }
-            GUILayout.EndScrollView();
-
-            if (GUILayout.Button("Cancel", HighLogic.Skin.button))
-                _selectorVisible = false;
-
-            // Allow the player to drag the window around
-            GUI.DragWindow();
-        }
-
-        public void Log(string message, string func = null)
-        {
-            if (func != null)
-                Debug.Log("KhemistryConstructionOverhaul (" + func + "): " + message);
-            else
-                Debug.Log("KhemistryConstructionOverhaul: " + message);
-        }
-
-        public void LogError(string message, string func = null)
-        {
-            if (func != null)
-                Debug.LogError("KhemistryConstructionOverhaul (" + func + "): " + message);
-            else
-                Debug.LogError("KhemistryConstructionOverhaul: " + message);
-        }
-    }
-
     public class KhemistryGeneratorPart : PartModule
     {
         // Maximum amount of a resource sendable per activation
@@ -128,25 +16,25 @@ namespace KhemistryConstructionOverhaul
          groupName = "resourcesending", groupDisplayName = "Resource Sender", groupStartCollapsed = false)]
         public void SendResources()
         {
-            var shared = KCOShared.Instance;
+            var shared = KShared.Instance;
             if (shared == null)
             {
-                Debug.LogError("KhemistryConstructionOverhaul: Shared instance is null in SendResources!");
+                Debug.LogError("KhemistryConstructionOverhaul: KShared instance is null in SendResources!");
                 return;
             }
 
-            shared.Log("SendResources triggered.", "KhemistryGeneratorPart/SendResources");
+            KShared.Log("SendResources triggered.", "KhemistryGeneratorPart/SendResources");
 
             if (!HighLogic.LoadedSceneIsFlight)
             {
-                shared.Log("Attempt to send resources while not in flight.", "KhemistryGeneratorPart/SendResources");
+                KShared.Log("Attempt to send resources while not in flight.", "KhemistryGeneratorPart/SendResources");
                 ScreenMessages.PostScreenMessage(new ScreenMessage("This does not work right now.", 5.0f, ScreenMessageStyle.UPPER_CENTER));
                 return;
             }
 
             if (FlightGlobals.ActiveVessel.mainBody.name != FlightGlobals.GetHomeBodyName())
             {
-                shared.Log("Must send resources while on the home world.", "KhemistryGeneratorPart/SendResources");
+                KShared.Log("Must send resources while on the home world.", "KhemistryGeneratorPart/SendResources");
                 ScreenMessages.PostScreenMessage(new ScreenMessage("You can only send resources to the KSC while landed on the body it is on.", 5.0f, ScreenMessageStyle.UPPER_CENTER));
                 return;
             }
@@ -161,18 +49,19 @@ namespace KhemistryConstructionOverhaul
 
             if (availableResources.Count == 0)
             {
-                shared.Log("No resources available on vessel.", "KhemistryGeneratorPart/SendResources");
+                KShared.Log("No resources available on vessel.", "KhemistryGeneratorPart/SendResources");
                 ScreenMessages.PostScreenMessage(new ScreenMessage("No resources available to send.", 5.0f, ScreenMessageStyle.UPPER_CENTER));
                 return;
             }
 
+            shared._kcoSelectorVisible = true;
             shared.ShowResourceSelector(availableResources, TransferResource);
         }
 
         // Called when the player picks a resource from the selector window
         private void TransferResource(string resourceName)
         {
-            var shared = KCOShared.Instance;
+            var shared = KShared.Instance;
             if (shared == null)
             {
                 Debug.LogError("KhemistryConstructionOverhaul: Shared instance is null in TransferResource!");
@@ -182,7 +71,7 @@ namespace KhemistryConstructionOverhaul
             var def = PartResourceLibrary.Instance.GetDefinition(resourceName);
             if (def == null)
             {
-                shared.LogError("Could not find resource definition for: " + resourceName, "KhemistryGeneratorPart/TransferResource");
+                KShared.LogError("Could not find resource definition for: " + resourceName, "KhemistryGeneratorPart/TransferResource");
                 ScreenMessages.PostScreenMessage(new ScreenMessage("Unknown resource: " + resourceName, 5.0f, ScreenMessageStyle.UPPER_CENTER));
                 return;
             }
@@ -192,7 +81,7 @@ namespace KhemistryConstructionOverhaul
 
             if (taken <= 0)
             {
-                shared.Log("No " + resourceName + " could be drained from the vessel.", "KhemistryGeneratorPart/TransferResource");
+                KShared.Log("No " + resourceName + " could be drained from the vessel.", "KhemistryGeneratorPart/TransferResource");
                 ScreenMessages.PostScreenMessage(new ScreenMessage("No " + resourceName + " could be transferred.", 5.0f, ScreenMessageStyle.UPPER_CENTER));
                 return;
             }
@@ -202,7 +91,7 @@ namespace KhemistryConstructionOverhaul
             else
                 shared.ResourceDict.Add(resourceName, (float)taken);
 
-            shared.Log(taken + " of " + resourceName + " transferred to the KSC.", "KhemistryGeneratorPart/TransferResource");
+            KShared.Log(taken + " of " + resourceName + " transferred to the KSC.", "KhemistryGeneratorPart/TransferResource");
             ScreenMessages.PostScreenMessage(new ScreenMessage(
                 string.Format("Transferred {0:F2} units of {1} to the KSC.", taken, resourceName),
                 5.0f, ScreenMessageStyle.UPPER_CENTER));
@@ -218,12 +107,15 @@ namespace KhemistryConstructionOverhaul
         {
             base.OnLoad(node);
 
-            var shared = KCOShared.Instance;
-            shared?.Log("OnLoad triggered", "KhemistryPart/OnLoad");
+            var shared = KShared.Instance;
+            if (shared == null)
+                Debug.LogError("KShared is null in OnLoad of a KhemistryPart!");
+
+            KShared.Log("OnLoad triggered", "KhemistryPart/OnLoad");
 
             if (!node.HasNode("RESOURCE_COST_NAMES") || !node.HasNode("RESOURCE_COST_AMOUNTS"))
             {
-                shared?.LogError(
+                KShared.LogError(
                     "Part \"" + part.name + "\" has a KhemistryPart module but is missing " +
                     "RESOURCE_COST_NAMES and/or RESOURCE_COST_AMOUNTS in its config. " +
                     "This part will be treated as free.",
@@ -242,28 +134,28 @@ namespace KhemistryConstructionOverhaul
         // Returns ("", "1") on success, or (errorMessage, "0") on failure.
         public List<string> BuyCheck()
         {
-            var shared = KCOShared.Instance;
+            var shared = KShared.Instance;
             var tmp = new List<string>();
 
             if (shared == null)
             {
-                tmp.Add("A null reference error occurred! Info: Shared instance is null.");
+                tmp.Add("A null reference error occurred! Info: KShared instance is null.");
                 tmp.Add("0");
-                Debug.LogError("KhemistryConstructionOverhaul: Shared instance is null in BuyCheck!");
+                Debug.LogError("KhemistryConstructionOverhaul: KShared instance is null in BuyCheck!");
                 return tmp;
             }
             if (shared.ResourceDict == null)
             {
                 tmp.Add("A null reference error occurred! Info: shared.ResourceDict is null.");
                 tmp.Add("0");
-                shared.LogError("shared.ResourceDict is null!", "KhemistryPart/BuyCheck");
+                KShared.LogError("shared.ResourceDict is null!", "KhemistryPart/BuyCheck");
                 return tmp;
             }
             if (ResourceDict == null)
             {
                 tmp.Add("A null reference error occurred! Info: part ResourceDict is null.");
                 tmp.Add("0");
-                shared.LogError("ResourceDict is null!", "KhemistryPart/BuyCheck");
+                KShared.LogError("ResourceDict is null!", "KhemistryPart/BuyCheck");
                 return tmp;
             }
 
@@ -273,7 +165,7 @@ namespace KhemistryConstructionOverhaul
                 {
                     tmp.Add("You have never obtained " + resourceName + "!");
                     tmp.Add("0");
-                    shared.Log("Never obtained resource: " + resourceName, "KhemistryPart/BuyCheck");
+                    KShared.Log("Never obtained resource: " + resourceName, "KhemistryPart/BuyCheck");
                     return tmp;
                 }
                 if (shared.ResourceDict[resourceName] < ResourceDict[resourceName])
@@ -281,21 +173,21 @@ namespace KhemistryConstructionOverhaul
                     float shortfall = ResourceDict[resourceName] - shared.ResourceDict[resourceName];
                     tmp.Add("Not enough " + resourceName + "! You need " + shortfall + " more.");
                     tmp.Add("0");
-                    shared.Log("Not enough of resource: " + resourceName, "KhemistryPart/BuyCheck");
+                    KShared.Log("Not enough of resource: " + resourceName, "KhemistryPart/BuyCheck");
                     return tmp;
                 }
             }
 
             tmp.Add("");
             tmp.Add("1");
-            shared.Log("BuyCheck passed for part.", "KhemistryPart/BuyCheck");
+            KShared.Log("BuyCheck passed for part.", "KhemistryPart/BuyCheck");
             return tmp;
         }
 
         // Deducts resources after a successful BuyCheck.
         public void Buy()
         {
-            var shared = KCOShared.Instance;
+            var shared = KShared.Instance;
             if (shared == null || ResourceDict == null) return;
 
             foreach (var kvp in ResourceDict)
@@ -303,7 +195,7 @@ namespace KhemistryConstructionOverhaul
                 if (shared.ResourceDict.ContainsKey(kvp.Key))
                 {
                     shared.ResourceDict[kvp.Key] -= kvp.Value;
-                    shared.Log("Deducted " + kvp.Value + " of " + kvp.Key, "KhemistryPart/Buy");
+                    KShared.Log("Deducted " + kvp.Value + " of " + kvp.Key, "KhemistryPart/Buy");
                 }
             }
         }
@@ -314,8 +206,7 @@ namespace KhemistryConstructionOverhaul
     {
         public void Awake()
         {
-            var shared = KCOShared.Instance;
-            shared?.Log("Registering pre-launch check.", "KhemistryCPLCChecksRegistrar/Awake");
+            KShared.Log("Registering pre-launch check.", "KhemistryCPLCChecksRegistrar/Awake");
             CPLC.RegisterCheck(KhemistryResourceCheckManager.GetKhemistryTest);
         }
     }
@@ -326,8 +217,7 @@ namespace KhemistryConstructionOverhaul
 
         public bool Test()
         {
-            var shared = KCOShared.Instance;
-            shared?.Log("Test() fired!", "KhemistryResourceCheckManager/Test");
+            KShared.Log("Test() fired!", "KhemistryResourceCheckManager/Test");
 
             foreach (Part part in EditorLogic.fetch.ship.parts)
             {
@@ -364,7 +254,7 @@ namespace KhemistryConstructionOverhaul
 
         public KhemistryResourceCheckManager(string launchSiteName)
         {
-            KCOShared.Instance?.Log(
+            KShared.Log(
                 "Constructor fired for site: " + launchSiteName,
                 "KhemistryResourceCheckManager/Constructor");
         }

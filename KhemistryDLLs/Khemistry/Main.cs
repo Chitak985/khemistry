@@ -3633,6 +3633,9 @@ namespace Khemistry
         public System.Random rand = new System.Random();
         public List<string> celestialBodies = new List<string>();
 
+        // Used in KhemistryConstructionOverhaul
+        public Dictionary<string, float> ResourceDict = new Dictionary<string, float>();
+
         /// <summary>
         /// Finds and returns the MODULE config node for this converter from partConfig.
         /// Matches on both module class name and ConverterName to support multiple
@@ -3916,7 +3919,62 @@ namespace Khemistry
             DontDestroyOnLoad(gameObject);
             _windowId = GUIUtility.GetControlID(FocusType.Passive);
             _amountWindowId = GUIUtility.GetControlID(FocusType.Passive);
+
+            // Starting resources
+            ResourceDict.Add("CuWiring", 10.0f);       // Copper wires
+            ResourceDict.Add("Sn60Pb40Alloy", 10.0f);  // Soldering
+            ResourceDict.Add("Aluminium6061", 10.0f);   // Simple construction material
+            
             KShared.Log("KShared initialized.", "KShared/Awake");
+        }
+
+        public List<string> _selectorResources;  // Public to access from KCO
+        public bool _kcoSelectorVisible = false;  // Public to access from KCO
+
+        private void DrawSelectorWindowKCO(int windowId)
+        {
+            GUILayout.Label("Select a resource to send to the KSC:", HighLogic.Skin.label);
+
+            // GUILayout.BeginScrollView is Unity's legacy IMGUI scroller,
+            // compatible with all KSP-supported Unity versions and reliably
+            // handles any number of items without content height issues.
+            _selectorScroll = GUILayout.BeginScrollView(
+                _selectorScroll,
+                HighLogic.Skin.scrollView,
+                GUILayout.Height(180f)
+            );
+            foreach (string res in KShared.Instance?._selectorResources)
+            {
+                if (GUILayout.Button(res, HighLogic.Skin.button))
+                {
+                    _kcoSelectorVisible = false;
+                    _selectorCallback(res);
+                }
+            }
+            GUILayout.EndScrollView();
+
+            if (GUILayout.Button("Cancel", HighLogic.Skin.button))
+                _kcoSelectorVisible = false;
+
+            // Allow the player to drag the window around
+            GUI.DragWindow();
+        }
+
+        // Opens the resource selector window, centered on screen.
+        // onSelect is called with the chosen resource name when the player picks one.
+        // Used in KhemistryConstructionOverhaul
+        public void ShowResourceSelector(List<string> resources, Action<string> onSelect)
+        {
+            _selectorResources = resources;
+            _selectorCallback = onSelect;
+            _selectorScroll = Vector2.zero;
+            _windowRect = new Rect(
+                (Screen.width - _windowRect.width) / 2f,
+                (Screen.height - _windowRect.height) / 2f,
+                _windowRect.width,
+                _windowRect.height
+            );
+            _selectorVisible = true;
         }
 
         public void ShowSelector(string title, List<string> options, Action<string> onSelect)
@@ -3949,6 +4007,14 @@ namespace Khemistry
                     _amountWindowId,
                     _amountRect,
                     DrawAmountWindow,
+                    _amountTitle,
+                    HighLogic.Skin.window);
+
+            if (_kcoSelectorVisible)
+                _amountRect = GUILayout.Window(
+                    _amountWindowId,
+                    _amountRect,
+                    DrawSelectorWindowKCO,
                     _amountTitle,
                     HighLogic.Skin.window);
         }
