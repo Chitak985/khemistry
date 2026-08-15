@@ -68,6 +68,12 @@
     <Compile Include="Main.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Khemistry\Khemistry.csproj">
+      <Project>{64d42ee0-86b3-4703-9a9c-c2438c639369}</Project>
+      <Name>Khemistry</Name>
+    </ProjectReference>
+  </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <PropertyGroup>
     <PostBuildEvent>move C:\Users\name\Documents\GitHub\khemistry\KhemistryDLLs\KhemistryConstructionOverhaul\bin\Debug\KhemistryConstructionOverhaul.dll C:\Users\name\Documents\GitHub\khemistry\KhemistryConstructionOverhaul\</PostBuildEvent>
