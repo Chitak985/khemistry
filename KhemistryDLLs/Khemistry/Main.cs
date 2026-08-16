@@ -506,6 +506,73 @@ namespace Khemistry
     }
 
     /// <summary>
+    /// A material name allowed into a container (e.g. MATERIAL_SUIT_CELL's ALLOWED_MATERIAL),
+    /// restricted to a set of supported shapes and, optionally, PARAM_REQUIREMENTS that a
+    /// candidate material instance's parameters must satisfy.
+    /// </summary>
+    public class KhemistryAllowedMaterial
+    {
+        public string name = null;
+        public List<string> supportedShapes = new List<string>();
+
+        // paramName -> list of comparison expressions (OR'd together). Different param names
+        // are AND'd against each other.
+        public Dictionary<string, List<string>> paramRequirements = new Dictionary<string, List<string>>();
+
+        public KhemistryAllowedMaterial(ConfigNode node)
+        {
+            name = KShared.GetStrValueFromCFG(node, "name", null);
+
+            if (node.HasNode("SUPPORTED_SHAPES"))
+                foreach (string s in node.GetNode("SUPPORTED_SHAPES").GetValues("name"))
+                    supportedShapes.Add(s.Trim());
+
+            if (node.HasNode("PARAM_REQUIREMENTS"))
+            {
+                foreach (ConfigNode.Value v in node.GetNode("PARAM_REQUIREMENTS").values)
+                {
+                    if (!paramRequirements.TryGetValue(v.name, out List<string> comparisons))
+                    {
+                        comparisons = new List<string>();
+                        paramRequirements[v.name] = comparisons;
+                    }
+                    comparisons.Add(v.value);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Whether the given material instance is accepted: its material name and shape (if
+        /// SUPPORTED_SHAPES is non-empty) must match, and every PARAM_REQUIREMENTS param name
+        /// must have a value in the instance that satisfies at least one of that name's
+        /// comparison expressions.
+        /// </summary>
+        public bool Matches(KhemistryMaterialInstance instance)
+        {
+            if (instance?.material == null || instance.material.name != name) return false;
+            if (supportedShapes.Count > 0 && !supportedShapes.Contains(instance.shape)) return false;
+
+            foreach (var kv in paramRequirements)
+            {
+                if (!instance.parameters.TryGetValue(kv.Key, out string paramValue)) return false;
+
+                bool anyPassed = false;
+                foreach (string comparison in kv.Value)
+                {
+                    if (KShared.EvaluateParamComparison(paramValue, comparison))
+                    {
+                        anyPassed = true;
+                        break;
+                    }
+                }
+                if (!anyPassed) return false;
+            }
+
+            return true;
+        }
+    }
+
+    /// <summary>
     /// A PartModule that stores <see cref="KhemistryMaterialInstance"/> and merges them as needed.
     /// Uses a completely different resource system than stock KSP.
     /// </summary>
@@ -1612,7 +1679,7 @@ namespace Khemistry
             public bool usesParams;
             public Dictionary<string, string> parameters;
             public double amount;
-            public double outVolume;
+            public string outVolume;
         }
 
         public enum PowerfailResult { Pause, Stop, Explode, Maint, Void }
@@ -1878,7 +1945,7 @@ namespace Khemistry
                     string shape = matNode.GetValue("shape");
                     string size = matNode.GetValue("size");
                     double amount = KShared.GetDoubleValueFromCFG(matNode, "amount", 1.0);
-                    double outVolume = KShared.GetDoubleValueFromCFG(matNode, "outVolume", 0.0);
+                    string outVolume = KShared.GetStrValueFromCFG(matNode, "outVolume", "0");
 
                     bool usesParams = matNode.HasNode("PARAMS");
                     Dictionary<string, string> parameters = new Dictionary<string, string>();
@@ -2409,8 +2476,28 @@ namespace Khemistry
 
         ///// Charging /////
         [KSPField(isPersistant = false)] public string ConverterName = "Converter";
-        [KSPField(isPersistant = false)] public string StartActionName = "Start Converter";
-        [KSPField(isPersistant = false)] public string StopActionName = "Stop Converter";
+        [KSPField(isPersistant = false)] public string StartActionName = "Start working";
+        [KSPField(isPersistant = false)] public string StopActionName = "Stop working";
+
+        /// <summary>
+        /// depositCondition values loaded from the MODULE node (0 or more). If non-empty, the
+        /// converter may only be started while at least one of the listed deposit resource names
+        /// (surface or underground) is present at the vessel's current location.
+        /// </summary>
+        protected readonly List<string> _depositConditions = new List<string>();
+
+        /// <summary>
+        /// The moduleType loaded from the MODULE node. "normal" (default) behaves as before;
+        /// "kerbalEVA" is EVA-suit-cell-routed ISRU meant to live on a kerbal part; "partEVA" is
+        /// reserved for future use and is not currently implemented.
+        /// </summary>
+        [KSPField(isPersistant = false)] public string moduleType = "normal";
+
+        /// <summary>
+        /// The KhemistryKerbal this converter routes resources/materials through when
+        /// moduleType == "kerbalEVA". Only set (and required) in that mode.
+        /// </summary>
+        protected KhemistryKerbal _kerbalHost = null;
 
         [KSPField(isPersistant = false)]
         public bool chargingRequired = false;
@@ -2605,9 +2692,48 @@ namespace Khemistry
                 return;
             }
             if (state != ConverterState.On) return;
+
+            if (_depositConditions.Count > 0 && !IsAtRequiredDeposit())
+            {
+                KShared.LogError(
+                    "Converter \"" + ConverterName + "\": No matching deposit (" + string.Join(", ", _depositConditions) + ") found at this location.",
+                    "KhemistryBatchISRU/StartConverter");
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "Converter \"" + ConverterName + "\": Can't operate — not at a required deposit.",
+                    5f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+
             isRunning = true;
             KShared.Log("Converter \"" + ConverterName + "\" started.", "KhemistryAdvancedISRU/StartConverter");
             UpdateEventVisibility();
+        }
+
+        /// <summary>
+        /// Whether the vessel's current location satisfies at least one of this converter's
+        /// depositCondition entries (surface or underground). Logs an error and returns false —
+        /// rather than throwing — if KShared isn't loaded yet. Always true if depositCondition
+        /// is empty (no restriction configured).
+        /// </summary>
+        protected bool IsAtRequiredDeposit()
+        {
+            if (_depositConditions.Count == 0) return true;
+
+            KShared shared = KShared.Instance;
+            // KSharedMainMenu (and thus its deposit lists) may not be loaded yet.
+            if (shared == null)
+            {
+                KShared.LogError(
+                    "Converter \"" + ConverterName + "\": Cannot check depositCondition — KShared instance is not loaded yet.",
+                    "KhemistryBatchISRU/IsAtRequiredDeposit");
+                return false;
+            }
+
+            if (vessel == null || vessel.mainBody == null) return false;
+
+            List<string> here = shared.SurfaceDepositsAtPoint((float)vessel.latitude, (float)vessel.longitude, vessel.mainBody.name, 0);
+            here.AddRange(shared.UndergroundDepositsAtPoint((float)vessel.latitude, (float)vessel.longitude, vessel.mainBody.name, 0));
+            return _depositConditions.Any(d => here.Contains(d));
         }
 
         [KSPEvent(guiActive = false, guiActiveEditor = false, guiName = "Stop Converter",
@@ -2639,7 +2765,40 @@ namespace Khemistry
         protected void LoadConfigFromPartInfo()
         {
             ConfigNode moduleNode = KShared.FindModuleConfigNode(part, ConverterName, "KhemistryBatchISRU");
+            if (moduleNode == null)
+            {
+                // Already logged by FindModuleConfigNode — fail loudly instead of NRE-ing through
+                // the rest of this method (which would otherwise be silently swallowed by Unity's
+                // per-callback exception handling and never show up as a Khemistry-prefixed log).
+                _fatalConfigError = true;
+                statusDisplay = "ERROR: config node not found, see log";
+                return;
+            }
             KShared shared = KShared.Instance;
+
+            ///// Deposit conditions /////
+            _depositConditions.Clear();
+            _depositConditions.AddRange(moduleNode.GetValues("depositCondition"));
+
+            ///// Module type /////
+            moduleType = KShared.GetStrValueFromCFG(moduleNode, "moduleType", "normal");
+
+            if (moduleType == "partEVA")
+            {
+                KShared.LogError(
+                    "Converter \"" + ConverterName + "\": moduleType=partEVA is not implemented yet — falling back to normal.",
+                    "KhemistryBatchISRU/LoadConfigFromPartInfo");
+                moduleType = "normal";
+            }
+
+            if (moduleType == "kerbalEVA")
+            {
+                // kerbalEVA-specific defaults: a bare converter with no explicit ConverterName
+                // or recipeType is named "Kerbal" and imports the "kerbalEVA" recipeType.
+                ConverterName = KShared.GetStrValueFromCFG(moduleNode, "ConverterName", "Kerbal");
+                StartActionName = KShared.GetStrValueFromCFG(moduleNode, "StartActionName", "Start working");
+                StopActionName = KShared.GetStrValueFromCFG(moduleNode, "StopActionName", "Stop working");
+            }
 
             ///// Charging /////
             _chargeNames.Clear();
@@ -2672,7 +2831,7 @@ namespace Khemistry
             ///// Recipes: imported by name (RECIPE_NAMES & RECIPE_MULTIPLIERS) /////
             recipeMultiplier = KShared.GetFloatValueFromCFG(moduleNode, "recipeMultiplier", 1f);
 
-            recipeType = KShared.GetStrValueFromCFG(moduleNode, "recipeType", null);
+            recipeType = KShared.GetStrValueFromCFG(moduleNode, "recipeType", moduleType == "kerbalEVA" ? "kerbalEVA" : null);
             recipeSubtype = KShared.GetStrValueFromCFG(moduleNode, "recipeSubtype", null);
             recipeSubsubtype = KShared.GetStrValueFromCFG(moduleNode, "recipeSubsubtype", null);
 
@@ -2740,7 +2899,7 @@ namespace Khemistry
                         {
                             ConfigNode mergedCandidateNode = KhemistryBatchISRURecipe.ApplyModuleOverrides(moduleNode, candidate.mainNode);
                             KhemistryBatchISRURecipe overriddenCandidate = new KhemistryBatchISRURecipe(mergedCandidateNode, ConverterName);
-                            
+
                             // Check if this wasn't already added by RECIPE_NAMES logic
                             foreach (KhemistryBatchISRURecipe recipe in recipes)
                                 if (recipe._name == overriddenCandidate._name)
@@ -2760,10 +2919,33 @@ namespace Khemistry
                 return;
             }
 
-            if (bool.TryParse(KShared.GetStrValueFromCFG(moduleNode, "workersCrewSamePart", "false"), out bool wcspTmp))
-                workersCrewSamePart = wcspTmp;
-            _configMaxInteractionDistance = KShared.GetFloatValueFromCFG(moduleNode, "maxInteractionDistance", _configMaxInteractionDistance);
-            _configMaxDisplayDistance = KShared.GetFloatValueFromCFG(moduleNode, "maxDisplayDistance", _configMaxDisplayDistance);
+            if (moduleType == "kerbalEVA")
+            {
+                StripKerbalEVAIncompatibleFields(moduleNode);
+                // Interaction/display distance are meaningless here — the GUI lives on the
+                // kerbal itself, so it's always "in range" of its own converter.
+                if (moduleNode.HasValue("maxInteractionDistance"))
+                    KShared.LogError(
+                        "Converter \"" + ConverterName + "\" (moduleType=kerbalEVA): \"maxInteractionDistance\" is ignored.",
+                        "KhemistryBatchISRU/LoadConfigFromPartInfo");
+                if (moduleNode.HasValue("maxDisplayDistance"))
+                    KShared.LogError(
+                        "Converter \"" + ConverterName + "\" (moduleType=kerbalEVA): \"maxDisplayDistance\" is ignored.",
+                        "KhemistryBatchISRU/LoadConfigFromPartInfo");
+                if (moduleNode.HasValue("workersCrewSamePart"))
+                    KShared.LogError(
+                        "Converter \"" + ConverterName + "\" (moduleType=kerbalEVA): \"workersCrewSamePart\" is ignored.",
+                        "KhemistryBatchISRU/LoadConfigFromPartInfo");
+                _configMaxInteractionDistance = float.MaxValue;
+                _configMaxDisplayDistance = float.MaxValue;
+            }
+            else
+            {
+                if (bool.TryParse(KShared.GetStrValueFromCFG(moduleNode, "workersCrewSamePart", "false"), out bool wcspTmp))
+                    workersCrewSamePart = wcspTmp;
+                _configMaxInteractionDistance = KShared.GetFloatValueFromCFG(moduleNode, "maxInteractionDistance", _configMaxInteractionDistance);
+                _configMaxDisplayDistance = KShared.GetFloatValueFromCFG(moduleNode, "maxDisplayDistance", _configMaxDisplayDistance);
+            }
             _maxInteractionDistance = _configMaxInteractionDistance;
             _maxDisplayDistance = _configMaxDisplayDistance;
 
@@ -2773,6 +2955,74 @@ namespace Khemistry
                 initial = recipes.FirstOrDefault(r => r._name == activeRecipeName);
             if (initial == null) initial = recipes[0];
             ApplyRecipe(initial);
+        }
+
+        /// <summary>
+        /// For moduleType == "kerbalEVA": strips out worker-count/worker-type/control-rule and
+        /// distance-multiplier fields that don't make sense for suit-cell-routed EVA ISRU
+        /// (logging a warning per field actually present in the config), and forces any MAINT
+        /// powerfailResult to VOID since there's no Engineer to perform EVA self-maintenance.
+        /// </summary>
+        private void StripKerbalEVAIncompatibleFields(ConfigNode moduleNode)
+        {
+            void WarnIfPresent(ConfigNode n, string key, string context)
+            {
+                if (n != null && n.HasValue(key))
+                    KShared.LogError(
+                        "Converter \"" + ConverterName + "\" (moduleType=kerbalEVA): \"" + key
+                        + "\" in " + context + " is ignored for kerbalEVA converters.",
+                        "KhemistryBatchISRU/StripKerbalEVAIncompatibleFields");
+            }
+
+            WarnIfPresent(moduleNode, "workersType", "the MODULE node");
+            WarnIfPresent(moduleNode, "controlRules", "the MODULE node");
+
+            foreach (ConfigNode recipeNode in moduleNode.GetNodes("RECIPE"))
+            {
+                WarnIfPresent(recipeNode, "workersEngineers", "a RECIPE node");
+                WarnIfPresent(recipeNode, "workersPilots", "a RECIPE node");
+                WarnIfPresent(recipeNode, "workersScientists", "a RECIPE node");
+                WarnIfPresent(recipeNode, "workersType", "a RECIPE node");
+                WarnIfPresent(recipeNode, "controlRules", "a RECIPE node");
+
+                foreach (ConfigNode planetNode in recipeNode.GetNodes("PLANET_CONFIG"))
+                    foreach (ConfigNode biomeNode in planetNode.GetNodes("BIOME_CONFIG"))
+                        WarnBiomeMultipliers(biomeNode);
+                foreach (ConfigNode biomeNode in recipeNode.GetNodes("BIOME_CONFIG"))
+                    WarnBiomeMultipliers(biomeNode);
+
+                void WarnBiomeMultipliers(ConfigNode biomeNode)
+                {
+                    WarnIfPresent(biomeNode, "maxDisplayDistanceMul", "a BIOME_CONFIG node");
+                    WarnIfPresent(biomeNode, "maxInteractionDistanceMul", "a BIOME_CONFIG node");
+                    WarnIfPresent(biomeNode, "workersScientistsMul", "a BIOME_CONFIG node");
+                    WarnIfPresent(biomeNode, "workersPilotsMul", "a BIOME_CONFIG node");
+                    WarnIfPresent(biomeNode, "workersEngineersMul", "a BIOME_CONFIG node");
+                }
+            }
+
+            foreach (KhemistryBatchISRURecipe recipe in recipes)
+            {
+                recipe._workersEngineers = 0;
+                recipe._workersPilots = 0;
+                recipe._workersScientists = 0;
+                recipe._workersEVA = false;
+                recipe._workersCREW = false;
+
+                for (int i = 0; i < recipe._passiveInputs.Count; i++)
+                {
+                    var pinp = recipe._passiveInputs[i];
+                    if (pinp.powerfail == KhemistryBatchISRURecipe.PowerfailResult.Maint)
+                    {
+                        KShared.LogError(
+                            "Converter \"" + ConverterName + "\" (moduleType=kerbalEVA): Recipe \"" + recipe._name
+                            + "\" has a MAINT powerfailResult, which requires an Engineer and doesn't apply here — treating as VOID.",
+                            "KhemistryBatchISRU/StripKerbalEVAIncompatibleFields");
+                        pinp.powerfail = KhemistryBatchISRURecipe.PowerfailResult.Void;
+                        recipe._passiveInputs[i] = pinp;
+                    }
+                }
+            }
         }
 
         /// <summary>
@@ -2876,6 +3126,18 @@ namespace Khemistry
             UpdateEventVisibility();
         }
 
+        /// <summary>
+        /// Fully hides this converter from the PAW: disables every event/action and every
+        /// displayed KSPField (including statusDisplay itself, so the error message the caller
+        /// sets afterward via the field's raw value is never actually rendered).
+        /// </summary>
+        protected void DisableAllUI()
+        {
+            foreach (BaseEvent e in Events) e.active = false;
+            foreach (BaseField f in Fields)
+                f.guiActive = f.guiActiveEditor = false;
+        }
+
         public override void OnStart(StartState state)
         {
             base.OnStart(state);
@@ -2883,11 +3145,50 @@ namespace Khemistry
             _fatalConfigError = false;
             _outputWarnCooldown = 0.0;
 
+            // Peek moduleType early (before LoadConfigFromPartInfo runs its full parse) so the
+            // kerbal-host / duplicate checks below can bail out before doing anything else.
+            ConfigNode precheckNode = KShared.FindModuleConfigNode(part, ConverterName, "KhemistryBatchISRU");
+            moduleType = KShared.GetStrValueFromCFG(precheckNode, "moduleType", "normal");
+
+            if (moduleType == "kerbalEVA")
+            {
+                _kerbalHost = part.FindModuleImplementing<KhemistryKerbal>();
+                if (_kerbalHost == null)
+                {
+                    KShared.LogError(
+                        "Converter \"" + ConverterName + "\" has moduleType=kerbalEVA but part \"" + part.name
+                        + "\" has no KhemistryKerbal module — this module only works on a kerbal part.",
+                        "KhemistryBatchISRU/OnStart");
+                    _fatalConfigError = true;
+                    DisableAllUI();
+                    statusDisplay = "ERROR: not on a kerbal part, see log";
+                    return;
+                }
+
+                // Only one kerbalEVA-type KhemistryBatchISRU may run per kerbal. Rather than
+                // re-deriving each sibling's moduleType from its (possibly already-renamed)
+                // ConverterName — which breaks once the first instance renames itself to
+                // "Kerbal" — claim a slot on the (already deduplicated, singular) KhemistryKerbal
+                // host. This is robust regardless of how many duplicate module instances KSP's
+                // EVA-construct/DLC part assembly ends up creating, and in what order they start.
+                if (_kerbalHost.kerbalEVABatchISRU != null && _kerbalHost.kerbalEVABatchISRU != this)
+                {
+                    KShared.LogError(
+                        "Converter \"" + ConverterName + "\": another kerbalEVA KhemistryBatchISRU is already present on this kerbal — only one is allowed, disabling this one.",
+                        "KhemistryBatchISRU/OnStart");
+                    _fatalConfigError = true;
+                    DisableAllUI();
+                    statusDisplay = "ERROR: duplicate kerbalEVA module, see log";
+                    return;
+                }
+                _kerbalHost.kerbalEVABatchISRU = this;
+            }
+
             LoadConfigFromPartInfo();
 
             if (_fatalConfigError)
             {
-                foreach (BaseEvent e in Events) e.active = false;
+                DisableAllUI();
                 statusDisplay = "ERROR: see log";
                 return;
             }
@@ -2945,6 +3246,19 @@ namespace Khemistry
         }
 
         /// <summary>
+        /// Requests (positive amount) or produces (negative amount) a resource from wherever
+        /// this converter actually draws from: the vessel resource network normally, or the
+        /// kerbal's fluid suit cell when moduleType == "kerbalEVA". Same amount/return contract
+        /// as <see cref="Part.RequestResource(string, double)"/>.
+        /// </summary>
+        private double RequestResourceRouted(string name, double amount)
+        {
+            if (moduleType == "kerbalEVA" && _kerbalHost != null)
+                return _kerbalHost.RequestSuitCellResource(name, amount);
+            return part.RequestResource(name, amount, ResourceFlowMode.STAGE_PRIORITY_FLOW);
+        }
+
+        /// <summary>
         /// Pulls the given resources from the vessel network. Returns true only if every
         /// resource was fully satisfied. Refunds all pulled resources if any fall short
         /// (all-or-nothing semantics).
@@ -2973,7 +3287,7 @@ namespace Khemistry
                 }
 
                 double needed = rate * dt;
-                double got = part.RequestResource(names[i], needed);
+                double got = RequestResourceRouted(names[i], needed);
                 pulled.Add(got);
 
                 if (got < needed * 0.999)
@@ -2984,7 +3298,7 @@ namespace Khemistry
             {
                 for (int i = 0; i < names.Count; i++)
                     if (pulled[i] > 0.0)
-                        part.RequestResource(names[i], -pulled[i]);
+                        RequestResourceRouted(names[i], -pulled[i]);
                 return false;
             }
 
@@ -3141,6 +3455,12 @@ namespace Khemistry
                 return;
             }
 
+            if (_depositConditions.Count > 0 && !IsAtRequiredDeposit())
+            {
+                statusDisplay = "Not at a required deposit";
+                return;
+            }
+
             if (_runtimeData.alt < biomeConfig.minOperatingAltitude || _runtimeData.alt > biomeConfig.maxOperatingAltitude)
             {
                 statusDisplay = "Out of operating altitude range";
@@ -3247,12 +3567,12 @@ namespace Khemistry
                     double needed = pinp.amount * biomeConfig.inputMultiplier;
                     if (needed <= 0.0) continue;
 
-                    double got = part.RequestResource(pinp.resourceName, needed, pinp.flowMode);
+                    double got = RequestResourceRouted(pinp.resourceName, needed);
 
                     if (got < needed * 0.999)
                     {
                         // Passive consumption is all-or-nothing per tick — refund any partial draw.
-                        if (got > 0.0) part.RequestResource(pinp.resourceName, -got, pinp.flowMode);
+                        if (got > 0.0) RequestResourceRouted(pinp.resourceName, -got);
 
                         if (pinp.ignorePowerfail)
                             continue;  // "nothing happens" — resource just isn't consumed this tick
@@ -3296,7 +3616,7 @@ namespace Khemistry
             {
                 double toAdd = outp.amount * biomeConfig.outputMultiplier;
                 if (toAdd <= 0.0) continue;
-                double got = part.RequestResource(outp.resourceName, -toAdd, ResourceFlowMode.STAGE_PRIORITY_FLOW);
+                double got = RequestResourceRouted(outp.resourceName, -toAdd);
                 if (outp.dumpExcess && Math.Abs(got) < toAdd * 0.999 && _outputWarnCooldown <= 0.0)
                 {
                     ScreenMessages.PostScreenMessage(new ScreenMessage(
@@ -3361,6 +3681,49 @@ namespace Khemistry
             return true;
         }
 
+        private static readonly System.Text.RegularExpressions.Regex _randfPattern =
+            new System.Text.RegularExpressions.Regex(
+                @"^randf\(\s*([+-]?[0-9]*\.?[0-9]+(?:[eE][+-]?[0-9]+)?)\s*,\s*([+-]?[0-9]*\.?[0-9]+(?:[eE][+-]?[0-9]+)?)\s*,\s*([+-]?[0-9]+)\s*\)$",
+                System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        /// <summary>
+        /// If the given value is a randf(a,b,n) expression, replaces it with a random float
+        /// between a and b (inclusive on both ends), rounded to n decimal places. Negative n is
+        /// an error and is treated as 0. Non-randf values are returned unchanged.
+        /// </summary>
+        protected static string ResolveRandf(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return value;
+
+            var match = _randfPattern.Match(value.Trim());
+            if (!match.Success) return value;
+
+            if (!double.TryParse(match.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double a) ||
+                !double.TryParse(match.Groups[2].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double b))
+            {
+                KShared.LogError(
+                    "randf(...) expression \"" + value + "\" has non-numeric bounds — leaving value as-is.",
+                    "KhemistryBatchISRU/ResolveRandf");
+                return value;
+            }
+
+            int n = int.Parse(match.Groups[3].Value, CultureInfo.InvariantCulture);
+            if (n < 0)
+            {
+                KShared.LogError(
+                    "randf(...) expression \"" + value + "\" has a negative decimal-place count — treating as 0.",
+                    "KhemistryBatchISRU/ResolveRandf");
+                n = 0;
+            }
+
+            double lo = Math.Min(a, b);
+            double hi = Math.Max(a, b);
+            double roll = lo + UnityEngine.Random.value * (hi - lo);
+            double rounded = Math.Round(roll, n, MidpointRounding.AwayFromZero);
+
+            return rounded.ToString("F" + n, CultureInfo.InvariantCulture);
+        }
+
         /// <summary>
         /// Attempts to drain any buffered material output into a KhemistryMaterialStorage
         /// module on the vessel. Only whole units are ever moved.
@@ -3387,25 +3750,46 @@ namespace Khemistry
                     continue;
                 }
 
+                string resolvedSize = ResolveRandf(matOutput.size);
+                Dictionary<string, string> resolvedParameters = new Dictionary<string, string>();
+                foreach (var kv in matOutput.parameters)
+                    resolvedParameters[kv.Key] = ResolveRandf(kv.Value);
+
+                if (!KShared.TryEvaluateOutVolumeExpression(matOutput.outVolume, resolvedSize, resolvedParameters,
+                        "KhemistryBatchISRU/TryTransferMaterialOutputBuffer", out double perUnitVolume))
+                    continue;  // error already logged
+
                 KhemistryMaterialInstance instance = new KhemistryMaterialInstance(
-                    material, matOutput.shape, matOutput.size,
-                    (float)(matOutput.outVolume * wholeUnits), matOutput.parameters);
+                    material, matOutput.shape, resolvedSize,
+                    (float)(perUnitVolume * wholeUnits), resolvedParameters);
 
                 bool placed = false;
-                foreach (Part vesselPart in vessel.parts)
+                if (moduleType == "kerbalEVA" && _kerbalHost != null)
                 {
-                    foreach (KhemistryMaterialStorage storageModule in vesselPart.Modules.OfType<KhemistryMaterialStorage>())
+                    if (_kerbalHost.TryAddMaterialToSuitCell(instance))
                     {
-                        if (storageModule.AddMaterial(instance))
-                        {
-                            // Keep any fractional remainder instead of discarding it.
-                            _materialOutputAmount[matOutput] = buffered - wholeUnits;
-                            transferredAny = true;
-                            placed = true;
-                            break;
-                        }
+                        _materialOutputAmount[matOutput] = buffered - wholeUnits;
+                        transferredAny = true;
+                        placed = true;
                     }
-                    if (placed) break;
+                }
+                else
+                {
+                    foreach (Part vesselPart in vessel.parts)
+                    {
+                        foreach (KhemistryMaterialStorage storageModule in vesselPart.Modules.OfType<KhemistryMaterialStorage>())
+                        {
+                            if (storageModule.AddMaterial(instance))
+                            {
+                                // Keep any fractional remainder instead of discarding it.
+                                _materialOutputAmount[matOutput] = buffered - wholeUnits;
+                                transferredAny = true;
+                                placed = true;
+                                break;
+                            }
+                        }
+                        if (placed) break;
+                    }
                 }
             }
 
@@ -3433,7 +3817,7 @@ namespace Khemistry
         public KhemistryRuntimeData(Vessel vessel)
         {
             // If vessel is null just don't update
-            if(vessel != null)
+            if (vessel != null)
                 Update(vessel);
         }
         public void Update(Vessel vessel)
@@ -3595,6 +3979,136 @@ namespace Khemistry
     }
 
     /// <summary>
+    /// A minimal recursive-descent arithmetic expression evaluator supporting +, -, *, /,
+    /// parentheses, unary +/-, the constant PI, and the function Pow(a,b). Used to evaluate
+    /// OUTPUT_RESOURCE_MATERIAL outVolume expressions after [name] substitution.
+    /// </summary>
+    public static class KMathExpr
+    {
+        public static bool TryEvaluate(string expr, out double result, out string error)
+        {
+            result = 0.0;
+            error = null;
+            try
+            {
+                int pos = 0;
+                result = ParseExpr(expr, ref pos);
+                SkipWhitespace(expr, ref pos);
+                if (pos != expr.Length)
+                {
+                    error = "Unexpected trailing characters at position " + pos + ".";
+                    return false;
+                }
+                return true;
+            }
+            catch (Exception e)
+            {
+                error = e.Message;
+                return false;
+            }
+        }
+
+        private static void SkipWhitespace(string s, ref int pos)
+        {
+            while (pos < s.Length && char.IsWhiteSpace(s[pos])) pos++;
+        }
+
+        private static double ParseExpr(string s, ref int pos)
+        {
+            double val = ParseTerm(s, ref pos);
+            while (true)
+            {
+                SkipWhitespace(s, ref pos);
+                if (pos < s.Length && (s[pos] == '+' || s[pos] == '-'))
+                {
+                    char op = s[pos]; pos++;
+                    double rhs = ParseTerm(s, ref pos);
+                    val = op == '+' ? val + rhs : val - rhs;
+                }
+                else break;
+            }
+            return val;
+        }
+
+        private static double ParseTerm(string s, ref int pos)
+        {
+            double val = ParseFactor(s, ref pos);
+            while (true)
+            {
+                SkipWhitespace(s, ref pos);
+                if (pos < s.Length && (s[pos] == '*' || s[pos] == '/'))
+                {
+                    char op = s[pos]; pos++;
+                    double rhs = ParseFactor(s, ref pos);
+                    val = op == '*' ? val * rhs : val / rhs;
+                }
+                else break;
+            }
+            return val;
+        }
+
+        private static double ParseFactor(string s, ref int pos)
+        {
+            SkipWhitespace(s, ref pos);
+            if (pos < s.Length && s[pos] == '-') { pos++; return -ParseFactor(s, ref pos); }
+            if (pos < s.Length && s[pos] == '+') { pos++; return ParseFactor(s, ref pos); }
+            return ParsePrimary(s, ref pos);
+        }
+
+        private static double ParsePrimary(string s, ref int pos)
+        {
+            SkipWhitespace(s, ref pos);
+            if (pos >= s.Length) throw new Exception("Unexpected end of expression.");
+
+            if (s[pos] == '(')
+            {
+                pos++;
+                double val = ParseExpr(s, ref pos);
+                SkipWhitespace(s, ref pos);
+                if (pos >= s.Length || s[pos] != ')') throw new Exception("Expected ')'.");
+                pos++;
+                return val;
+            }
+
+            if (char.IsDigit(s[pos]) || s[pos] == '.')
+            {
+                int start = pos;
+                while (pos < s.Length && (char.IsDigit(s[pos]) || s[pos] == '.')) pos++;
+                return double.Parse(s.Substring(start, pos - start), CultureInfo.InvariantCulture);
+            }
+
+            if (char.IsLetter(s[pos]) || s[pos] == '_')
+            {
+                int start = pos;
+                while (pos < s.Length && (char.IsLetterOrDigit(s[pos]) || s[pos] == '_')) pos++;
+                string ident = s.Substring(start, pos - start);
+
+                if (ident == "PI") return Math.PI;
+
+                if (ident == "Pow")
+                {
+                    SkipWhitespace(s, ref pos);
+                    if (pos >= s.Length || s[pos] != '(') throw new Exception("Expected '(' after Pow.");
+                    pos++;
+                    double a = ParseExpr(s, ref pos);
+                    SkipWhitespace(s, ref pos);
+                    if (pos >= s.Length || s[pos] != ',') throw new Exception("Expected ',' in Pow(...).");
+                    pos++;
+                    double b = ParseExpr(s, ref pos);
+                    SkipWhitespace(s, ref pos);
+                    if (pos >= s.Length || s[pos] != ')') throw new Exception("Expected ')' to close Pow(...).");
+                    pos++;
+                    return Math.Pow(a, b);
+                }
+
+                throw new Exception("Unknown identifier \"" + ident + "\".");
+            }
+
+            throw new Exception("Unexpected character '" + s[pos] + "' at position " + pos + ".");
+        }
+    }
+
+    /// <summary>
     /// The shared data for many Khemistry classes.
     /// Contains various methods and variables, used for GUI and as helpers. Handles all logging.
     /// </summary>
@@ -3620,6 +4134,14 @@ namespace Khemistry
         private Action<float> _amountCallback;
         private Rect _amountRect = new Rect(0, 0, 320, 130);
         private int _amountWindowId;
+
+        ///// Nearby deposits GUI /////
+        private bool _depositsVisible = false;
+        private Rect _depositsRect = new Rect(0, 0, 380, 420);
+        private int _depositsWindowId;
+        private Vector2 _depositsScroll = Vector2.zero;
+        private ApplicationLauncherButton _depositsToolbarButton;
+        private Texture2D _depositsButtonTexture;
 
         public List<KhemistryUDeposit> undergroundDeposits = new List<KhemistryUDeposit>();
         public List<KhemistryGDeposit> surfaceDeposits = new List<KhemistryGDeposit>();
@@ -3651,7 +4173,8 @@ namespace Khemistry
                 foreach (ConfigNode n in part.partInfo.partConfig.GetNodes("MODULE"))
                 {
                     if (n.GetValue("name") != moduleName) continue;
-                    if (n.GetValue("ConverterName") == ConverterName) { result = n; break; }
+                    string nodeConverterName = n.HasValue("ConverterName") ? n.GetValue("ConverterName") : "Converter";
+                    if (nodeConverterName == ConverterName) { result = n; break; }
                 }
             }
 
@@ -3668,7 +4191,8 @@ namespace Khemistry
                 foreach (ConfigNode n in partNode.GetNodes("MODULE"))
                 {
                     if (n.GetValue("name") != moduleName) continue;
-                    if (n.GetValue("ConverterName") == ConverterName) { result = n; break; }
+                    string nodeConverterName = n.HasValue("ConverterName") ? n.GetValue("ConverterName") : "Converter";
+                    if (nodeConverterName == ConverterName) { result = n; break; }
                 }
                 if (result != null) break;
             }
@@ -3756,7 +4280,106 @@ namespace Khemistry
             }
             return defaultValue;
         }
-        public static string GetStrValueFromCFG(ConfigNode node, string value, string defaultValue) => node.HasValue(value) ? node.GetValue(value) : defaultValue;
+        /// <summary>
+        /// Evaluates an OUTPUT_RESOURCE_MATERIAL outVolume expression: plain numbers, +, -, *, /,
+        /// parentheses, the constant PI, the function Pow(a,b), and [name] tokens referring to
+        /// either "size" or a defined material parameter (substituted with their numeric value
+        /// before evaluation). Logs a specific error and returns false on any failure — a
+        /// reserved "size" parameter name, an unknown [name], a non-numeric substituted value,
+        /// or a malformed expression.
+        /// </summary>
+        public static bool TryEvaluateOutVolumeExpression(string rawExpr, string sizeValue,
+            Dictionary<string, string> parameters, string logContext, out double result)
+        {
+            result = 0.0;
+            if (string.IsNullOrEmpty(rawExpr)) return false;
+
+            if (parameters != null && parameters.ContainsKey("size"))
+            {
+                LogError("outVolume expression \"" + rawExpr
+                    + "\": this material defines a parameter named \"size\", which is reserved for the material's size — rename it.",
+                    logContext);
+                return false;
+            }
+
+            string substituted = rawExpr;
+            foreach (System.Text.RegularExpressions.Match m in
+                     System.Text.RegularExpressions.Regex.Matches(rawExpr, @"\[([A-Za-z_][A-Za-z0-9_]*)\]"))
+            {
+                string name = m.Groups[1].Value;
+                if (!substituted.Contains("[" + name + "]")) continue;  // already substituted
+
+                string raw = name == "size" ? sizeValue
+                    : (parameters != null && parameters.TryGetValue(name, out string pv) ? pv : null);
+
+                if (raw == null)
+                {
+                    LogError("outVolume expression \"" + rawExpr + "\": \"" + name
+                        + "\" is not \"size\" and no parameter with that name is defined.", logContext);
+                    return false;
+                }
+
+                if (!double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out double numeric))
+                {
+                    LogError("outVolume expression \"" + rawExpr + "\": \"" + name + "\" = \"" + raw
+                        + "\" is not a number.", logContext);
+                    return false;
+                }
+
+                substituted = substituted.Replace("[" + name + "]", numeric.ToString(CultureInfo.InvariantCulture));
+            }
+
+            if (!KMathExpr.TryEvaluate(substituted, out result, out string err))
+            {
+                LogError("outVolume expression \"" + rawExpr + "\" failed to evaluate: " + err, logContext);
+                return false;
+            }
+
+            return true;
+        }
+
+        public static string GetStrValueFromCFG(ConfigNode node, string value, string defaultValue) => (node != null && node.HasValue(value)) ? node.GetValue(value) : defaultValue;
+
+        /// <summary>
+        /// Evaluates a single PARAM_REQUIREMENTS comparison expression against a material
+        /// parameter's string value.
+        /// <list type="bullet">"Mx" — paramValue &gt; x (numeric, false if paramValue isn't a number)</list>
+        /// <list type="bullet">"Lx" — paramValue &lt; x (numeric, false if paramValue isn't a number)</list>
+        /// <list type="bullet">"EMx" — paramValue &gt;= x (numeric, false if paramValue isn't a number)</list>
+        /// <list type="bullet">"ELx" — paramValue &lt;= x (numeric, false if paramValue isn't a number)</list>
+        /// <list type="bullet">anything else — exact string match against paramValue</list>
+        /// </summary>
+        public static bool EvaluateParamComparison(string paramValue, string comparison)
+        {
+            if (comparison == null) return false;
+
+            bool TryNumeric(string raw, out double parsed) =>
+                double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out parsed);
+
+            if (comparison.StartsWith("EM", StringComparison.Ordinal))
+            {
+                if (!TryNumeric(paramValue, out double pv) || !TryNumeric(comparison.Substring(2), out double cv)) return false;
+                return pv >= cv;
+            }
+            if (comparison.StartsWith("EL", StringComparison.Ordinal))
+            {
+                if (!TryNumeric(paramValue, out double pv) || !TryNumeric(comparison.Substring(2), out double cv)) return false;
+                return pv <= cv;
+            }
+            if (comparison.StartsWith("M", StringComparison.Ordinal))
+            {
+                if (!TryNumeric(paramValue, out double pv) || !TryNumeric(comparison.Substring(1), out double cv)) return false;
+                return pv > cv;
+            }
+            if (comparison.StartsWith("L", StringComparison.Ordinal))
+            {
+                if (!TryNumeric(paramValue, out double pv) || !TryNumeric(comparison.Substring(1), out double cv)) return false;
+                return pv < cv;
+            }
+
+            // Exact value match — works for anything, numeric or not.
+            return paramValue == comparison;
+        }
 
         public static double DoubleFarenheitToCelsius(double f) => (f - 32) * (5 / 9);
         public static float FloatFarenheitToCelsius(float f) => (f - 32) * (5 / 9);
@@ -3919,13 +4542,95 @@ namespace Khemistry
             DontDestroyOnLoad(gameObject);
             _windowId = GUIUtility.GetControlID(FocusType.Passive);
             _amountWindowId = GUIUtility.GetControlID(FocusType.Passive);
+            _depositsWindowId = GUIUtility.GetControlID(FocusType.Passive);
+
+            _depositsButtonTexture = new Texture2D(38, 38, TextureFormat.RGBA32, false);
+            Color depositIconColor = new Color(0.85f, 0.55f, 0.15f, 1f);
+            Color[] depositPixels = new Color[38 * 38];
+            for (int i = 0; i < depositPixels.Length; i++) depositPixels[i] = depositIconColor;
+            _depositsButtonTexture.SetPixels(depositPixels);
+            _depositsButtonTexture.Apply();
+
+            GameEvents.onGUIApplicationLauncherReady.Add(OnDepositsLauncherReady);
+            GameEvents.onGUIApplicationLauncherDestroyed.Add(OnDepositsLauncherDestroyed);
 
             // Starting resources
             ResourceDict.Add("CuWiring", 10.0f);       // Copper wires
             ResourceDict.Add("Sn60Pb40Alloy", 10.0f);  // Soldering
             ResourceDict.Add("Aluminium6061", 10.0f);   // Simple construction material
-            
+
             KShared.Log("KShared initialized.", "KShared/Awake");
+        }
+
+        public void OnDestroy()
+        {
+            GameEvents.onGUIApplicationLauncherReady.Remove(OnDepositsLauncherReady);
+            GameEvents.onGUIApplicationLauncherDestroyed.Remove(OnDepositsLauncherDestroyed);
+            if (_depositsToolbarButton != null && ApplicationLauncher.Instance != null)
+                ApplicationLauncher.Instance.RemoveModApplication(_depositsToolbarButton);
+        }
+
+        private void OnDepositsLauncherReady()
+        {
+            if (_depositsToolbarButton != null) return;
+            _depositsToolbarButton = ApplicationLauncher.Instance.AddModApplication(
+                () => _depositsVisible = true,
+                () => _depositsVisible = false,
+                null, null, null, null,
+                ApplicationLauncher.AppScenes.FLIGHT,
+                _depositsButtonTexture
+            );
+        }
+
+        private void OnDepositsLauncherDestroyed() { _depositsToolbarButton = null; }
+
+        /// <summary>
+        /// Lists every loaded surface/underground deposit on the active vessel's current body,
+        /// nearest first, with distance in meters from the vessel.
+        /// </summary>
+        private void DrawDepositsWindow(int windowId)
+        {
+            Vessel v = FlightGlobals.ActiveVessel;
+            if (v == null || v.mainBody == null)
+            {
+                GUILayout.Label("No active vessel.", HighLogic.Skin.label);
+            }
+            else
+            {
+                var nearby = new List<(string label, float distance)>();
+                const float maxDepositDistance = 500000f;
+
+                foreach (KhemistryGDeposit d in surfaceDeposits)
+                {
+                    if (d.Planet != v.mainBody.name) continue;
+                    float dist = d.DistanceFromDeposit((float)v.latitude, (float)v.longitude);
+                    if (dist > maxDepositDistance) continue;
+                    nearby.Add((d.Resource + " (surface)", dist));
+                }
+                foreach (KhemistryUDeposit d in undergroundDeposits)
+                {
+                    if (d.Planet != v.mainBody.name) continue;
+                    float dist = d.DistanceFromDeposit((float)v.latitude, (float)v.longitude);
+                    if (dist > maxDepositDistance) continue;
+                    nearby.Add((d.Resource + " (underground)", dist));
+                }
+
+                nearby.Sort((a, b) => a.distance.CompareTo(b.distance));
+
+                GUILayout.Label("Deposits within 500 km of " + v.mainBody.name + ":", HighLogic.Skin.label);
+                _depositsScroll = GUILayout.BeginScrollView(_depositsScroll, GUILayout.Width(360f), GUILayout.Height(320f));
+                if (nearby.Count == 0)
+                    GUILayout.Label("No deposits within 500 km.", HighLogic.Skin.label);
+                else
+                    foreach (var entry in nearby)
+                        GUILayout.Label(string.Format("{0} — {1:F0} m", entry.label, entry.distance), HighLogic.Skin.label);
+                GUILayout.EndScrollView();
+            }
+
+            if (GUILayout.Button("Close", HighLogic.Skin.button))
+                _depositsVisible = false;
+
+            GUI.DragWindow();
         }
 
         public List<string> _selectorResources;  // Public to access from KCO
@@ -4016,6 +4721,14 @@ namespace Khemistry
                     _amountRect,
                     DrawSelectorWindowKCO,
                     _amountTitle,
+                    HighLogic.Skin.window);
+
+            if (_depositsVisible)
+                _depositsRect = GUILayout.Window(
+                    _depositsWindowId,
+                    _depositsRect,
+                    DrawDepositsWindow,
+                    "Nearby Deposits",
                     HighLogic.Skin.window);
         }
 
@@ -5656,7 +6369,7 @@ MODULE
             public bool usesParams;
             public Dictionary<string, string> parameters;
             public double ratio;
-            public double outVolume;
+            public string outVolume;
         }
 
         protected enum PowerfailResult { Pause, Stop, Void, Maint, Explode }
@@ -5853,7 +6566,7 @@ MODULE
                 string shape = outputNode.GetValue("shape");
                 string size = outputNode.GetValue("size");
                 double.TryParse(outputNode.GetValue("Ratio"), out double ratio);
-                double.TryParse(outputNode.GetValue("outVolume"), out double vol);
+                string vol = KShared.GetStrValueFromCFG(outputNode, "outVolume", "0");
                 bool usesParams = outputNode.HasNode("PARAMS");
                 Dictionary<string, string> parameters = new Dictionary<string, string>();
                 if (usesParams)
@@ -6490,11 +7203,15 @@ MODULE
                 return null;
             }
 
+            if (!KShared.TryEvaluateOutVolumeExpression(outputM.outVolume, outputM.size, outputM.parameters,
+                    "KhemistryAdvancedISRUBase/ConstructMaterialInstanceFromOutputMaterial", out double perUnitVolume))
+                return null;  // error already logged
+
             return new KhemistryMaterialInstance(
                 material,
                 outputM.shape,
                 outputM.size,
-                (float)(outputM.outVolume * wholeUnits),
+                (float)(perUnitVolume * wholeUnits),
                 outputM.parameters
             );
         }
@@ -7878,6 +8595,29 @@ MODULE
         private float _suitCellTransferDistance = 10f;
         private readonly HashSet<string> _suitCellAllowedResources = new HashSet<string>();
 
+        ///// Material suit cell (behaves like SUIT_CELL, but stores KhemistryMaterialInstance /////
+        ///// via KhemistryMaterialStorage-style logic instead of fluid resources)             /////
+        private float _materialSuitCellVolume = 0f;
+        private float _materialSuitCellTransferDistance = 2f;
+        private readonly List<KhemistryAllowedMaterial> _materialSuitCellAllowed = new List<KhemistryAllowedMaterial>();
+
+        // Not persisted across saves — matches KhemistryMaterialStorage.contents, which is
+        // likewise runtime-only.
+        public readonly List<KhemistryMaterialInstance> materialSuitCellContents = new List<KhemistryMaterialInstance>();
+
+        [KSPField(isPersistant = false, guiActive = true, guiActiveEditor = false, guiName = "Material Cell")]
+        public string MaterialCellContentsDisplay = "No material cell";
+
+        public bool HasMaterialSuitCell => _materialSuitCellVolume > 0f;
+        public float MaterialSuitCellTransferDistance => _materialSuitCellTransferDistance;
+
+        /// <summary>
+        /// Claim slot for the single allowed kerbalEVA-type KhemistryBatchISRU on this kerbal.
+        /// Set by whichever such module's OnStart runs first; used to detect and disable
+        /// duplicates regardless of instance/config duplication order.
+        /// </summary>
+        public KhemistryBatchISRU kerbalEVABatchISRU = null;
+
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE0044:Add readonly modifier", Justification = "This is clearly used elsewhere in the code and shouldn't be readonly")]
         private HashSet<string> FluidCellPartNames = new HashSet<string>();
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE0044:Add readonly modifier", Justification = "This is clearly used elsewhere in the code and shouldn't be readonly")]
@@ -7913,6 +8653,96 @@ MODULE
         private void SetSuitCellFromDict(Dictionary<string, double> dict)
     => suitCellResourcesData = KhemistryEVACombinedProcessor.Serialize(dict);
 
+        public bool HasFluidSuitCell => _suitCellMaxAmount > 0f;
+
+        /// <summary>
+        /// Requests (positive amount) or produces (negative amount) a resource directly against
+        /// this kerbal's fluid suit cell, for use by a kerbalEVA-mode KhemistryBatchISRU. Same
+        /// amount/return contract as Part.RequestResource: returns the amount actually removed
+        /// (consume) or the negative of the amount actually added (produce). Respects
+        /// ALLOWED_RESOURCES and available suit cell capacity.
+        /// </summary>
+        public double RequestSuitCellResource(string name, double amount)
+        {
+            if (!HasFluidSuitCell) return 0.0;
+            if (_suitCellAllowedResources.Count > 0 && !_suitCellAllowedResources.Contains(name)) return 0.0;
+
+            var dict = GetSuitCellDict();
+            dict.TryGetValue(name, out double current);
+
+            if (amount > 0.0)  // Consume
+            {
+                double take = Math.Min(amount, current);
+                if (take <= 0.0) return 0.0;
+                double remaining = current - take;
+                if (remaining < 1e-9) dict.Remove(name); else dict[name] = remaining;
+                SetSuitCellFromDict(dict);
+                return take;
+            }
+            else if (amount < 0.0)  // Produce
+            {
+                double want = -amount;
+                double spaceLeft = _suitCellMaxAmount - KhemistryEVACombinedProcessor.GetTotal(dict);
+                double add = Math.Min(want, Math.Max(0.0, spaceLeft));
+                if (add <= 0.0) return 0.0;
+                dict[name] = current + add;
+                SetSuitCellFromDict(dict);
+                return -add;
+            }
+
+            return 0.0;
+        }
+
+        /// <summary>Current volume used in the material suit cell.</summary>
+        private float ComputeMaterialSuitCellVolume(float additional = 0f)
+        {
+            foreach (KhemistryMaterialInstance m in materialSuitCellContents)
+                additional += m.volume;
+            return additional;
+        }
+
+        /// <summary>
+        /// Attempts to add a material instance to the material suit cell. Checks that the
+        /// material passes at least one ALLOWED_MATERIAL entry (name, shape, PARAM_REQUIREMENTS)
+        /// and that there is enough remaining volume, merging with existing contents where
+        /// possible, same as <see cref="KhemistryMaterialStorage.AddMaterial"/>.
+        /// </summary>
+        public bool TryAddMaterialToSuitCell(KhemistryMaterialInstance mat)
+        {
+            if (!HasMaterialSuitCell) return false;
+            if (mat == null) return false;
+
+            bool allowed = false;
+            foreach (KhemistryAllowedMaterial a in _materialSuitCellAllowed)
+            {
+                if (a.Matches(mat)) { allowed = true; break; }
+            }
+            if (!allowed) return false;
+
+            if (ComputeMaterialSuitCellVolume(mat.volume) >= _materialSuitCellVolume) return false;
+
+            foreach (KhemistryMaterialInstance existing in materialSuitCellContents)
+                if (existing.Merge(mat))
+                    return true;
+
+            materialSuitCellContents.Add(mat);
+            return true;
+        }
+
+        private void UpdateMaterialSuitCellDisplay()
+        {
+            if (!HasMaterialSuitCell) { MaterialCellContentsDisplay = "No material cell"; return; }
+
+            var parts = new List<string>();
+            foreach (KhemistryMaterialInstance m in materialSuitCellContents)
+                if (m.volume > 0)
+                    parts.Add(m.material.name + " as " + m.shape);
+
+            string contentsStr = parts.Count > 0 ? string.Join(", ", parts) : "Empty";
+            MaterialCellContentsDisplay = string.Format("{0} ({1:F2}/{2:F2})",
+                contentsStr, ComputeMaterialSuitCellVolume(), _materialSuitCellVolume);
+        }
+
         private void LoadConfigFromPartInfo()
         {
             KShared.Log("Called!", "KhemistryKerbal/LoadConfigFromPartInfo");
@@ -7921,6 +8751,9 @@ MODULE
             _suitCellMaxAmount = 0f;
             _suitCellTransferDistance = 10f;
             _suitCellAllowedResources.Clear();
+            _materialSuitCellVolume = 0f;
+            _materialSuitCellTransferDistance = 2f;
+            _materialSuitCellAllowed.Clear();
 
             ConfigNode moduleNode = null;
 
@@ -7976,6 +8809,31 @@ MODULE
                 if (suitNode.HasNode("ALLOWED_RESOURCES"))
                     foreach (string n in suitNode.GetNode("ALLOWED_RESOURCES").GetValues("name"))
                         _suitCellAllowedResources.Add(n.Trim());
+            }
+
+            if (moduleNode.HasNode("MATERIAL_SUIT_CELL"))
+            {
+                ConfigNode matSuitNode = moduleNode.GetNode("MATERIAL_SUIT_CELL");
+                _materialSuitCellVolume = KShared.GetFloatValueFromCFG(matSuitNode, "volume", 0f);
+                _materialSuitCellTransferDistance = KShared.GetFloatValueFromCFG(matSuitNode, "transferDistance", 2f);
+
+                foreach (ConfigNode allowedNode in matSuitNode.GetNodes("ALLOWED_MATERIAL"))
+                {
+                    var allowed = new KhemistryAllowedMaterial(allowedNode);
+                    if (string.IsNullOrEmpty(allowed.name))
+                    {
+                        KShared.LogError(
+                            "Part \"" + part.name + "\" has a MATERIAL_SUIT_CELL ALLOWED_MATERIAL with no name, skipping.",
+                            "KhemistryKerbal/LoadConfigFromPartInfo");
+                        continue;
+                    }
+                    _materialSuitCellAllowed.Add(allowed);
+                }
+
+                if (_materialSuitCellVolume > 0f && _materialSuitCellAllowed.Count == 0)
+                    KShared.LogError(
+                        "Part \"" + part.name + "\" has a MATERIAL_SUIT_CELL with no valid ALLOWED_MATERIAL entries — nothing will ever be accepted.",
+                        "KhemistryKerbal/LoadConfigFromPartInfo");
             }
 
             KShared.Log(
@@ -8040,6 +8898,8 @@ MODULE
             }
 
             UpdateFluidCellDisplay();
+            UpdateMaterialSuitCellDisplay();
+            Fields["MaterialCellContentsDisplay"].guiActive = HasMaterialSuitCell;
 
             Events["EnableOccupation"].active = !canBeOccupied;
             Events["DisableOccupation"].active = canBeOccupied;
