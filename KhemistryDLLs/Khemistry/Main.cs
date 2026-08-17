@@ -1498,6 +1498,8 @@ namespace Khemistry
     {
         public string biomeName;
 
+        public bool disabled = false;
+
         public double minOperatingAltitude = double.MinValue;
         public double maxOperatingAltitude = double.MaxValue;
         public double minAltitude = double.MinValue;
@@ -1553,6 +1555,10 @@ namespace Khemistry
             if (node.HasValue("name"))
             {
                 biomeName = node.GetValue("name");
+
+                if (node.HasValue("disable"))
+                    if (node.GetValue("disable") == "true")
+                        disabled = true;
 
                 // Altitude
                 minOperatingAltitude = KShared.GetDoubleValueFromCFG(node, "minOperatingAltitude", minOperatingAltitude);
@@ -3448,6 +3454,12 @@ namespace Khemistry
 
             if (CheckBiomeConfig(biomeConfig))
                 return;
+
+            if (biomeConfig.disabled)
+            {
+                statusDisplay = "Disabled in this biome";
+                return;
+            }
 
             if (biomeConfig.situationOperating.Count > 0 && !biomeConfig.situationOperating.Contains(_runtimeData.sitCon))
             {
