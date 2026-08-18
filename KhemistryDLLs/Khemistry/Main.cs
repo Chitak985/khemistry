@@ -69,84 +69,6 @@ KHEMISTRY_RECIPE
     }
 }
 */
-/* Example KhemistryAdvancedRecipeISRU
-MODULE
-{
-    name = KhemistryAdvancedRecipeISRU
-    recipeType = electrolysis           // Imports all KHEMISTRY_RECIPE with this recipeType
-    multiplier = 10                     // Multiplies all inputs and outputs by this value
-    INPUT_RESOURCE                      // Additional inputs or outputs added to each recipe imported
-    {
-        ResourceName = IVEnergy
-        Ratio = 2
-        FlowMode = STAGE_PRIORITY_FLOW
-    }
-    RECIPES                             // List of recipes to import with type recipeType (optional)
-    {
-        name = Electrolyze Sea Water    // Use name values to specify which recipes are imported, checks based on ConverterName
-        name = Electrolyze Ocean Water
-    }
-    RECIPE_MULTIPLIERS                  // Multiplies each imported recipe by an amount (optional, if included will require RECIPES)
-    {                                   // Each amount value corresponds with each name value in RECIPES and multiplies that recipe.
-        amount = 10                     // Even if you want to import all recipes of that type, you will have to put them all into RECIPES first.
-        amount = 5
-    }
-    CONDITIONS
-    {
-        condition = MORE_THAN_OR_EQUALS_I,heat,1000  // Conditions to check a recipe's PARAMETERS and only add it if all conditions succeed
-    }
-}
-*/
-/* Sample config for advanced ISRU (normal/EVA):
-MODULE
-{
-    name = KhemistryAdvancedISRU
-    ConverterName = Collect Earth Air             // Converter name, must be unique
-    StartActionName = Start collecting Earth Air  // Button name for starting the converter
-    StopActionName = Stop collecting Earth Air    // Button name for stopping the converter
-    planetCondition = Earth                       // Converter can only operate on this planet. Do not include if can work anywhere
-    biomeCondition = Cool Deserts                 // Converter can only operate in this biome. Do not include if no planetCondition or can work anywhere on that planet
-    altitudeMaxCondition = 10000                  // Maximum altitude from sea level this ISRU can operate at. Requires altitudeMinCondition, do not include if no altitude restrictions
-    altitudeMinCondition = 0                      // Minimum altitude from sea level this ISRU can operate at. Requires altitudeMaxCondition, do not include if no altitude restrictions
-    situationCondition = Landed                   // Converter can only operate in this situation. Possible values are Landed, Splashed, FlyingLow, FlyingHigh, SpaceLow, SpaceHigh, SubOrbital. Do not include the value to ignore this condition.
-    depositCondition = GSOre                      // Converter can only operate when over this deposit. Should be the resource value of a surface deposit.
-    powerfailResource = LVEnergy                  // If this resource runs out, the part will powerfail. Must be an INPUT_RESOURCE. Do not include to disable powerfails.
-    powerfailResult = EXPLODE,10                  // The result if a powerfail occurs. Can be "EXPLODE,n", "MAINT", or "STOP". Requires powerfailResource to be set and valid.
-                                                  // EXPLODE will explode the part with power n, MAINT will require an Engineer kerbal to come fix it, and STOP will just shut down the part.
-    manualOperation = true                        // false by default; enables manual cycle mode
-    manualRequiresStartup = false                 // true by default; if false, no Start/Stop, just Execute Cycle
-    startStopShowRules = EVA+PAW                  // "PAW" default; controls Start/Stop button visibility
-    manualShowRules = EVA                         // "PAW" default; controls Execute Cycle button visibility
-    maxInteractionDistance = 5.0                  // 10.0 default; applies to all EVA-visible buttons
-    recipeGroup = myGroup                         // null by default; enforces one-active-at-a-time per group. If null, the converter does not have a group.
-
-    INPUT_RESOURCE
-    {
-        ResourceName = LVEnergy
-        Ratio = 2
-        FlowMode = STAGE_PRIORITY_FLOW
-    }
-    OUTPUT_RESOURCE
-    {
-        ResourceName = EarthAir
-        Ratio = 1
-        DumpExcess = false
-    }
-
-    chargingRequired = true    // Does the converter need to be charged to be used
-	chargeRate = 50.0          // Percent per second to fill charge (50 = 2 seconds to full). Not required if charging is disabled
-	chargeDecayRate = 5.0      // Percent per second to lose charge when storage can no longer charge. Not required if charging is disabled
-
-	CHARGE_CON_NAMES           // Resources used for charge consumption. Not required if charging is disabled
-	{
-		name = ElectricCharge
-	}
-	CHARGE_CON_AMOUNTS         // Amount of each resource used for charge consumption (per second). Not required if charging is disabled
-	{
-		amount = 5.0
-	}
-}
-*/
 /* Sample config for KhemistryBatchISRU recipes
 KHEMISTRYBATCHISRU_RECIPE
 {
@@ -1242,7 +1164,7 @@ namespace Khemistry
 
     /// <summary>
     /// A recipe to use in <see cref="KhemistryAdvancedRecipeISRU"/>.
-    /// It defines everything a <see cref="KhemistryAdvancedISRU"/> does but can be overriden by values in the ISRU loading it.
+    /// It defines everything a <see cref="KhemistryAdvancedISRUBase"/> does but can be overriden by values in the ISRU loading it.
     /// </summary>
     public class KhemistryRecipe
     {
@@ -2370,7 +2292,7 @@ namespace Khemistry
     /// <summary>
     /// An ISRU module that uses batches.
     /// Stock and Advanced ISRU modules always use units/second, but this module uses batches of resouces.
-    /// It has a similar amount of features as <see cref="KhemistryAdvancedISRU"/> but also has a few new ones.
+    /// It has a similar amount of features as <see cref="KhemistryAdvancedISRUBase"/> but also has a few new ones.
     /// </summary>
     public class KhemistryBatchISRU : PartModule
     {
@@ -2625,7 +2547,7 @@ namespace Khemistry
                 return;
             }
             state = ConverterState.On;
-            KShared.Log("Converter turned ON.", "KhemistryAdvancedISRUBase/TurnOnContainer");
+            KShared.Log("Converter turned ON.", "KhemistryBatchISRU/TurnOnContainer");
         }
 
         [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Turn off converter",
@@ -2633,7 +2555,7 @@ namespace Khemistry
         public void TurnOffConverter()
         {
             state = ConverterState.Off;
-            KShared.Log("Converter turned OFF.", "KhemistryAdvancedISRUBase/TurnOffContainer");
+            KShared.Log("Converter turned OFF.", "KhemistryBatchISRU/TurnOffContainer");
         }
 
         ///// Variables /////
@@ -2711,7 +2633,7 @@ namespace Khemistry
             }
 
             isRunning = true;
-            KShared.Log("Converter \"" + ConverterName + "\" started.", "KhemistryAdvancedISRU/StartConverter");
+            KShared.Log("Converter \"" + ConverterName + "\" started.", "KhemistryBatchISRU/StartConverter");
             UpdateEventVisibility();
         }
 
@@ -2747,7 +2669,7 @@ namespace Khemistry
         public void StopConverter()
         {
             isRunning = false;
-            KShared.Log("Converter \"" + ConverterName + "\" stopped.", "KhemistryAdvancedISRU/StopConverter");
+            KShared.Log("Converter \"" + ConverterName + "\" stopped.", "KhemistryBatchISRU/StopConverter");
             UpdateEventVisibility();
         }
         [KSPAction("Start Converter")]
@@ -3126,7 +3048,7 @@ namespace Khemistry
             }
             needsMaintenance = false;
             KShared.Log("Converter \"" + ConverterName + "\" maintained by " + kerbal.name + ".",
-                "KhemistryAdvancedISRU/PerformMaintenance");
+                "KhemistryBatchISRU/PerformMaintenance");
             ScreenMessages.PostScreenMessage(new ScreenMessage(
                 "Converter \"" + ConverterName + "\": Maintenance complete.", 5f, ScreenMessageStyle.UPPER_CENTER));
             UpdateEventVisibility();
@@ -4173,7 +4095,7 @@ namespace Khemistry
         /// <summary>
         /// Finds and returns the MODULE config node for this converter from partConfig.
         /// Matches on both module class name and ConverterName to support multiple
-        /// converters per part. Pass the expected module name (e.g. "KhemistryAdvancedISRU"
+        /// converters per part. Pass the expected module name (e.g. "KhemistryAdvancedISRUBase"
         /// or "KhemistryEVAAdvancedISRU").
         /// </summary>
         public static ConfigNode FindModuleConfigNode(Part part, string ConverterName, string moduleName)
@@ -7312,294 +7234,9 @@ MODULE
     }
 
     /// <summary>
-    /// The simplest version of an <see cref="KhemistryAdvancedISRUBase"/>.
-    /// It behaves similarly to the stock and SystemHeat converters.
-    /// </summary>
-    public class KhemistryAdvancedISRU : KhemistryAdvancedISRUBase
-    {
-        [KSPField(isPersistant = false)]
-        public string activeAnimationNameOverride = "";
-
-        private Animation _activeAnim;
-        private string _activeAnimationName;
-        private bool _animationPlaying = false;
-
-        private void SetupActiveAnimation()
-        {
-            ModuleAnimationGroup animGroup = part.FindModuleImplementing<ModuleAnimationGroup>();
-            string animName = (animGroup != null && !string.IsNullOrEmpty(animGroup.activeAnimationName))
-                ? animGroup.activeAnimationName
-                : activeAnimationNameOverride;
-
-            if (string.IsNullOrEmpty(animName))
-            {
-                _activeAnim = null;
-                _activeAnimationName = null;
-                return;
-            }
-
-            Animation[] animators = part.FindModelAnimators(animName);
-            if (animators.Length == 0)
-            {
-                KShared.LogError(
-                    "Converter \"" + ConverterName + "\": No animator found for clip \"" + animName + "\".",
-                    "KhemistryAdvancedISRU/SetupActiveAnimation");
-                _activeAnim = null;
-                _activeAnimationName = null;
-                return;
-            }
-
-            _activeAnim = animators[0];
-            _activeAnimationName = animName;
-            _activeAnim[_activeAnimationName].wrapMode = _manualOperation ? WrapMode.Once : WrapMode.Loop;
-
-            KShared.Log(
-                "Converter \"" + ConverterName + "\": Hooked active animation \"" + animName + "\""
-                + (animGroup != null ? " (from ModuleAnimationGroup)." : " (from activeAnimationNameOverride)."),
-                "KhemistryAdvancedISRU/SetupActiveAnimation");
-        }
-
-        private void SetActiveAnimationPlaying(bool playing)
-        {
-            if (_activeAnim == null || string.IsNullOrEmpty(_activeAnimationName)) return;
-            if (playing == _animationPlaying) return;
-
-            if (playing) _activeAnim.Play(_activeAnimationName);
-            else _activeAnim.Stop(_activeAnimationName);
-
-            _animationPlaying = playing;
-        }
-
-        private void PlayActiveAnimationOnce()
-        {
-            if (_activeAnim == null || string.IsNullOrEmpty(_activeAnimationName)) return;
-            _activeAnim.Play(_activeAnimationName);
-        }
-
-        public override void OnStart(StartState state)
-        {
-            base.OnStart(state);
-
-            _fatalConfigError = false;
-            _outputWarnCooldown = 0.0;
-
-            LoadConfigFromPartInfo();
-
-            if (_fatalConfigError)
-            {
-                foreach (BaseEvent e in Events) e.active = false;
-                statusDisplay = "ERROR: see log";
-                return;
-            }
-
-            _displayName = _recipeGroup != null
-                ? ConverterName + " (" + _recipeGroup + ")"
-                : ConverterName;
-
-            string startLabel = _recipeGroup != null
-                ? StartActionName + " (" + _recipeGroup + ")"
-                : StartActionName;
-            string stopLabel = _recipeGroup != null
-                ? StopActionName + " (" + _recipeGroup + ")"
-                : StopActionName;
-
-            Events["StartConverter"].guiName = startLabel;
-            Events["StopConverter"].guiName = stopLabel;
-            Actions["StartConverterAction"].guiName = startLabel;
-            Actions["StopConverterAction"].guiName = stopLabel;
-
-            Events["StartConverter"].unfocusedRange = _maxInteractionDistance;
-            Events["StopConverter"].unfocusedRange = _maxInteractionDistance;
-            Events["ExecuteCycle"].unfocusedRange = _maxInteractionDistance;
-            Events["PerformMaintenance"].unfocusedRange = _maxInteractionDistance;
-
-            if (!chargingRequired)
-                this.state = ConverterState.On;
-
-            SetupActiveAnimation();
-
-            UpdateEventVisibility();
-        }
-
-        public void FixedUpdate()
-        {
-            // Checks to prevent any null references
-            if (!HighLogic.LoadedSceneIsFlight) return;  // Make sure we are in flight scene and not the VAB/SPH
-            if (vessel == null || part == null) return;  // Make sure the vessel and part are not null
-            if (_fatalConfigError) return;  // Make sure no config errors occured
-
-            // Useful variables
-            double dt = TimeWarp.fixedDeltaTime;
-            _outputWarnCooldown = Math.Max(0.0, _outputWarnCooldown - dt);
-
-            // Charge, update UI, and output materials
-            HandleCharging(dt);
-            UpdateUI();
-            TryTransferMaterialOutputBuffer();
-
-            // Handle status display with manual operation
-            // This normally returns if the converter is manual, but manualAuto will make it behave like automatic operation
-            if (!_manualAuto && _manualOperation)
-            {
-                statusDisplay = needsMaintenance ? "Needs maintenance"
-                    : !isRunning ? "Stopped"
-                    : "Waiting for manual cycle";
-                UpdateEventVisibility();
-                return;
-            }
-
-            // Handle status display with automatic operation
-            // If manual with manualRequiresStartup=false, there is no Start/Stop button to ever set isRunning,
-            // so treat it as always "running" for the purposes of the automatic/manualAuto cycle gate.
-            bool effectivelyRunning = isRunning || (_manualOperation && !_manualRequiresStartup);
-            if (!effectivelyRunning || needsMaintenance)
-            {
-                statusDisplay = needsMaintenance ? "Needs maintenance" : "Stopped";
-                UpdateEventVisibility();
-                SetActiveAnimationPlaying(false);
-                return;
-            }
-
-            // Show if the converter is disabled
-            if (state != ConverterState.On)
-            {
-                statusDisplay = "Not ready";
-                return;
-            }
-
-            // Run the converter, update the status display, and play animations
-            RunOneCycle(part, dt);
-            UpdateEventVisibility();
-            SetActiveAnimationPlaying(effectivelyRunning);
-        }
-
-        [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Start Converter",
-                  groupName = "khemistryisru")]
-        public void StartConverter()
-        {
-            if (needsMaintenance)
-            {
-                ScreenMessages.PostScreenMessage(new ScreenMessage(
-                    "Converter \"" + _displayName + "\": Requires maintenance before starting.",
-                    5f, ScreenMessageStyle.UPPER_CENTER));
-                return;
-            }
-            if (!CheckRecipeGroup(part)) return;
-            if (state != ConverterState.On) return;
-            isRunning = true;
-            KShared.Log("Converter \"" + _displayName + "\" started.", "KhemistryAdvancedISRU/StartConverter");
-            UpdateEventVisibility();
-        }
-
-        [KSPEvent(guiActive = false, guiActiveEditor = false, guiName = "Stop Converter",
-                  groupName = "khemistryisru")]
-        public void StopConverter()
-        {
-            isRunning = false;
-            KShared.Log("Converter \"" + _displayName + "\" stopped.", "KhemistryAdvancedISRU/StopConverter");
-            UpdateEventVisibility();
-        }
-
-        [KSPEvent(guiActive = false, guiActiveEditor = false, guiName = "Perform Maintenance",
-                  groupName = "khemistryisru",
-                  externalToEVAOnly = true, guiActiveUnfocused = false, unfocusedRange = 10f)]
-        public void PerformMaintenance()
-        {
-            ProtoCrewMember kerbal = FlightGlobals.ActiveVessel?.GetVesselCrew()?.FirstOrDefault();
-            if (kerbal == null || kerbal.trait != "Engineer")
-            {
-                ScreenMessages.PostScreenMessage(new ScreenMessage(
-                    "Converter \"" + _displayName + "\": Requires maintenance by an Engineer.",
-                    5f, ScreenMessageStyle.UPPER_CENTER));
-                return;
-            }
-            needsMaintenance = false;
-            KShared.Log("Converter \"" + _displayName + "\" maintained by " + kerbal.name + ".",
-                "KhemistryAdvancedISRU/PerformMaintenance");
-            ScreenMessages.PostScreenMessage(new ScreenMessage(
-                "Converter \"" + _displayName + "\": Maintenance complete.", 5f, ScreenMessageStyle.UPPER_CENTER));
-            UpdateEventVisibility();
-        }
-
-        [KSPEvent(guiActive = false, guiActiveEditor = false, guiName = "Execute Cycle",
-                  groupName = "khemistryisru")]
-        public void ExecuteCycle()
-        {
-            if (needsMaintenance)
-            {
-                ScreenMessages.PostScreenMessage(new ScreenMessage(
-                    "Converter \"" + _displayName + "\": Requires maintenance.",
-                    5f, ScreenMessageStyle.UPPER_CENTER));
-                return;
-            }
-            if (!_manualRequiresStartup)
-                if (!CheckRecipeGroup(part)) return;
-
-            RunOneCycle(part, TimeWarp.fixedDeltaTime);
-            UpdateEventVisibility();
-
-            if (IsCurrentlyActive)
-                PlayActiveAnimationOnce();
-        }
-
-        [KSPAction("Start Converter")]
-        [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE0060:Remove unused parameter", Justification = "Called by KSP with parameter")]
-        public void StartConverterAction(KSPActionParam param)
-        {
-            StartConverter();
-        }
-
-        [KSPAction("Stop Converter")]
-        [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE0060:Remove unused parameter", Justification = "Called by KSP with parameter")]
-        public void StopConverterAction(KSPActionParam param)
-        {
-            StopConverter();
-        }
-
-        protected override void LoadConfigFromPartInfo()
-        {
-            KShared.Log("Called!", "KhemistryAdvancedISRU/LoadConfigFromPartInfo");
-            ConfigNode moduleNode = KShared.FindModuleConfigNode(part, ConverterName, "KhemistryAdvancedISRU");
-            if (moduleNode == null) { _fatalConfigError = true; return; }
-            LoadSharedConfig(moduleNode, "KhemistryAdvancedISRU");
-        }
-
-        protected override void UpdateEventVisibility()
-        {
-            bool startStopEnabled = !_manualOperation || _manualRequiresStartup;
-
-            ApplyShowRule(Events["StartConverter"],
-                showPAW: startStopEnabled && !isRunning && !needsMaintenance && _startStopShowPAW,
-                showEVA: startStopEnabled && !isRunning && !needsMaintenance && _startStopShowEVA);
-
-            ApplyShowRule(Events["StopConverter"],
-                showPAW: startStopEnabled && isRunning && _startStopShowPAW,
-                showEVA: startStopEnabled && isRunning && _startStopShowEVA);
-
-            bool cycleEnabled = _manualOperation && !needsMaintenance && (!_manualRequiresStartup || isRunning);
-
-            ApplyShowRule(Events["ExecuteCycle"],
-                showPAW: cycleEnabled && _manualShowPAW,
-                showEVA: cycleEnabled && _manualShowEVA);
-
-            Events["PerformMaintenance"].active = needsMaintenance;
-            Events["PerformMaintenance"].guiActiveUnfocused = needsMaintenance;
-            Events["PerformMaintenance"].unfocusedRange = _maxInteractionDistance;
-        }
-
-        private static void ApplyShowRule(BaseEvent ev, bool showPAW, bool showEVA)
-        {
-            ev.guiActive = showPAW;
-            ev.guiActiveUnfocused = showEVA;
-            ev.externalToEVAOnly = showEVA;
-            ev.active = showPAW || showEVA;
-        }
-    }
-
-    /// <summary>
     /// An <see cref="KhemistryAdvancedISRUBase"/> that uses KHEMISTRY_RECIPE recipes, see config at the top of source.
     ///
-    /// The module's own MODULE config may define any field a normal <see cref="KhemistryAdvancedISRU"/>
+    /// The module's own MODULE config may define any field a normal <see cref="KhemistryAdvancedISRUBase"/>
     /// would (conditions, powerfail, manual operation, show rules,
     /// maxInteractionDistance, charging...). If present, that value overrides the same
     /// field on every loaded recipe wholesale. ConverterName, StartActionName, and
@@ -7663,7 +7300,7 @@ MODULE
         private readonly List<float> _ownChargeAmounts = new List<float>();
 
         // ── Config loading: own module config is looked up the same robust way
-        //    KhemistryAdvancedISRU does, via partInfo.partConfig / GameDatabase,
+        //    KhemistryAdvancedISRUBase does, via partInfo.partConfig / GameDatabase,
         //    NOT via OnLoad's node. OnLoad's node is only the full original .cfg text
         //    the first time a part is cloned fresh from its prefab — on any later
         //    reload (quicksave/quickload, scene switch, revert) KSP instead passes in
@@ -8476,90 +8113,6 @@ MODULE
         }
     }
 
-    /// <summary>
-    /// A version of <see cref="KhemistryAdvancedISRUBase"/> that runs on a kerbal.
-    /// Does not use the stock resource system and instead uses fluid cells.
-    /// </summary>
-    public class KhemistryEVAAdvancedISRU : KhemistryAdvancedISRUBase
-    {
-        [KSPField(isPersistant = false)]
-        public bool useSuitCell = false;
-
-        public bool UseSuitCell => useSuitCell;
-
-        public HashSet<string> SupportedResources = new HashSet<string>();
-
-        public override void OnLoad(ConfigNode node)
-        {
-            base.OnLoad(node);
-            SupportedResources.Clear();
-            if (node.HasNode("SUPPORTED_RESOURCES"))
-            {
-                foreach (string name in node.GetNode("SUPPORTED_RESOURCES").GetValues("name"))
-                    SupportedResources.Add(name.Trim());
-                KShared.Log(
-                    "Loaded " + SupportedResources.Count + " allowed resources.",
-                    "KhemistryEVAAdvancedISRU/OnLoad");
-            }
-            else
-            {
-                KShared.Log(
-                    "Part \"" + part.name + "\" has KhemistryEVAAdvancedISRU with no SUPPORTED_RESOURCES node " +
-                    "(OK for kerbal-native modules; inventory-item modules won't accept any resource).",
-                    "KhemistryEVAAdvancedISRU/OnLoad");
-            }
-        }
-
-        public override void OnStart(StartState state)
-        {
-            base.OnStart(state);
-
-            LoadConfigFromPartInfo();
-
-            if (_fatalConfigError)
-            {
-                statusDisplay = "ERROR: see log";
-                return;
-            }
-
-            _displayName = _recipeGroup != null
-                ? ConverterName + " (" + _recipeGroup + ")"
-                : ConverterName;
-        }
-
-        protected override void LoadConfigFromPartInfo()
-        {
-            KShared.Log("Called!", "KhemistryEVAAdvancedISRU/LoadConfigFromPartInfo");
-            ConfigNode moduleNode = KShared.FindModuleConfigNode(part, ConverterName, "KhemistryEVAAdvancedISRU");
-            if (moduleNode == null) { _fatalConfigError = true; return; }
-            LoadSharedConfig(moduleNode, "KhemistryEVAAdvancedISRU");
-
-            if (_outputMaterials.Count > 0)
-            {
-                KShared.LogError(
-                    "Converter \"" + ConverterName + "\" (KhemistryEVAAdvancedISRU) defines OUTPUT_RESOURCE_MATERIAL, "
-                    + "which is not supported for EVA converters — EVA output goes to fluid cells, not vessel "
-                    + "KhemistryMaterialStorage modules. This module will not load.",
-                    "KhemistryEVAAdvancedISRU/LoadConfigFromPartInfo");
-                _fatalConfigError = true;
-                return;
-            }
-
-            if (bool.TryParse(moduleNode.GetValue("useSuitCell"), out bool tmpB))
-                useSuitCell = tmpB;
-        }
-
-        protected override void UpdateEventVisibility() { }
-
-        public bool IsConfigLoaded => !_fatalConfigError;
-
-        public string DisplayName => string.IsNullOrEmpty(_displayName) ? ConverterName : _displayName;
-
-        public bool IsManual => _manualOperation;
-
-        public bool ManualRequiresStartup => _manualRequiresStartup;
-    }
-
     ////////////////////////////// Kerbal-side Logic //////////////////////////////
 
     /// <summary>
@@ -8645,18 +8198,6 @@ MODULE
         {
             public bool isSuit;
             public StoredPart stored;
-        }
-
-        private struct ISRUHandle
-        {
-            public bool isLive;
-            public KhemistryEVAAdvancedISRU liveModule;
-            public StoredPart stored;
-            public KhemistryEVAAdvancedISRU prefab;
-
-            public KhemistryEVAAdvancedISRU Config => isLive ? liveModule : prefab;
-            public string ConverterName => Config.ConverterName;
-            public string DisplayName => Config.DisplayName;
         }
 
         private Dictionary<string, double> GetSuitCellDict()
@@ -8989,295 +8530,12 @@ MODULE
             CellContentsDisplay = string.Join("  |  ", parts.ToArray());
         }
 
-        private List<ISRUHandle> GetAllISRUHandles()
-        {
-            var result = new List<ISRUHandle>();
-
-            foreach (KhemistryEVAAdvancedISRU m in part.FindModulesImplementing<KhemistryEVAAdvancedISRU>())
-            {
-                if (!m.IsConfigLoaded) continue;
-                result.Add(new ISRUHandle { isLive = true, liveModule = m });
-            }
-
-            foreach (StoredPart stored in GetEVAISRUSnapshots())
-                foreach (KhemistryEVAAdvancedISRU prefab in GetPrefabISRUModules(stored))
-                    if (prefab.IsConfigLoaded)
-                        result.Add(new ISRUHandle { isLive = false, stored = stored, prefab = prefab });
-
-            return result;
-        }
-
-        private bool ReadISRUBool(ISRUHandle h, string key)
-        {
-            if (h.isLive)
-            {
-                if (key == "isRunning") return h.liveModule.isRunning;
-                if (key == "needsMaintenance") return h.liveModule.needsMaintenance;
-                return false;
-            }
-            return ReadISRUBool(h.stored, h.Config.ConverterName, key);
-        }
-
-        private void WriteISRUBool(ISRUHandle h, string key, bool value)
-        {
-            if (h.isLive)
-            {
-                if (key == "isRunning") h.liveModule.isRunning = value;
-                else if (key == "needsMaintenance") h.liveModule.needsMaintenance = value;
-                return;
-            }
-            WriteISRUBool(h.stored, h.Config.ConverterName, key, value);
-        }
-
-        private List<StoredPart> GetEVAISRUSnapshots()
-        {
-            var result = new List<StoredPart>();
-            if (_inventory == null) return result;
-
-            for (int i = 0; i < _inventory.storedParts.Count; i++)
-            {
-                StoredPart stored = _inventory.storedParts.At(i);
-                if (_evaISRUPartNames.Count > 0 && !_evaISRUPartNames.Contains(stored.partName))
-                    continue;
-                AvailablePart ap = PartLoader.getPartInfoByName(stored.partName);
-                if (ap == null) continue;
-                if (ap.partPrefab.FindModuleImplementing<KhemistryEVAAdvancedISRU>() == null) continue;
-                result.Add(stored);
-            }
-            return result;
-        }
-
-        private List<KhemistryEVAAdvancedISRU> GetPrefabISRUModules(StoredPart stored)
-        {
-            AvailablePart ap = PartLoader.getPartInfoByName(stored.partName);
-            return ap?.partPrefab.FindModulesImplementing<KhemistryEVAAdvancedISRU>()
-                ?? new List<KhemistryEVAAdvancedISRU>();
-        }
-
-        private ProtoPartModuleSnapshot GetISRUSnapshot(StoredPart stored, string converterName)
-        {
-            if (stored.snapshot == null) return null;
-            foreach (ProtoPartModuleSnapshot moduleSnap in stored.snapshot.modules)
-            {
-                if (moduleSnap.moduleName != "KhemistryEVAAdvancedISRU") continue;
-                if (moduleSnap.moduleValues.GetValue("ConverterName") == converterName)
-                    return moduleSnap;
-            }
-            return null;
-        }
-
-        private bool ReadISRUBool(StoredPart stored, string converterName, string key)
-        {
-            string val = GetISRUSnapshot(stored, converterName)?.moduleValues.GetValue(key);
-            return val != null && bool.TryParse(val, out bool result) && result;
-        }
-
-        private void WriteISRUBool(StoredPart stored, string converterName, string key, bool value)
-            => GetISRUSnapshot(stored, converterName)?.moduleValues.SetValue(key, value.ToString());
-
-        [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Use Held Converter",
-                  groupName = "evaisru", groupDisplayName = "EVA Converters", groupStartCollapsed = false,
-                  externalToEVAOnly = true, guiActiveUnfocused = false, unfocusedRange = 10f)]
-        public void EVAUseConverter()
-        {
-            var shared = KShared.Instance;
-            if (shared == null) return;
-            KShared.Log("Called! (Use Held Converter button)", "KhemistryKerbal/EVAUseConverter");
-
-            var options = GetAllISRUHandles();
-
-            if (options.Count == 0)
-            {
-                KShared.Log("No EVA converters were found.", "KhemistryKerbal/EVAUseConverter");
-                ScreenMessages.PostScreenMessage(new ScreenMessage(
-                    "No EVA converters available.", 5f, ScreenMessageStyle.UPPER_CENTER));
-                return;
-            }
-
-            var labels = new List<string>();
-            foreach (ISRUHandle h in options)
-            {
-                bool running = ReadISRUBool(h, "isRunning");
-                bool maint = ReadISRUBool(h, "needsMaintenance");
-                string suffix = maint ? " [MAINT]" : running ? " [Running]" : " [Stopped]";
-                labels.Add(h.DisplayName + suffix);
-            }
-
-            if (options.Count == 1)
-                ShowConverterActionMenu(options[0]);
-            else
-                shared.ShowSelector("Select converter", labels, label =>
-                {
-                    int idx = labels.IndexOf(label);
-                    if (idx >= 0) ShowConverterActionMenu(options[idx]);
-                });
-        }
-
-        private void ShowConverterActionMenu(ISRUHandle handle)
-        {
-            var shared = KShared.Instance;
-            bool running = ReadISRUBool(handle, "isRunning");
-            bool maint = ReadISRUBool(handle, "needsMaintenance");
-
-            var actions = new List<string>();
-
-            if (maint)
-            {
-                actions.Add("Perform Maintenance");
-            }
-            else
-            {
-                bool startStopEnabled = !handle.Config.IsManual || handle.Config.ManualRequiresStartup;
-                if (startStopEnabled)
-                {
-                    if (!running) actions.Add("Start");
-                    else actions.Add("Stop");
-                }
-                if (handle.Config.IsManual && (!handle.Config.ManualRequiresStartup || running))
-                    actions.Add("Execute Cycle");
-            }
-
-            if (actions.Count == 0)
-            {
-                ScreenMessages.PostScreenMessage(new ScreenMessage(
-                    "No actions available for \"" + handle.DisplayName + "\".",
-                    5f, ScreenMessageStyle.UPPER_CENTER));
-                return;
-            }
-
-            if (actions.Count == 1)
-            {
-                ExecuteConverterAction(handle, actions[0]);
-                return;
-            }
-
-            shared.ShowSelector("Action: " + handle.DisplayName, actions,
-                action => ExecuteConverterAction(handle, action));
-        }
-
-        private void ExecuteConverterAction(ISRUHandle handle, string action)
-        {
-            switch (action)
-            {
-                case "Start":
-                    if (!handle.Config.CheckRecipeGroup(part)) return;
-                    WriteISRUBool(handle, "isRunning", true);
-                    KShared.Log("EVA converter \"" + handle.DisplayName + "\" started.",
-                        "KhemistryKerbal/ExecuteConverterAction");
-                    ScreenMessages.PostScreenMessage(new ScreenMessage(
-                        "Converter \"" + handle.DisplayName + "\" started.", 4f, ScreenMessageStyle.UPPER_CENTER));
-                    break;
-
-                case "Stop":
-                    WriteISRUBool(handle, "isRunning", false);
-                    KShared.Log("EVA converter \"" + handle.DisplayName + "\" stopped.",
-                        "KhemistryKerbal/ExecuteConverterAction");
-                    ScreenMessages.PostScreenMessage(new ScreenMessage(
-                        "Converter \"" + handle.DisplayName + "\" stopped.", 4f, ScreenMessageStyle.UPPER_CENTER));
-                    break;
-
-                case "Execute Cycle":
-                    if (!handle.Config.ManualRequiresStartup && !handle.Config.CheckRecipeGroup(part)) return;
-                    if (handle.Config.UseSuitCell)
-                    {
-                        if (_suitCellMaxAmount > 0f)
-                        {
-                            var suitDict = GetSuitCellDict();
-                            handle.Config.RunOneCycleSuitCell(part, suitDict, _suitCellMaxAmount, TimeWarp.fixedDeltaTime);
-                            SetSuitCellFromDict(suitDict);
-                        }
-                        else
-                        {
-                            ScreenMessages.PostScreenMessage(new ScreenMessage(
-                                "No suit cell configured for this kerbal.", 5f, ScreenMessageStyle.UPPER_CENTER));
-                        }
-                    }
-                    else
-                    {
-                        handle.Config.RunOneCycle(part, TimeWarp.fixedDeltaTime);
-                    }
-                    KShared.Log("EVA converter \"" + handle.DisplayName + "\" cycle executed.",
-                        "KhemistryKerbal/ExecuteConverterAction");
-                    break;
-
-                case "Perform Maintenance":
-                    ProtoCrewMember kerbal = FlightGlobals.ActiveVessel?.GetVesselCrew()?.FirstOrDefault();
-                    if (kerbal == null || kerbal.trait != "Engineer")
-                    {
-                        ScreenMessages.PostScreenMessage(new ScreenMessage(
-                            "Maintenance requires an Engineer.", 5f, ScreenMessageStyle.UPPER_CENTER));
-                        return;
-                    }
-                    WriteISRUBool(handle, "needsMaintenance", false);
-                    KShared.Log("EVA converter \"" + handle.DisplayName + "\" maintained.",
-                        "KhemistryKerbal/ExecuteConverterAction");
-                    ScreenMessages.PostScreenMessage(new ScreenMessage(
-                        "Converter \"" + handle.DisplayName + "\": Maintenance complete.",
-                        5f, ScreenMessageStyle.UPPER_CENTER));
-                    break;
-            }
-        }
-
         public void FixedUpdate()
         {
             if (!HighLogic.LoadedSceneIsFlight) return;
             if (vessel == null || part == null) return;
 
             double dt = TimeWarp.fixedDeltaTime;
-
-            foreach (KhemistryEVAAdvancedISRU liveISRU in part.FindModulesImplementing<KhemistryEVAAdvancedISRU>())
-            {
-                if (!liveISRU.IsConfigLoaded) continue;
-                liveISRU.TickCooldown(dt);
-                if (liveISRU.IsManual) continue;
-                if (!liveISRU.isRunning || liveISRU.needsMaintenance) continue;
-
-                if (liveISRU.UseSuitCell)
-                {
-                    if (_suitCellMaxAmount <= 0f) continue;
-                    var suitDict = GetSuitCellDict();
-                    liveISRU.RunOneCycleSuitCell(part, suitDict, _suitCellMaxAmount, dt);
-                    SetSuitCellFromDict(suitDict);
-                }
-                else
-                {
-                    liveISRU.RunOneCycle(part, dt);
-                }
-            }
-
-            foreach (StoredPart stored in GetEVAISRUSnapshots())
-            {
-                foreach (KhemistryEVAAdvancedISRU prefab in GetPrefabISRUModules(stored))
-                {
-                    if (!prefab.IsConfigLoaded) continue;
-                    prefab.TickCooldown(dt);
-                    if (prefab.IsManual) continue;
-
-                    bool running = ReadISRUBool(stored, prefab.ConverterName, "isRunning");
-                    bool maint = ReadISRUBool(stored, prefab.ConverterName, "needsMaintenance");
-                    if (!running || maint) continue;
-
-                    prefab.isRunning = running;
-                    prefab.needsMaintenance = maint;
-
-                    if (prefab.UseSuitCell)
-                    {
-                        if (_suitCellMaxAmount > 0f)
-                        {
-                            var suitDict = GetSuitCellDict();
-                            prefab.RunOneCycleSuitCell(part, suitDict, _suitCellMaxAmount, dt);
-                            SetSuitCellFromDict(suitDict);
-                        }
-                    }
-                    else
-                    {
-                        prefab.RunOneCycle(part, dt);
-                    }
-
-                    WriteISRUBool(stored, prefab.ConverterName, "isRunning", prefab.isRunning);
-                    WriteISRUBool(stored, prefab.ConverterName, "needsMaintenance", prefab.needsMaintenance);
-                }
-            }
 
             foreach (StoredPart stored in GetProcessorSnapshots())
             {
