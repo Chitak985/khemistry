@@ -25,7 +25,7 @@ KHEMISTRY_RESOURCE_DEPOSIT
     maxRadius = 20               // Maximum radius of the deposit in meters. Defaults to 20
 }
 */
-/* Sample config for KhemistryBatchISRU recipes
+/* Sample config for KhemistryISRU recipes
 KHEMISTRYBATCHISRU_RECIPE
 {
     name = Cooling Recipe Name  // Required
@@ -35,7 +35,7 @@ KHEMISTRYBATCHISRU_RECIPE
     recipeSubsubtype = highHeat  // Defaults to NONE
     // Multiple recipeType, recipeSubtype, and recipeSubsubtype can be included
 
-    // Everything else is the same as in RECIPE nodes inside KhemistryBatchISRU
+    // Everything else is the same as in RECIPE nodes inside KhemistryISRU
 
     // Charging
     // The length of CHARGE_CON_NAMES and CHARGE_CON_AMOUNTS must match
@@ -142,10 +142,10 @@ KHEMISTRYBATCHISRU_RECIPE
     workersType = EVA+CREW  // EVA, CREW, or EVA+CREW. Defaults to EVA
 }
 */
-/* Sample config for KhemistryBatchISRU
+/* Sample config for KhemistryISRU
 MODULE
 {
-	name = KhemistryBatchISRU
+	name = KhemistryISRU
 
     // Load recipes with these parameters
 	recipeType = cooling  // Load with this recipeType. Optional
@@ -824,10 +824,10 @@ namespace Khemistry
     ////////////////////////////// Batch ISRU System //////////////////////////////
 
     /// <summary>
-    /// A config used in <see cref="KhemistryBatchISRU"/> for each biome.
+    /// A config used in <see cref="KhemistryISRU"/> for each biome.
     /// Contains a lot of conditions when the recipe can work.
     /// </summary>
-    public class BatchISRUBiomeConfig
+    public class KhemistryISRUBiomeConfig
     {
         public string biomeName;
 
@@ -879,11 +879,11 @@ namespace Khemistry
 
         ///// Functions /////
         /// <summary>
-        /// Make a biome config from a biome config node in a BatchISRU recipe.
+        /// Make a biome config from a biome config node in a ISRU recipe.
         /// </summary>
-        /// <param name="node">The node BIOME_CONFIG in PLANET_CONFIG in a BatchISRU module.</param>
+        /// <param name="node">The node BIOME_CONFIG in PLANET_CONFIG in a ISRU module.</param>
         /// <param name="ConverterName">The name of the converter the biome config belongs to.</param>
-        public BatchISRUBiomeConfig(ConfigNode node, string ConverterName = "UNKNOWN")
+        public KhemistryISRUBiomeConfig(ConfigNode node, string ConverterName = "UNKNOWN")
         {
             if (node.HasValue("name"))
             {
@@ -914,7 +914,7 @@ namespace Khemistry
                     else
                         KShared.LogError(
                             "Converter \"" + ConverterName + "\": Biome config \"" + biomeName + "\": Unknown situationOperating situationCondition \"" + situationOperatingStr + "\" — condition ignored.",
-                            "KhemistryBatchISRU/LoadSharedConfig");
+                            "KhemistryISRU/LoadSharedConfig");
                 }
                 situationDestructive.Clear();
                 foreach (string situationDestructiveStr in node.GetValues("situationDestructive"))
@@ -924,7 +924,7 @@ namespace Khemistry
                     else
                         KShared.LogError(
                             "Converter \"" + ConverterName + "\": Biome config \"" + biomeName + "\": Unknown situationDestructive situationCondition \"" + situationDestructiveStr + "\" — condition ignored.",
-                            "KhemistryBatchISRU/LoadSharedConfig");
+                            "KhemistryISRU/LoadSharedConfig");
                 }
 
                 // Conditions
@@ -972,17 +972,17 @@ namespace Khemistry
             }
             else
             {
-                KShared.LogNoValueInNode("BIOME_CONFIG", "name", "Converter \"" + ConverterName + "\": Recipe ", "BatchISRUBiomeConfig/constructor");
+                KShared.LogNoValueInNode("BIOME_CONFIG", "name", "Converter \"" + ConverterName + "\": Recipe ", "KhemistryISRUBiomeConfig/constructor");
                 return;
             }
         }
     }
 
     /// <summary>
-    /// A recipe for <see cref="KhemistryBatchISRU"/>.
-    /// Contains inputs, outputs and multiple <see cref="BatchISRUBiomeConfig"/> to use.
+    /// A recipe for <see cref="KhemistryISRU"/>.
+    /// Contains inputs, outputs and multiple <see cref="KhemistryISRUBiomeConfig"/> to use.
     /// </summary>
-    public class KhemistryBatchISRURecipe
+    public class KhemistryISRURecipe
     {
         ///// Structs and enums /////
         public struct ResourceInput
@@ -1040,7 +1040,7 @@ namespace Khemistry
         public bool _workersCREW = true;
 
         // Keyed by planet name (or "ALL"), then by biome name (or "ALL") for that planet.
-        public Dictionary<string, Dictionary<string, BatchISRUBiomeConfig>> _planetConfigs = new Dictionary<string, Dictionary<string, BatchISRUBiomeConfig>>();
+        public Dictionary<string, Dictionary<string, KhemistryISRUBiomeConfig>> _planetConfigs = new Dictionary<string, Dictionary<string, KhemistryISRUBiomeConfig>>();
 
         ///// Identity /////
         public string _name = "Recipe";
@@ -1064,11 +1064,11 @@ namespace Khemistry
         ///// Functions /////
 
         /// <summary>
-        /// Loads everything shared between a local RECIPE node in KhemistryBatchISRU and a
+        /// Loads everything shared between a local RECIPE node in KhemistryISRU and a
         /// top level KHEMISTRYBATCHISRU_RECIPE node: identity, charging, planet/biome configs,
         /// inputs/outputs/materials, timing, control rules, and worker requirements.
         /// </summary>
-        public KhemistryBatchISRURecipe(ConfigNode node, string ConverterName)
+        public KhemistryISRURecipe(ConfigNode node, string ConverterName)
         {
             try
             {
@@ -1094,7 +1094,7 @@ namespace Khemistry
                 {
                     KShared.LogError(
                         "Recipe \"" + _name + "\": CHARGE_CON_NAMES and CHARGE_CON_AMOUNTS length mismatch — charging disabled for this recipe.",
-                        "KhemistryBatchISRURecipe/constructor");
+                        "KhemistryISRURecipe/constructor");
                     _chargeNames.Clear();
                     _chargeAmounts.Clear();
                 }
@@ -1113,19 +1113,19 @@ namespace Khemistry
 
                         if (!planetNode.HasNode("BIOME_CONFIG"))
                         {
-                            KShared.LogNoNode("BIOME_CONFIG", "Converter \"" + ConverterName + "\": Recipe \"" + _name + "\" ", "KhemistryBatchISRURecipe/constructor");
+                            KShared.LogNoNode("BIOME_CONFIG", "Converter \"" + ConverterName + "\": Recipe \"" + _name + "\" ", "KhemistryISRURecipe/constructor");
                             continue;
                         }
 
-                        if (!_planetConfigs.TryGetValue(planetName, out Dictionary<string, BatchISRUBiomeConfig> biomeDict))
+                        if (!_planetConfigs.TryGetValue(planetName, out Dictionary<string, KhemistryISRUBiomeConfig> biomeDict))
                         {
-                            biomeDict = new Dictionary<string, BatchISRUBiomeConfig>();
+                            biomeDict = new Dictionary<string, KhemistryISRUBiomeConfig>();
                             _planetConfigs.Add(planetName, biomeDict);
                         }
 
                         foreach (ConfigNode biomeNode in planetNode.GetNodes("BIOME_CONFIG"))
                         {
-                            BatchISRUBiomeConfig biomeConfig = new BatchISRUBiomeConfig(biomeNode, ConverterName);
+                            KhemistryISRUBiomeConfig biomeConfig = new KhemistryISRUBiomeConfig(biomeNode, ConverterName);
                             string biomeKey = biomeConfig.biomeName ?? "ALL";
                             biomeDict[biomeKey] = biomeConfig;
                         }
@@ -1134,11 +1134,11 @@ namespace Khemistry
                 else
                 {
                     // Instead of requiring a node just use an empty one with name=ALL
-                    //KShared.LogNoNode("PLANET_CONFIG", "Converter \"" + ConverterName + "\": Recipe \"" + _name + "\" ", "KhemistryBatchISRURecipe/constructor");
-                    Dictionary<string, BatchISRUBiomeConfig> biomeDict = new Dictionary<string, BatchISRUBiomeConfig>();
+                    //KShared.LogNoNode("PLANET_CONFIG", "Converter \"" + ConverterName + "\": Recipe \"" + _name + "\" ", "KhemistryISRURecipe/constructor");
+                    Dictionary<string, KhemistryISRUBiomeConfig> biomeDict = new Dictionary<string, KhemistryISRUBiomeConfig>();
                     ConfigNode configNode = new ConfigNode("BIOME_CONFIG");
                     configNode.AddValue("name", "ALL");
-                    biomeDict.Add("ALL", new BatchISRUBiomeConfig(configNode, ConverterName));
+                    biomeDict.Add("ALL", new KhemistryISRUBiomeConfig(configNode, ConverterName));
                     _planetConfigs.Add("ALL", biomeDict);
                 }
 
@@ -1160,7 +1160,7 @@ namespace Khemistry
                         else
                             KShared.LogError(
                                 "Recipe \"" + _name + "\": Unknown flowmode \"" + flowStr + "\" for " + resName + ", defaulting to STAGE_PRIORITY_FLOW.",
-                                "KhemistryBatchISRURecipe/constructor");
+                                "KhemistryISRURecipe/constructor");
                     }
 
                     _inputs.Add(new ResourceInput { resourceName = resName, amount = amount, flowMode = flowMode });
@@ -1173,7 +1173,7 @@ namespace Khemistry
                     string resName = pinputNode.GetValue("name");
                     if (string.IsNullOrEmpty(resName))
                     {
-                        KShared.LogNoValueInNode("PINPUT_RESOURCE", "name", "Recipe \"" + _name + "\" ", "KhemistryBatchISRURecipe/constructor");
+                        KShared.LogNoValueInNode("PINPUT_RESOURCE", "name", "Recipe \"" + _name + "\" ", "KhemistryISRURecipe/constructor");
                         continue;
                     }
 
@@ -1190,7 +1190,7 @@ namespace Khemistry
                         else
                             KShared.LogError(
                                 "Recipe \"" + _name + "\": Unknown flowmode \"" + pFlowStr + "\" for PINPUT_RESOURCE " + resName + ", defaulting to STAGE_PRIORITY_FLOW.",
-                                "KhemistryBatchISRURecipe/constructor");
+                                "KhemistryISRURecipe/constructor");
                     }
 
                     bool.TryParse(pinputNode.GetValue("ignorePowerfail"), out bool ignorePowerfail);
@@ -1235,7 +1235,7 @@ namespace Khemistry
                             {
                                 KShared.LogError(
                                     "Recipe \"" + _name + "\": Could not parse EXPLODE radius/temperature \"" + pfRaw + "\" for PINPUT_RESOURCE " + resName + " (expected EXPLODE,radiusMeters,tempCelsius) — defaulting to PAUSE.",
-                                    "KhemistryBatchISRURecipe/constructor");
+                                    "KhemistryISRURecipe/constructor");
                                 powerfail = PowerfailResult.Pause;
                             }
                         }
@@ -1243,7 +1243,7 @@ namespace Khemistry
                         {
                             KShared.LogError(
                                 "Recipe \"" + _name + "\": Unknown powefail \"" + pfRaw + "\" for PINPUT_RESOURCE " + resName + " — defaulting to PAUSE.",
-                                "KhemistryBatchISRURecipe/constructor");
+                                "KhemistryISRURecipe/constructor");
                             powerfail = PowerfailResult.Pause;
                         }
                     }
@@ -1307,14 +1307,14 @@ namespace Khemistry
                 if (_outputs.Count == 0 && _outputMaterials.Count == 0)
                     KShared.LogError(
                         "Recipe \"" + _name + "\" has no OUTPUT_RESOURCE nor OUTPUT_RESOURCE_MATERIAL nodes — it will do nothing.",
-                        "KhemistryBatchISRURecipe/constructor");
+                        "KhemistryISRURecipe/constructor");
 
                 ///// Timing and control /////
                 _recipeTime = KShared.GetDoubleValueFromCFG(node, "recipeTime", 0.0);
                 if (_recipeTime <= 0.0)
                     KShared.LogError(
                         "Recipe \"" + _name + "\" has no valid recipeTime set — it will never complete a batch.",
-                        "KhemistryBatchISRURecipe/constructor");
+                        "KhemistryISRURecipe/constructor");
 
                 KShared.ParseShowRule(
                     KShared.GetStrValueFromCFG(node, "controlRules", "PAW"),
@@ -1337,7 +1337,7 @@ namespace Khemistry
                     default:
                         KShared.LogError(
                             "Recipe \"" + _name + "\": Unknown workersType \"" + workersTypeStr + "\" — defaulting to EVA.",
-                            "KhemistryBatchISRURecipe/constructor");
+                            "KhemistryISRURecipe/constructor");
                         break;
                 }
 
@@ -1349,30 +1349,30 @@ namespace Khemistry
                 KShared.Log(
                 string.Format("An error occured. Message: {0}. Stack trace: {1}. ",
                     ex.Message, ex.StackTrace),
-                "KhemistryBatchISRURecipe/constructor");
+                "KhemistryISRURecipe/constructor");
             }
         }
 
         /// <summary>
-        /// Looks up the applicable BatchISRUBiomeConfig for a given planet/biome, falling back
+        /// Looks up the applicable KhemistryISRUBiomeConfig for a given planet/biome, falling back
         /// from exact biome → ALL biome on that planet → ALL planet/ALL biome → null (no config,
         /// recipe cannot operate at the current location).
         /// </summary>
-        public BatchISRUBiomeConfig GetBiomeConfig(string planet, string biome)
+        public KhemistryISRUBiomeConfig GetBiomeConfig(string planet, string biome)
         {
-            if (_planetConfigs.TryGetValue(planet, out Dictionary<string, BatchISRUBiomeConfig> biomeDict))
+            if (_planetConfigs.TryGetValue(planet, out Dictionary<string, KhemistryISRUBiomeConfig> biomeDict))
             {
-                if (biome != null && biomeDict.TryGetValue(biome, out BatchISRUBiomeConfig exact))
+                if (biome != null && biomeDict.TryGetValue(biome, out KhemistryISRUBiomeConfig exact))
                     return exact;
-                if (biomeDict.TryGetValue("ALL", out BatchISRUBiomeConfig planetAll))
+                if (biomeDict.TryGetValue("ALL", out KhemistryISRUBiomeConfig planetAll))
                     return planetAll;
             }
 
-            if (_planetConfigs.TryGetValue("ALL", out Dictionary<string, BatchISRUBiomeConfig> allPlanetDict))
+            if (_planetConfigs.TryGetValue("ALL", out Dictionary<string, KhemistryISRUBiomeConfig> allPlanetDict))
             {
-                if (biome != null && allPlanetDict.TryGetValue(biome, out BatchISRUBiomeConfig exactAll))
+                if (biome != null && allPlanetDict.TryGetValue(biome, out KhemistryISRUBiomeConfig exactAll))
                     return exactAll;
-                if (allPlanetDict.TryGetValue("ALL", out BatchISRUBiomeConfig globalAll))
+                if (allPlanetDict.TryGetValue("ALL", out KhemistryISRUBiomeConfig globalAll))
                     return globalAll;
             }
 
@@ -1385,9 +1385,9 @@ namespace Khemistry
         /// recipeMultiplier or per-name multiplier applied. Timing, workers, charging, and
         /// planet configs are shared by reference (not affected by the multiplier).
         /// </summary>
-        public KhemistryBatchISRURecipe ScaledCopy(double multiplier)
+        public KhemistryISRURecipe ScaledCopy(double multiplier)
         {
-            KhemistryBatchISRURecipe copy = new KhemistryBatchISRURecipe();
+            KhemistryISRURecipe copy = new KhemistryISRURecipe();
             copy._name = _name;
             copy._recipeTypes = _recipeTypes;
             copy._recipeSubtypes = _recipeSubtypes;
@@ -1442,7 +1442,7 @@ namespace Khemistry
         }
 
         /// <summary>Parameterless constructor used internally by ScaledCopy.</summary>
-        public KhemistryBatchISRURecipe() { }
+        public KhemistryISRURecipe() { }
 
         /// <summary>True if this recipe is tagged with the given recipeType/Subtype/Subsubtype (any left null are not checked).</summary>
         public bool MatchesTypes(string recipeType, string recipeSubtype, string recipeSubsubtype)
@@ -1636,9 +1636,9 @@ namespace Khemistry
         }
 
         /// <summary>
-        /// Applies the recipe-related values and nodes on a <see cref="KhemistryBatchISRU"/> MODULE node on top of
+        /// Applies the recipe-related values and nodes on a <see cref="KhemistryISRU"/> MODULE node on top of
         /// a loaded recipe's config node, returning a new merged node suitable for re-parsing into a
-        /// <see cref="KhemistryBatchISRURecipe"/>. Module-only bookkeeping (identity, converter naming, recipe
+        /// <see cref="KhemistryISRURecipe"/>. Module-only bookkeeping (identity, converter naming, recipe
         /// selection filters, RECIPE/RECIPE_NAMES/RECIPE_MULTIPLIERS) is ignored. Every other value
         /// or node present on the MODULE node fully overrides the matching key on the recipe, except
         /// PLANET_CONFIG (and its BIOME_CONFIG children), which are merged instead — see
@@ -1703,7 +1703,7 @@ namespace Khemistry
     /// <summary>
     /// An ISRU module that uses batches and is the main Khemistry ISRU module.
     /// </summary>
-    public class KhemistryBatchISRU : PartModule
+    public class KhemistryISRU : PartModule
     {
         ///// Activity and displays /////        
         [KSPField(isPersistant = true)] public bool isRunning = false;
@@ -1755,7 +1755,7 @@ namespace Khemistry
             {
                 KShared.LogError(
                     "Converter \"" + ConverterName + "\": No animator found for clip \"" + animName + "\".",
-                    "KhemistryBatchISRU/SetupActiveAnimation");
+                    "KhemistryISRU/SetupActiveAnimation");
                 _activeAnim = null;
                 _activeAnimationName = null;
                 return;
@@ -1768,7 +1768,7 @@ namespace Khemistry
             KShared.Log(
                 "Converter \"" + ConverterName + "\": Hooked active animation \"" + animName + "\""
                 + (animGroup != null ? " (from ModuleAnimationGroup)." : " (from activeAnimationNameOverride)."),
-                "KhemistryBatchISRU/SetupActiveAnimation");
+                "KhemistryISRU/SetupActiveAnimation");
         }
 
         /// <summary>
@@ -1858,7 +1858,7 @@ namespace Khemistry
             if (!chargingRequired) return;
             if (state == ConverterState.On) return;
             state = ConverterState.Charging;
-            KShared.Log("Charging enabled.", "KhemistryBatchISRU/EnableCharging");
+            KShared.Log("Charging enabled.", "KhemistryISRU/EnableCharging");
         }
 
         [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Disable Charging",
@@ -1868,7 +1868,7 @@ namespace Khemistry
             if (!chargingRequired) return;
             if (state != ConverterState.Charging) return;
             state = ConverterState.Off;
-            KShared.Log("Charging disabled.", "KhemistryBatchISRU/DisableCharging");
+            KShared.Log("Charging disabled.", "KhemistryISRU/DisableCharging");
         }
 
         ///// Powerfail /////
@@ -1880,31 +1880,31 @@ namespace Khemistry
         /// resources instead of refunding them. MAINT is VOID plus a maintenance requirement.
         /// EXPLODE destroys the part and applies falling-off heat to nearby parts.
         /// </summary>
-        protected void TriggerPowerfail(Part contextPart, KhemistryBatchISRURecipe.PowerfailResult powerfailResult,
+        protected void TriggerPowerfail(Part contextPart, KhemistryISRURecipe.PowerfailResult powerfailResult,
             double explosionRadius = 0.0, double explosionTemperatureCelsius = 0.0)
         {
             KShared.Log(
                 "Converter \"" + ConverterName + "\" powerfailed. Result: " + powerfailResult,
-                "KhemistryBatchISRU/TriggerPowerfail");
+                "KhemistryISRU/TriggerPowerfail");
 
             switch (powerfailResult)
             {
-                case KhemistryBatchISRURecipe.PowerfailResult.Pause:
+                case KhemistryISRURecipe.PowerfailResult.Pause:
                     statusDisplay = "Paused";
                     break;
-                case KhemistryBatchISRURecipe.PowerfailResult.Stop:
+                case KhemistryISRURecipe.PowerfailResult.Stop:
                     RefundPassiveConsumption();
                     batchProgress = 0.0;
                     isRunning = false;
                     statusDisplay = "Stopped (powerfail)";
                     break;
-                case KhemistryBatchISRURecipe.PowerfailResult.Void:
+                case KhemistryISRURecipe.PowerfailResult.Void:
                     ClearPassiveConsumption();
                     batchProgress = 0.0;
                     isRunning = false;
                     statusDisplay = "Stopped (powerfail, resources lost)";
                     break;
-                case KhemistryBatchISRURecipe.PowerfailResult.Maint:
+                case KhemistryISRURecipe.PowerfailResult.Maint:
                     ClearPassiveConsumption();
                     batchProgress = 0.0;
                     isRunning = false;
@@ -1914,7 +1914,7 @@ namespace Khemistry
                         "Converter \"" + ConverterName + "\": Requires maintenance by an Engineer.",
                         8f, ScreenMessageStyle.UPPER_CENTER));
                     break;
-                case KhemistryBatchISRURecipe.PowerfailResult.Explode:
+                case KhemistryISRURecipe.PowerfailResult.Explode:
                     KShared.TriggerExplosionWithHeat(contextPart, (float)explosionRadius, (float)explosionTemperatureCelsius);
                     break;
             }
@@ -1956,7 +1956,7 @@ namespace Khemistry
                 return;
             }
             state = ConverterState.On;
-            KShared.Log("Converter turned ON.", "KhemistryBatchISRU/TurnOnContainer");
+            KShared.Log("Converter turned ON.", "KhemistryISRU/TurnOnContainer");
         }
 
         [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Turn off converter",
@@ -1964,7 +1964,7 @@ namespace Khemistry
         public void TurnOffConverter()
         {
             state = ConverterState.Off;
-            KShared.Log("Converter turned OFF.", "KhemistryBatchISRU/TurnOffContainer");
+            KShared.Log("Converter turned OFF.", "KhemistryISRU/TurnOffContainer");
         }
 
         ///// Variables /////
@@ -1981,7 +1981,7 @@ namespace Khemistry
         protected float _configMaxInteractionDistance = 7f;
         protected float _configMaxDisplayDistance = 10f;
 
-        protected List<KhemistryBatchISRURecipe> recipes = new List<KhemistryBatchISRURecipe>();
+        protected List<KhemistryISRURecipe> recipes = new List<KhemistryISRURecipe>();
 
         protected bool _fatalConfigError = false;
         protected double _outputWarnCooldown = 0.0;
@@ -2002,7 +2002,7 @@ namespace Khemistry
         [KSPField(isPersistant = true)] public string activeRecipeName = null;
         [KSPField(isPersistant = true)] public double batchProgress = 0.0;
 
-        protected KhemistryBatchISRURecipe _activeRecipe = null;
+        protected KhemistryISRURecipe _activeRecipe = null;
 
         // Parallel to _activeRecipe._passiveInputs; not persisted (periods are short, so
         // losing phase across a save/reload is a harmless simplification).
@@ -2013,8 +2013,8 @@ namespace Khemistry
         // during the in-progress batch, while VOID/MAINT discard it instead.
         protected readonly List<double> _passiveConsumedThisBatch = new List<double>();
 
-        protected readonly Dictionary<KhemistryBatchISRURecipe.ResourceOutputMaterial, double> _materialOutputAmount =
-            new Dictionary<KhemistryBatchISRURecipe.ResourceOutputMaterial, double>();
+        protected readonly Dictionary<KhemistryISRURecipe.ResourceOutputMaterial, double> _materialOutputAmount =
+            new Dictionary<KhemistryISRURecipe.ResourceOutputMaterial, double>();
 
         ///// Converter controlling /////
         [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Start Converter",
@@ -2034,7 +2034,7 @@ namespace Khemistry
             {
                 KShared.LogError(
                     "Converter \"" + ConverterName + "\": No matching deposit (" + string.Join(", ", _depositConditions) + ") found at this location.",
-                    "KhemistryBatchISRU/StartConverter");
+                    "KhemistryISRU/StartConverter");
                 ScreenMessages.PostScreenMessage(new ScreenMessage(
                     "Converter \"" + ConverterName + "\": Can't operate — not at a required deposit.",
                     5f, ScreenMessageStyle.UPPER_CENTER));
@@ -2042,7 +2042,7 @@ namespace Khemistry
             }
 
             isRunning = true;
-            KShared.Log("Converter \"" + ConverterName + "\" started.", "KhemistryBatchISRU/StartConverter");
+            KShared.Log("Converter \"" + ConverterName + "\" started.", "KhemistryISRU/StartConverter");
             UpdateEventVisibility();
         }
 
@@ -2062,7 +2062,7 @@ namespace Khemistry
             {
                 KShared.LogError(
                     "Converter \"" + ConverterName + "\": Cannot check depositCondition — KShared instance is not loaded yet.",
-                    "KhemistryBatchISRU/IsAtRequiredDeposit");
+                    "KhemistryISRU/IsAtRequiredDeposit");
                 return false;
             }
 
@@ -2078,7 +2078,7 @@ namespace Khemistry
         public void StopConverter()
         {
             isRunning = false;
-            KShared.Log("Converter \"" + ConverterName + "\" stopped.", "KhemistryBatchISRU/StopConverter");
+            KShared.Log("Converter \"" + ConverterName + "\" stopped.", "KhemistryISRU/StopConverter");
             UpdateEventVisibility();
         }
         [KSPAction("Start Converter")]
@@ -2101,7 +2101,7 @@ namespace Khemistry
         /// </summary>
         protected void LoadConfigFromPartInfo()
         {
-            ConfigNode moduleNode = KShared.FindModuleConfigNode(part, ConverterName, "KhemistryBatchISRU");
+            ConfigNode moduleNode = KShared.FindModuleConfigNode(part, ConverterName, "KhemistryISRU");
             if (moduleNode == null)
             {
                 // Already logged by FindModuleConfigNode — fail loudly instead of NRE-ing through
@@ -2124,7 +2124,7 @@ namespace Khemistry
             {
                 KShared.LogError(
                     "Converter \"" + ConverterName + "\": moduleType=partEVA is not implemented yet — falling back to normal.",
-                    "KhemistryBatchISRU/LoadConfigFromPartInfo");
+                    "KhemistryISRU/LoadConfigFromPartInfo");
                 moduleType = "normal";
             }
 
@@ -2151,7 +2151,7 @@ namespace Khemistry
                             _chargeAmounts.Add(tmp);
                 if (_chargeNames.Count != _chargeAmounts.Count)
                     KShared.LogError("CHARGE_CON_NAMES and CHARGE_CON_AMOUNTS length mismatch.",
-                        "KhemistryBatchISRU/LoadConfigFromPartInfo");
+                        "KhemistryISRU/LoadConfigFromPartInfo");
             }
 
             ///// Recipes: local RECIPE nodes /////
@@ -2160,8 +2160,8 @@ namespace Khemistry
             {
                 foreach (ConfigNode recipeNode in moduleNode.GetNodes("RECIPE"))
                 {
-                    ConfigNode mergedNode = KhemistryBatchISRURecipe.ApplyModuleOverrides(moduleNode, recipeNode);
-                    recipes.Add(new KhemistryBatchISRURecipe(mergedNode, ConverterName));
+                    ConfigNode mergedNode = KhemistryISRURecipe.ApplyModuleOverrides(moduleNode, recipeNode);
+                    recipes.Add(new KhemistryISRURecipe(mergedNode, ConverterName));
                 }
             }
 
@@ -2179,7 +2179,7 @@ namespace Khemistry
                 if (!moduleNode.GetNode("RECIPE_NAMES").HasValue("name"))
                     KShared.LogError(
                         "Converter \"" + ConverterName + "\": Node RECIPE_NAMES is present but has no \"name\" values, skipping.",
-                        "KhemistryBatchISRU/LoadConfigFromPartInfo");
+                        "KhemistryISRU/LoadConfigFromPartInfo");
                 else
                     _recipeNames.AddRange(moduleNode.GetNode("RECIPE_NAMES").GetValues("name"));
 
@@ -2194,7 +2194,7 @@ namespace Khemistry
                         KShared.LogError(
                             "Converter \"" + ConverterName + "\": RECIPE_NAMES and RECIPE_MULTIPLIERS have unequal counts ("
                             + _recipeNames.Count + ", " + _recipeMultipliers.Count + ") — ignoring RECIPE_MULTIPLIERS.",
-                            "KhemistryBatchISRU/LoadConfigFromPartInfo");
+                            "KhemistryISRU/LoadConfigFromPartInfo");
                         _recipeMultipliers.Clear();
                     }
                 }
@@ -2202,7 +2202,7 @@ namespace Khemistry
             else if (moduleNode.HasNode("RECIPE_MULTIPLIERS"))
                 KShared.LogError(
                     "Converter \"" + ConverterName + "\": Node RECIPE_MULTIPLIERS is present but no RECIPE_NAMES node is present.",
-                    "KhemistryBatchISRU/LoadConfigFromPartInfo");
+                    "KhemistryISRU/LoadConfigFromPartInfo");
 
             if (shared != null)
             {
@@ -2211,34 +2211,34 @@ namespace Khemistry
                     for (int i = 0; i < _recipeNames.Count; i++)
                     {
                         string wantedName = _recipeNames[i];
-                        KhemistryBatchISRURecipe found = shared.batchRecipeList.FirstOrDefault(r => r._name == wantedName);
+                        KhemistryISRURecipe found = shared.batchRecipeList.FirstOrDefault(r => r._name == wantedName);
                         if (found == null)
                         {
                             KShared.LogError(
                                 "Converter \"" + ConverterName + "\": RECIPE_NAMES entry \"" + wantedName
                                 + "\" does not match any loaded KHEMISTRYBATCHISRU_RECIPE.",
-                                "KhemistryBatchISRU/LoadConfigFromPartInfo");
+                                "KhemistryISRU/LoadConfigFromPartInfo");
                             continue;
                         }
                         // Global recipeMultiplier and the per-name RECIPE_MULTIPLIERS entry stack:
                         // global is applied first, then the local (per-name) multiplier.
                         float localMult = (i < _recipeMultipliers.Count) ? _recipeMultipliers[i] : 1f;
-                        ConfigNode mergedFoundNode = KhemistryBatchISRURecipe.ApplyModuleOverrides(moduleNode, found.mainNode);
-                        KhemistryBatchISRURecipe overriddenFound = new KhemistryBatchISRURecipe(mergedFoundNode, ConverterName);
+                        ConfigNode mergedFoundNode = KhemistryISRURecipe.ApplyModuleOverrides(moduleNode, found.mainNode);
+                        KhemistryISRURecipe overriddenFound = new KhemistryISRURecipe(mergedFoundNode, ConverterName);
                         recipes.Add(overriddenFound.ScaledCopy(recipeMultiplier * localMult));
                     }
                 }
                 if (recipeType != null || recipeSubtype != null || recipeSubsubtype != null)
                 {
-                    foreach (KhemistryBatchISRURecipe candidate in shared.batchRecipeList)
+                    foreach (KhemistryISRURecipe candidate in shared.batchRecipeList)
                     {
                         if (candidate.MatchesTypes(recipeType, recipeSubtype, recipeSubsubtype))
                         {
-                            ConfigNode mergedCandidateNode = KhemistryBatchISRURecipe.ApplyModuleOverrides(moduleNode, candidate.mainNode);
-                            KhemistryBatchISRURecipe overriddenCandidate = new KhemistryBatchISRURecipe(mergedCandidateNode, ConverterName);
+                            ConfigNode mergedCandidateNode = KhemistryISRURecipe.ApplyModuleOverrides(moduleNode, candidate.mainNode);
+                            KhemistryISRURecipe overriddenCandidate = new KhemistryISRURecipe(mergedCandidateNode, ConverterName);
 
                             // Check if this wasn't already added by RECIPE_NAMES logic
-                            foreach (KhemistryBatchISRURecipe recipe in recipes)
+                            foreach (KhemistryISRURecipe recipe in recipes)
                                 if (recipe._name == overriddenCandidate._name)
                                     continue;  // skip this candidate
 
@@ -2252,7 +2252,7 @@ namespace Khemistry
             {
                 _fatalConfigError = true;
                 KShared.LogError("Converter \"" + ConverterName + "\": No recipes were loaded!",
-                        "KhemistryBatchISRU/LoadSharedConfig");
+                        "KhemistryISRU/LoadSharedConfig");
                 return;
             }
 
@@ -2264,15 +2264,15 @@ namespace Khemistry
                 if (moduleNode.HasValue("maxInteractionDistance"))
                     KShared.LogError(
                         "Converter \"" + ConverterName + "\" (moduleType=kerbalEVA): \"maxInteractionDistance\" is ignored.",
-                        "KhemistryBatchISRU/LoadConfigFromPartInfo");
+                        "KhemistryISRU/LoadConfigFromPartInfo");
                 if (moduleNode.HasValue("maxDisplayDistance"))
                     KShared.LogError(
                         "Converter \"" + ConverterName + "\" (moduleType=kerbalEVA): \"maxDisplayDistance\" is ignored.",
-                        "KhemistryBatchISRU/LoadConfigFromPartInfo");
+                        "KhemistryISRU/LoadConfigFromPartInfo");
                 if (moduleNode.HasValue("workersCrewSamePart"))
                     KShared.LogError(
                         "Converter \"" + ConverterName + "\" (moduleType=kerbalEVA): \"workersCrewSamePart\" is ignored.",
-                        "KhemistryBatchISRU/LoadConfigFromPartInfo");
+                        "KhemistryISRU/LoadConfigFromPartInfo");
                 _configMaxInteractionDistance = float.MaxValue;
                 _configMaxDisplayDistance = float.MaxValue;
             }
@@ -2287,7 +2287,7 @@ namespace Khemistry
             _maxDisplayDistance = _configMaxDisplayDistance;
 
             ///// Select active recipe /////
-            KhemistryBatchISRURecipe initial = null;
+            KhemistryISRURecipe initial = null;
             if (!string.IsNullOrEmpty(activeRecipeName))
                 initial = recipes.FirstOrDefault(r => r._name == activeRecipeName);
             if (initial == null) initial = recipes[0];
@@ -2308,7 +2308,7 @@ namespace Khemistry
                     KShared.LogError(
                         "Converter \"" + ConverterName + "\" (moduleType=kerbalEVA): \"" + key
                         + "\" in " + context + " is ignored for kerbalEVA converters.",
-                        "KhemistryBatchISRU/StripKerbalEVAIncompatibleFields");
+                        "KhemistryISRU/StripKerbalEVAIncompatibleFields");
             }
 
             WarnIfPresent(moduleNode, "workersType", "the MODULE node");
@@ -2338,7 +2338,7 @@ namespace Khemistry
                 }
             }
 
-            foreach (KhemistryBatchISRURecipe recipe in recipes)
+            foreach (KhemistryISRURecipe recipe in recipes)
             {
                 recipe._workersEngineers = 0;
                 recipe._workersPilots = 0;
@@ -2349,13 +2349,13 @@ namespace Khemistry
                 for (int i = 0; i < recipe._passiveInputs.Count; i++)
                 {
                     var pinp = recipe._passiveInputs[i];
-                    if (pinp.powerfail == KhemistryBatchISRURecipe.PowerfailResult.Maint)
+                    if (pinp.powerfail == KhemistryISRURecipe.PowerfailResult.Maint)
                     {
                         KShared.LogError(
                             "Converter \"" + ConverterName + "\" (moduleType=kerbalEVA): Recipe \"" + recipe._name
                             + "\" has a MAINT powerfailResult, which requires an Engineer and doesn't apply here — treating as VOID.",
-                            "KhemistryBatchISRU/StripKerbalEVAIncompatibleFields");
-                        pinp.powerfail = KhemistryBatchISRURecipe.PowerfailResult.Void;
+                            "KhemistryISRU/StripKerbalEVAIncompatibleFields");
+                        pinp.powerfail = KhemistryISRURecipe.PowerfailResult.Void;
                         recipe._passiveInputs[i] = pinp;
                     }
                 }
@@ -2367,7 +2367,7 @@ namespace Khemistry
         /// (falling back to module-level charging if the recipe doesn't define its own),
         /// resets batch progress, and updates control show-rules.
         /// </summary>
-        protected void ApplyRecipe(KhemistryBatchISRURecipe recipe)
+        protected void ApplyRecipe(KhemistryISRURecipe recipe)
         {
             _activeRecipe = recipe;
             activeRecipeName = recipe._name;
@@ -2420,7 +2420,7 @@ namespace Khemistry
             if (shared == null) return;
 
             var labels = new List<string>();
-            foreach (KhemistryBatchISRURecipe r in recipes)
+            foreach (KhemistryISRURecipe r in recipes)
                 labels.Add(r._name + (r == _activeRecipe ? " [Active]" : ""));
 
             shared.ShowSelector("Switch Recipe", labels, label =>
@@ -2436,7 +2436,7 @@ namespace Khemistry
                 ScreenMessages.PostScreenMessage(new ScreenMessage(
                     "Switched to recipe \"" + _activeRecipe._name + "\".", 5f, ScreenMessageStyle.UPPER_CENTER));
                 KShared.Log("Converter \"" + ConverterName + "\" switched active recipe to \"" + _activeRecipe._name + "\".",
-                    "KhemistryBatchISRU/SwitchRecipe");
+                    "KhemistryISRU/SwitchRecipe");
             });
         }
 
@@ -2457,7 +2457,7 @@ namespace Khemistry
             }
             needsMaintenance = false;
             KShared.Log("Converter \"" + ConverterName + "\" maintained by " + kerbal.name + ".",
-                "KhemistryBatchISRU/PerformMaintenance");
+                "KhemistryISRU/PerformMaintenance");
             ScreenMessages.PostScreenMessage(new ScreenMessage(
                 "Converter \"" + ConverterName + "\": Maintenance complete.", 5f, ScreenMessageStyle.UPPER_CENTER));
             UpdateEventVisibility();
@@ -2484,7 +2484,7 @@ namespace Khemistry
 
             // Peek moduleType early (before LoadConfigFromPartInfo runs its full parse) so the
             // kerbal-host / duplicate checks below can bail out before doing anything else.
-            ConfigNode precheckNode = KShared.FindModuleConfigNode(part, ConverterName, "KhemistryBatchISRU");
+            ConfigNode precheckNode = KShared.FindModuleConfigNode(part, ConverterName, "KhemistryISRU");
             moduleType = KShared.GetStrValueFromCFG(precheckNode, "moduleType", "normal");
 
             if (moduleType == "kerbalEVA")
@@ -2495,30 +2495,30 @@ namespace Khemistry
                     KShared.LogError(
                         "Converter \"" + ConverterName + "\" has moduleType=kerbalEVA but part \"" + part.name
                         + "\" has no KhemistryKerbal module — this module only works on a kerbal part.",
-                        "KhemistryBatchISRU/OnStart");
+                        "KhemistryISRU/OnStart");
                     _fatalConfigError = true;
                     DisableAllUI();
                     statusDisplay = "ERROR: not on a kerbal part, see log";
                     return;
                 }
 
-                // Only one kerbalEVA-type KhemistryBatchISRU may run per kerbal. Rather than
+                // Only one kerbalEVA-type KhemistryISRU may run per kerbal. Rather than
                 // re-deriving each sibling's moduleType from its (possibly already-renamed)
                 // ConverterName — which breaks once the first instance renames itself to
                 // "Kerbal" — claim a slot on the (already deduplicated, singular) KhemistryKerbal
                 // host. This is robust regardless of how many duplicate module instances KSP's
                 // EVA-construct/DLC part assembly ends up creating, and in what order they start.
-                if (_kerbalHost.kerbalEVABatchISRU != null && _kerbalHost.kerbalEVABatchISRU != this)
+                if (_kerbalHost.kerbalEVAISRU != null && _kerbalHost.kerbalEVAISRU != this)
                 {
                     KShared.LogError(
-                        "Converter \"" + ConverterName + "\": another kerbalEVA KhemistryBatchISRU is already present on this kerbal — only one is allowed, disabling this one.",
-                        "KhemistryBatchISRU/OnStart");
+                        "Converter \"" + ConverterName + "\": another kerbalEVA KhemistryISRU is already present on this kerbal — only one is allowed, disabling this one.",
+                        "KhemistryISRU/OnStart");
                     _fatalConfigError = true;
                     DisableAllUI();
                     statusDisplay = "ERROR: duplicate kerbalEVA module, see log";
                     return;
                 }
-                _kerbalHost.kerbalEVABatchISRU = this;
+                _kerbalHost.kerbalEVAISRU = this;
             }
 
             LoadConfigFromPartInfo();
@@ -2622,7 +2622,7 @@ namespace Khemistry
                 if (def == null)
                 {
                     KShared.LogError("Unknown resource \"" + names[i] + "\" in consumption list.",
-                        "KhemistryBatchISRU/ConsumeVesselResources");
+                        "KhemistryISRU/ConsumeVesselResources");
                     pulled.Add(0.0);
                     allSatisfied = false;
                     continue;
@@ -2685,7 +2685,7 @@ namespace Khemistry
                 chargePercent = 100f;
                 state = ConverterState.On;
                 KShared.Log("Converter fully charged, now ON.",
-                    "KhemistryBatchISRU/HandleCharging");
+                    "KhemistryISRU/HandleCharging");
                 return;
             }
 
@@ -2738,15 +2738,15 @@ namespace Khemistry
         /// <summary>
         /// Check the current BIOME_CONFIG to update values and explode if needed.
         /// </summary>
-        /// <param name="biomeConfig">The <see cref="BatchISRUBiomeConfig"/> fetched outside the function.</param>
+        /// <param name="biomeConfig">The <see cref="KhemistryISRUBiomeConfig"/> fetched outside the function.</param>
         /// <returns>If <see langword="true"/>, an explosion or error happened.</returns>
-        protected bool CheckBiomeConfig(BatchISRUBiomeConfig biomeConfig)
+        protected bool CheckBiomeConfig(KhemistryISRUBiomeConfig biomeConfig)
         {
             if (biomeConfig == null)
             {
                 statusDisplay = "ERROR, please report this to the dev with the KSP.log.";
                 KShared.LogError($"Biome config is null for recipe \"{_activeRecipe._name}\" on planet \"{_runtimeData.planet}\" in biome \"{_runtimeData.biome}\"!",
-                    "KhemistryBatchISRU/CheckBiomeConfig");
+                    "KhemistryISRU/CheckBiomeConfig");
                 return true;
             }
 
@@ -2757,7 +2757,7 @@ namespace Khemistry
                 _runtimeData.temperature < biomeConfig.minTemperature || _runtimeData.temperature > biomeConfig.maxTemperature ||
                 _runtimeData.pressure < biomeConfig.minPressure || _runtimeData.pressure > biomeConfig.maxPressure)
             {
-                TriggerPowerfail(part, KhemistryBatchISRURecipe.PowerfailResult.Explode);
+                TriggerPowerfail(part, KhemistryISRURecipe.PowerfailResult.Explode);
                 return true;
             }
 
@@ -2779,12 +2779,12 @@ namespace Khemistry
             // "on" but may be paused this tick); recomputed again once progress actually advances.
             progressDisplay = FormatProgress(batchProgress, _activeRecipe._recipeTime);
 
-            BatchISRUBiomeConfig biomeConfig = _activeRecipe.GetBiomeConfig(_runtimeData.planet, _runtimeData.biome);
+            KhemistryISRUBiomeConfig biomeConfig = _activeRecipe.GetBiomeConfig(_runtimeData.planet, _runtimeData.biome);
             if (biomeConfig == null)
             {
                 statusDisplay = "ERROR, please report this to the dev with the KSP.log.";
                 KShared.LogError($"Biome config is null for recipe \"{_activeRecipe._name}\" on planet \"{_runtimeData.planet}\" in biome \"{_runtimeData.biome}\"!",
-                    "KhemistryBatchISRU/RunBatchCycle");
+                    "KhemistryISRU/RunBatchCycle");
                 return;
             }
 
@@ -2899,13 +2899,13 @@ namespace Khemistry
         /// falling-off heat. Returns false if the current tick's batch progress should not be
         /// advanced (anything other than a successful tick).
         /// </summary>
-        protected bool ProcessPassiveInputs(BatchISRUBiomeConfig biomeConfig, double dt)
+        protected bool ProcessPassiveInputs(KhemistryISRUBiomeConfig biomeConfig, double dt)
         {
             if (_activeRecipe._passiveInputs.Count == 0) return true;
 
             for (int i = 0; i < _activeRecipe._passiveInputs.Count; i++)
             {
-                KhemistryBatchISRURecipe.PassiveResourceInput pinp = _activeRecipe._passiveInputs[i];
+                KhemistryISRURecipe.PassiveResourceInput pinp = _activeRecipe._passiveInputs[i];
                 double timer = (i < _passiveTimers.Count) ? _passiveTimers[i] : 0.0;
                 timer += dt;
 
@@ -2927,7 +2927,7 @@ namespace Khemistry
 
                         if (i < _passiveTimers.Count) _passiveTimers[i] = timer;
 
-                        if (pinp.powerfail == KhemistryBatchISRURecipe.PowerfailResult.Pause)
+                        if (pinp.powerfail == KhemistryISRURecipe.PowerfailResult.Pause)
                             statusDisplay = "Paused: out of " + pinp.resourceName;
 
                         TriggerPowerfail(part, pinp.powerfail, pinp.powerfailExplosionRadius, pinp.powerfailExplosionTemperature);
@@ -2948,7 +2948,7 @@ namespace Khemistry
         /// (all-or-nothing) and, if successful, produces the OUTPUT_RESOURCE amounts and
         /// buffers OUTPUT_RESOURCE_MATERIAL production for KhemistryMaterialStorage pickup.
         /// </summary>
-        protected bool TryRunBatch(BatchISRUBiomeConfig biomeConfig)
+        protected bool TryRunBatch(KhemistryISRUBiomeConfig biomeConfig)
         {
             var names = new List<string>();
             var amounts = new List<float>();
@@ -3051,7 +3051,7 @@ namespace Khemistry
             {
                 KShared.LogError(
                     "randf(...) expression \"" + value + "\" has non-numeric bounds — leaving value as-is.",
-                    "KhemistryBatchISRU/ResolveRandf");
+                    "KhemistryISRU/ResolveRandf");
                 return value;
             }
 
@@ -3060,7 +3060,7 @@ namespace Khemistry
             {
                 KShared.LogError(
                     "randf(...) expression \"" + value + "\" has a negative decimal-place count — treating as 0.",
-                    "KhemistryBatchISRU/ResolveRandf");
+                    "KhemistryISRU/ResolveRandf");
                 n = 0;
             }
 
@@ -3094,7 +3094,7 @@ namespace Khemistry
                     KShared.LogError(
                         "Converter \"" + ConverterName + "\": OUTPUT_RESOURCE_MATERIAL \"" + matOutput.name
                         + "\" does not match any loaded KHEMISTRY_MATERIAL definition.",
-                        "KhemistryBatchISRU/TryTransferMaterialOutputBuffer");
+                        "KhemistryISRU/TryTransferMaterialOutputBuffer");
                     continue;
                 }
 
@@ -3104,7 +3104,7 @@ namespace Khemistry
                     resolvedParameters[kv.Key] = ResolveRandf(kv.Value);
 
                 if (!KShared.TryEvaluateOutVolumeExpression(matOutput.outVolume, resolvedSize, resolvedParameters,
-                        "KhemistryBatchISRU/TryTransferMaterialOutputBuffer", out double perUnitVolume))
+                        "KhemistryISRU/TryTransferMaterialOutputBuffer", out double perUnitVolume))
                     continue;  // error already logged
 
                 KhemistryMaterialInstance instance = new KhemistryMaterialInstance(
@@ -3148,8 +3148,8 @@ namespace Khemistry
     ////////////////////////////// Shared Data //////////////////////////////
 
     /// <summary>
-    /// Runtime data used by <see cref="KhemistryBatchISRU"/>.
-    /// This is checked by <see cref="BatchISRUBiomeConfig"/> to see if a recipe can run.
+    /// Runtime data used by <see cref="KhemistryISRU"/>.
+    /// This is checked by <see cref="KhemistryISRUBiomeConfig"/> to see if a recipe can run.
     /// </summary>
     public class KhemistryRuntimeData
     {
@@ -3276,7 +3276,7 @@ namespace Khemistry
             KShared.Log("Created " + kinst.undergroundDeposits.Count().ToString() + " underground deposits.", "KSharedMainMenu/Awake");
             KShared.Log("Created " + kinst.surfaceDeposits.Count().ToString() + " surface deposits.", "KSharedMainMenu/Awake");
 
-            // KhemistryBatchISRU recipes
+            // KhemistryISRU recipes
             foreach (ConfigNode node in GameDatabase.Instance.GetConfigNodes("KHEMISTRYBATCHISRU_RECIPE"))
             {
                 if (!node.HasValue("name"))
@@ -3284,9 +3284,9 @@ namespace Khemistry
                     KShared.LogError("A KHEMISTRYBATCHISRU_RECIPE has no name!", "KSharedMainMenu/Awake");
                     continue;
                 }
-                kinst.batchRecipeList.Add(new KhemistryBatchISRURecipe(node, node.GetValue("name")));
+                kinst.batchRecipeList.Add(new KhemistryISRURecipe(node, node.GetValue("name")));
             }
-            KShared.Log("Created " + kinst.batchRecipeList.Count.ToString() + " KhemistryBatchISRU recipes.", "KSharedMainMenu/Awake");
+            KShared.Log("Created " + kinst.batchRecipeList.Count.ToString() + " KhemistryISRU recipes.", "KSharedMainMenu/Awake");
 
             // Material definitions
             int materialCount = 0;
@@ -4217,11 +4217,11 @@ MODULE
         public float MaterialSuitCellTransferDistance => _materialSuitCellTransferDistance;
 
         /// <summary>
-        /// Claim slot for the single allowed kerbalEVA-type KhemistryBatchISRU on this kerbal.
+        /// Claim slot for the single allowed kerbalEVA-type KhemistryISRU on this kerbal.
         /// Set by whichever such module's OnStart runs first; used to detect and disable
         /// duplicates regardless of instance/config duplication order.
         /// </summary>
-        public KhemistryBatchISRU kerbalEVABatchISRU = null;
+        public KhemistryISRU kerbalEVAISRU = null;
 
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE0044:Add readonly modifier", Justification = "This is clearly used elsewhere in the code and shouldn't be readonly")]
         private HashSet<string> FluidCellPartNames = new HashSet<string>();
@@ -4250,7 +4250,7 @@ MODULE
 
         /// <summary>
         /// Requests (positive amount) or produces (negative amount) a resource directly against
-        /// this kerbal's fluid suit cell, for use by a kerbalEVA-mode KhemistryBatchISRU. Same
+        /// this kerbal's fluid suit cell, for use by a kerbalEVA-mode KhemistryISRU. Same
         /// amount/return contract as Part.RequestResource: returns the amount actually removed
         /// (consume) or the negative of the amount actually added (produce). Respects
         /// ALLOWED_RESOURCES and available suit cell capacity.

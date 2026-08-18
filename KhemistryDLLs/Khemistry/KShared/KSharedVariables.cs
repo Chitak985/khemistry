@@ -44,7 +44,7 @@ namespace Khemistry
         public List<KhemistryGDeposit> surfaceDeposits = new List<KhemistryGDeposit>();
 
         // Loaded BatchISRU recipe data
-        public List<KhemistryBatchISRURecipe> batchRecipeList = new List<KhemistryBatchISRURecipe>();
+        public List<KhemistryISRURecipe> batchRecipeList = new List<KhemistryISRURecipe>();
 
         // Loaded material data
         public List<KhemistryMaterial> materialList = new List<KhemistryMaterial>();
