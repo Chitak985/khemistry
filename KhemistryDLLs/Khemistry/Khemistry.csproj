@@ -71,7 +71,9 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="FluidCell.cs" />
+    <Compile Include="Deposits.cs" />
+    <Compile Include="PartModules\AdvancedStorage.cs" />
+    <Compile Include="PartModules\FluidCell.cs" />
     <Compile Include="KEI\KEIData.cs" />
     <Compile Include="KEI\KEILoader.cs" />
     <Compile Include="KEI\KEIMain.cs" />
@@ -83,6 +85,9 @@
     <Compile Include="KShared\KSharedOtherHelpers.cs" />
     <Compile Include="KShared\KSharedVariables.cs" />
     <Compile Include="Main.cs" />
+    <Compile Include="Materials.cs" />
+    <Compile Include="PartModules\Kerbal.cs" />
+    <Compile Include="PartModules\MaterialStorage.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
