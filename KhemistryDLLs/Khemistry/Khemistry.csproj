@@ -72,6 +72,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Deposits.cs" />
+    <Compile Include="KSharedMainMenu.cs" />
     <Compile Include="PartModules\AdvancedStorage.cs" />
     <Compile Include="PartModules\FluidCell.cs" />
     <Compile Include="KEI\KEIData.cs" />
@@ -84,11 +85,19 @@
     <Compile Include="KShared\KSharedMain.cs" />
     <Compile Include="KShared\KSharedOtherHelpers.cs" />
     <Compile Include="KShared\KSharedVariables.cs" />
-    <Compile Include="Main.cs" />
     <Compile Include="Materials.cs" />
     <Compile Include="PartModules\Kerbal.cs" />
+    <Compile Include="PartModules\KhemistryISRU\ISRUActions.cs" />
+    <Compile Include="PartModules\KhemistryISRU\ISRUBiomeConfig.cs" />
+    <Compile Include="PartModules\KhemistryISRU\ISRUEvents.cs" />
+    <Compile Include="PartModules\KhemistryISRU\ISRUHelpers.cs" />
+    <Compile Include="PartModules\KhemistryISRU\ISRUMain.cs" />
+    <Compile Include="PartModules\KhemistryISRU\ISRURecipe.cs" />
+    <Compile Include="PartModules\KhemistryISRU\ISRUVariables.cs" />
     <Compile Include="PartModules\MaterialStorage.cs" />
+    <Compile Include="PartModules\OBSOLETE.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="RuntimeData.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <PropertyGroup>
