@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 
 namespace Khemistry
 {
@@ -28,6 +29,38 @@ namespace Khemistry
         }
         public static string GetStrValueFromCFG(ConfigNode node, string value, string defaultValue)
             => (node != null && node.HasValue(value)) ? node.GetValue(value) : defaultValue;
+
+        /// <summary>
+        /// Gets charging nodes from a config node.
+        /// Note that it will return empty lists of both if a length mismatch occurs,
+        /// there are no values inside either of the nodes, or the nodes aren't present.
+        /// An error will only be logged if a length mismatch happens.
+        /// </summary>
+        /// <param name="moduleNode">The node containing (or not) CHARGE_CON_NAMES and CHARGE_CON_AMOUNTS.</param>
+        /// <param name="amounts">The <c>List&lt;float&gt;</c> for the charging amounts.</param>
+        /// <returns>The <c>List&lt;string&gt;</c> for the charging resource names.</returns>
+        public static List<string> GetChargingFromCFG(ConfigNode moduleNode, out List<float> amounts)
+        {
+            amounts = new List<float>();
+            List<string> names = new List<string>();
+
+            if (moduleNode.HasNode("CHARGE_CON_NAMES"))
+                foreach (string n in moduleNode.GetNode("CHARGE_CON_NAMES").GetValues("name"))
+                    names.Add(n.Trim());
+            if (moduleNode.HasNode("CHARGE_CON_AMOUNTS"))
+                foreach (string a in moduleNode.GetNode("CHARGE_CON_AMOUNTS").GetValues("amount"))
+                    if (float.TryParse(a, out float tmp))
+                        amounts.Add(tmp);
+
+            if (names.Count != amounts.Count)
+            {
+                amounts = new List<float>();
+                names = new List<string>();
+                KShared.LogError("CHARGE_CON_NAMES and CHARGE_CON_AMOUNTS length mismatch.",
+                    "KShared/GetChargingFromCFG");
+            }
+            return names;
+        }
 
         /// <summary>
         /// Gets a temperature value from a config node.

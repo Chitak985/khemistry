@@ -47,17 +47,9 @@ namespace Khemistry
         /// <summary> Is the animation playing </summary>
         private bool _animationPlaying = false;
 
-        /// <summary>
-        /// The state of a converter.
-        /// <list type="bullet">Off: The converter is currently turned off and is not running.</list>
-        /// <list type="bullet">Charging: Same as Off but the converter is charging.</list>
-        /// <list type="bullet">On: The converter is currently turned on and is running.</list>
-        /// </summary>
-        public enum ConverterState { Off, Charging, On }
-
-        /// <summary> The current state of this converter, see <see cref="ConverterState"/> for options. </summary>
+        /// <summary> The current state of this converter, see <see cref="KShared.ChargablePartState"/> for options. </summary>
         [KSPField(isPersistant = true)]
-        public ConverterState state = ConverterState.Off;
+        public KShared.ChargablePartState state = KShared.ChargablePartState.Off;
 
         [KSPField(isPersistant = false)] public string ConverterName = "Converter";
         [KSPField(isPersistant = false)] public string StartActionName = "Start working";
@@ -95,8 +87,8 @@ namespace Khemistry
         [KSPField(isPersistant = false)]
         public float chargeDecayRate = 0f;
 
-        protected readonly List<string> _chargeNames = new List<string>();
-        protected readonly List<float> _chargeAmounts = new List<float>();
+        protected List<string> _chargeNames = new List<string>();
+        protected List<float> _chargeAmounts = new List<float>();
 
         /// <summary> Percentage of current charge </summary>
         [KSPField(isPersistant = true)]

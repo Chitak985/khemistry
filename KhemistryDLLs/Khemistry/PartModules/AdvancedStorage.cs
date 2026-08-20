@@ -53,7 +53,7 @@ namespace Khemistry
 {
     /// <summary>
     /// A versatile storage system that can be configured to store multiple resources, require charging, and have passive consumption.
-    /// See the comment above for a sample config.
+    /// See the comment above source for a sample config.
     /// </summary>
     public class KhemistryAdvancedStorage : PartModule
     {
@@ -81,13 +81,11 @@ namespace Khemistry
         [KSPField(isPersistant = false)]
         public float chargeDecayRate = 0f;
 
-        public enum StorageState { Off, Charging, On }
-
         [KSPField(isPersistant = true)]
         public float chargePercent = 0f;
 
         [KSPField(isPersistant = true)]
-        public StorageState state = StorageState.Off;
+        public KShared.ChargablePartState state = KShared.ChargablePartState.Off;
 
         [KSPField(isPersistant = true)]
         public string activeResource = "";
@@ -118,8 +116,8 @@ namespace Khemistry
         private readonly List<string> _passiveNames = new List<string>();
         private readonly List<float> _passiveAmounts = new List<float>();
 
-        private readonly List<string> _chargeNames = new List<string>();
-        private readonly List<float> _chargeAmounts = new List<float>();
+        private List<string> _chargeNames = new List<string>();
+        private List<float> _chargeAmounts = new List<float>();
 
         private enum ConsequenceType { Off, Void, Destroy, Boiloff }
 
@@ -144,8 +142,8 @@ namespace Khemistry
         public void EnableCharging()
         {
             if (!chargingRequired) return;
-            if (state == StorageState.On) return;
-            state = StorageState.Charging;
+            if (state == KShared.ChargablePartState.On) return;
+            state = KShared.ChargablePartState.Charging;
             KShared.Log("Charging enabled.", "KhemistryAdvancedStorage/EnableCharging");
         }
 
@@ -154,8 +152,8 @@ namespace Khemistry
         public void DisableCharging()
         {
             if (!chargingRequired) return;
-            if (state != StorageState.Charging) return;
-            state = StorageState.Off;
+            if (state != KShared.ChargablePartState.Charging) return;
+            state = KShared.ChargablePartState.Off;
             KShared.Log("Charging disabled.", "KhemistryAdvancedStorage/DisableCharging");
         }
 
@@ -169,7 +167,7 @@ namespace Khemistry
                     "Container must be fully charged before turning on.", 5f, ScreenMessageStyle.UPPER_CENTER));
                 return;
             }
-            state = StorageState.On;
+            state = KShared.ChargablePartState.On;
             _passiveUnsatisfiedFired = false;
             KShared.Log("Container turned ON.", "KhemistryAdvancedStorage/TurnOnContainer");
         }
@@ -178,7 +176,7 @@ namespace Khemistry
                   groupName = "khemistryadvstorage", active = false)]
         public void TurnOffContainer()
         {
-            state = StorageState.Off;
+            state = KShared.ChargablePartState.Off;
             KShared.Log("Container turned OFF.", "KhemistryAdvancedStorage/TurnOffContainer");
         }
 
@@ -190,14 +188,14 @@ namespace Khemistry
 
             if (!string.IsNullOrEmpty(activeResource))
             {
-                var def = PartResourceLibrary.Instance.GetDefinition(activeResource);
+                PartResourceDefinition def = PartResourceLibrary.Instance.GetDefinition(activeResource);
                 if (def != null)
                 {
                     PartResource pr = part.Resources.Get(def.id);
                     if (pr != null && pr.amount >= 1.0)
                     {
                         ScreenMessages.PostScreenMessage(new ScreenMessage(
-                            "Container must be nearly empty to switch resource.", 5f, ScreenMessageStyle.UPPER_CENTER));
+                            "Container must be nearly empty to switch resource. (less than 1 unit)", 5f, ScreenMessageStyle.UPPER_CENTER));
                         return;
                     }
                     if (pr != null) pr.amount = 0.0;
@@ -211,11 +209,12 @@ namespace Khemistry
                 return;
             }
 
-            var shared = KShared.Instance;
+            KShared shared = KShared.Instance;
             if (shared == null)
             {
+                KShared.LogError("KShared is null!", "KhemistryAdvancedStorage/SelectResource");
                 ScreenMessages.PostScreenMessage(new ScreenMessage(
-                    "KShared not available.", 5f, ScreenMessageStyle.UPPER_CENTER));
+                    "An internal null reference error occured! A vital component (KShared) of the mod is missing, please restart the game.", 5f, ScreenMessageStyle.UPPER_CENTER));
                 return;
             }
 
@@ -247,11 +246,6 @@ namespace Khemistry
             _passiveUnsatisfiedFired = false;
             _filledUnpoweredAccum = 0.0;
             UpdateUI();
-        }
-
-        public override void OnLoad(ConfigNode node)
-        {
-            base.OnLoad(node);
         }
 
         public void FixedUpdate()
@@ -322,11 +316,12 @@ namespace Khemistry
 
             storageType = moduleNode.GetValue("storageType") ?? moduleNode.GetValue("type") ?? "single";
 
-            if (float.TryParse(moduleNode.GetValue("maximumResources"), out float tmp)) maximumResources = tmp;
-            maxInputRate = float.TryParse(moduleNode.GetValue("maxInputRate"), out tmp) ? tmp : -1f;
-            maxOutputRate = float.TryParse(moduleNode.GetValue("maxOutputRate"), out tmp) ? tmp : -1f;
-            if (float.TryParse(moduleNode.GetValue("chargeRate"), out tmp)) chargeRate = tmp;
-            if (float.TryParse(moduleNode.GetValue("chargeDecayRate"), out tmp)) chargeDecayRate = tmp;
+            maximumResources = KShared.GetFloatValueFromCFG(moduleNode, "maximumResources", maximumResources);
+            maxInputRate = KShared.GetFloatValueFromCFG(moduleNode, "maxInputRate", maxInputRate);
+            maxOutputRate = KShared.GetFloatValueFromCFG(moduleNode, "maxOutputRate", maxOutputRate);
+
+            chargeRate = KShared.GetFloatValueFromCFG(moduleNode, "chargeRate", chargeRate);
+            chargeDecayRate = KShared.GetFloatValueFromCFG(moduleNode, "chargeDecayRate", chargeDecayRate);
 
             if (bool.TryParse(moduleNode.GetValue("chargingRequired"), out bool tmpB)) chargingRequired = tmpB;
             if (bool.TryParse(moduleNode.GetValue("passiveConsumption"), out tmpB)) passiveConsumption = tmpB;
@@ -348,7 +343,8 @@ namespace Khemistry
                         _passiveNames.Add(n.Trim());
                 if (moduleNode.HasNode("PASSIVE_CON_AMOUNTS"))
                     foreach (string a in moduleNode.GetNode("PASSIVE_CON_AMOUNTS").GetValues("amount"))
-                    { if (float.TryParse(a, out tmp)) _passiveAmounts.Add(tmp); }
+                        if (float.TryParse(a, out float tmp))
+                            _passiveAmounts.Add(tmp);
                 if (_passiveNames.Count != _passiveAmounts.Count)
                     KShared.LogError("PASSIVE_CON_NAMES and PASSIVE_CON_AMOUNTS length mismatch.",
                         "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
@@ -357,17 +353,7 @@ namespace Khemistry
             _chargeNames.Clear();
             _chargeAmounts.Clear();
             if (chargingRequired)
-            {
-                if (moduleNode.HasNode("CHARGE_CON_NAMES"))
-                    foreach (string n in moduleNode.GetNode("CHARGE_CON_NAMES").GetValues("name"))
-                        _chargeNames.Add(n.Trim());
-                if (moduleNode.HasNode("CHARGE_CON_AMOUNTS"))
-                    foreach (string a in moduleNode.GetNode("CHARGE_CON_AMOUNTS").GetValues("amount"))
-                    { if (float.TryParse(a, out tmp)) _chargeAmounts.Add(tmp); }
-                if (_chargeNames.Count != _chargeAmounts.Count)
-                    KShared.LogError("CHARGE_CON_NAMES and CHARGE_CON_AMOUNTS length mismatch.",
-                        "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
-            }
+                _chargeNames = KShared.GetChargingFromCFG(moduleNode, out _chargeAmounts);
 
             if ((storageType == "single" || storageType == "multi") && string.IsNullOrEmpty(activeResource))
                 if (_supportedResources.Count > 0) activeResource = _supportedResources[0];
@@ -428,7 +414,7 @@ namespace Khemistry
         {
             foreach (string resName in _supportedResources)
             {
-                var def = PartResourceLibrary.Instance.GetDefinition(resName);
+                PartResourceDefinition def = PartResourceLibrary.Instance.GetDefinition(resName);
                 if (def == null)
                 {
                     KShared.LogError("Unknown resource \"" + resName + "\" in SUPPORTED_RESOURCES.",
@@ -460,7 +446,8 @@ namespace Khemistry
         {
             foreach (PartResource pr in part.Resources)
             {
-                if (!_supportedResources.Contains(pr.resourceName)) continue;
+                if (!_supportedResources.Contains(pr.resourceName))
+                    continue;
                 if (!string.IsNullOrEmpty(activeResource) && pr.resourceName != activeResource)
                     pr.amount = 0.0;
             }
@@ -470,7 +457,7 @@ namespace Khemistry
         {
             if (!chargingRequired) return;
 
-            if (state == StorageState.Off)
+            if (state == KShared.ChargablePartState.Off)
             {
                 if (chargeDecayRate > 0f)
                 {
@@ -480,12 +467,12 @@ namespace Khemistry
                 return;
             }
 
-            if (state != StorageState.Charging) return;
+            if (state != KShared.ChargablePartState.Charging) return;
 
             if (chargePercent >= 100f)
             {
                 chargePercent = 100f;
-                state = StorageState.On;
+                state = KShared.ChargablePartState.On;
                 KShared.Log("Container fully charged, now ON.",
                     "KhemistryAdvancedStorage/HandleCharging");
                 return;
@@ -511,7 +498,7 @@ namespace Khemistry
         {
             if (!passiveConsumption) return;
 
-            if (state == StorageState.On)
+            if (state == KShared.ChargablePartState.On)
             {
                 bool satisfied = ConsumeVesselResources(_passiveNames, _passiveAmounts, dt);
                 if (satisfied)
@@ -532,7 +519,7 @@ namespace Khemistry
 
         private void HandleFilledUnpowered(double dt)
         {
-            if (state == StorageState.On) return;
+            if (state == KShared.ChargablePartState.On) return;
 
             if (!HasAnyStoredResources()) return;
 
@@ -572,7 +559,7 @@ namespace Khemistry
                     KShared.Log(
                         string.Format("Destroying part with power {0:F1} ({1}).", cfg.value, source),
                         "KhemistryAdvancedStorage/ApplyConsequence");
-                    part.explode();
+                    KShared.TriggerExplosionWithHeat(part, (float)cfg.value, (float)(cfg.value*5)+100);
                     break;
 
                 case ConsequenceType.Boiloff:
@@ -590,7 +577,7 @@ namespace Khemistry
         /// </summary>
         private void ApplyBoiloff(float amountPerTick, string source)
         {
-            var filled = new List<PartResource>();
+            List<PartResource> filled = new List<PartResource>();
             double total = 0.0;
             foreach (PartResource pr in part.Resources)
             {
@@ -625,7 +612,7 @@ namespace Khemistry
             if (names.Count == 0 || amounts.Count == 0) return true;
             if (names.Count != amounts.Count) return false;
 
-            var pulled = new List<double>(names.Count);
+            List<double> pulled = new List<double>(names.Count);
             bool allSatisfied = true;
 
             for (int i = 0; i < names.Count; i++)
@@ -633,7 +620,7 @@ namespace Khemistry
                 float rate = amounts[i];
                 if (rate <= 0f) { pulled.Add(0.0); continue; }
 
-                var def = PartResourceLibrary.Instance.GetDefinition(names[i]);
+                PartResourceDefinition def = PartResourceLibrary.Instance.GetDefinition(names[i]);
                 if (def == null)
                 {
                     KShared.LogError("Unknown resource \"" + names[i] + "\" in consumption list.",
@@ -662,6 +649,9 @@ namespace Khemistry
             return true;
         }
 
+        /// <summary>
+        /// Whether the container has any stored resources.
+        /// </summary>
         private bool HasAnyStoredResources()
         {
             foreach (PartResource pr in part.Resources)
@@ -683,17 +673,15 @@ namespace Khemistry
         private void HandleTransferBlocking()
         {
             bool shouldFreeze =
-                (chargingRequired && state != StorageState.On) ||
-                (!chargingRequired && state == StorageState.Off);
+                (chargingRequired && state != KShared.ChargablePartState.On) ||
+                (!chargingRequired && state == KShared.ChargablePartState.Off);
 
             foreach (PartResource pr in part.Resources)
             {
                 if (!_supportedResources.Contains(pr.resourceName)) continue;
 
                 if (!shouldFreeze)
-                {
                     _frozenAmounts[pr.resourceName] = pr.amount;
-                }
                 else
                 {
                     if (_frozenAmounts.TryGetValue(pr.resourceName, out double frozen))
@@ -712,7 +700,7 @@ namespace Khemistry
             if (storageType == "multiShared")
             {
                 double total = 0.0;
-                var list = new List<PartResource>();
+                List<PartResource> list = new List<PartResource>();
                 foreach (PartResource pr in part.Resources)
                 {
                     if (!_supportedResources.Contains(pr.resourceName)) continue;
@@ -723,10 +711,12 @@ namespace Khemistry
                 if (total > maximumResources && total > 0.0)
                 {
                     double scale = maximumResources / total;
-                    foreach (PartResource pr in list) pr.amount *= scale;
+                    foreach (PartResource pr in list)
+                        pr.amount *= scale;
                 }
 
-                foreach (PartResource pr in list) pr.maxAmount = maximumResources;
+                foreach (PartResource pr in list)
+                    pr.maxAmount = maximumResources;
             }
             else
             {
@@ -746,7 +736,7 @@ namespace Khemistry
         private void UpdateUI()
         {
             double total = 0.0;
-            var parts = new List<string>();
+            List<string> parts = new List<string>();
 
             foreach (PartResource pr in part.Resources)
             {
@@ -771,10 +761,10 @@ namespace Khemistry
                 ? (string.IsNullOrEmpty(activeResource) ? "(none)" : activeResource)
                 : "(multiShared)";
 
-            Events["EnableCharging"].active = chargingRequired && state != StorageState.Charging && state != StorageState.On;
-            Events["DisableCharging"].active = chargingRequired && state == StorageState.Charging;
-            Events["TurnOnContainer"].active = state != StorageState.On;
-            Events["TurnOffContainer"].active = state == StorageState.On;
+            Events["EnableCharging"].active = chargingRequired && state != KShared.ChargablePartState.Charging && state != KShared.ChargablePartState.On;
+            Events["DisableCharging"].active = chargingRequired && state == KShared.ChargablePartState.Charging;
+            Events["TurnOnContainer"].active = state != KShared.ChargablePartState.On;
+            Events["TurnOffContainer"].active = state == KShared.ChargablePartState.On;
             Events["SelectResource"].active = storageType == "multi";
         }
     }

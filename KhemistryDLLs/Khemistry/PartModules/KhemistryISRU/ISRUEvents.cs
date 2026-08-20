@@ -10,8 +10,8 @@ namespace Khemistry
         public void EnableCharging()
         {
             if (!chargingRequired) return;
-            if (state == ConverterState.On) return;
-            state = ConverterState.Charging;
+            if (state == KShared.ChargablePartState.On) return;
+            state = KShared.ChargablePartState.Charging;
             KShared.Log("Charging enabled.", "KhemistryISRU/EnableCharging");
         }
 
@@ -20,8 +20,8 @@ namespace Khemistry
         public void DisableCharging()
         {
             if (!chargingRequired) return;
-            if (state != ConverterState.Charging) return;
-            state = ConverterState.Off;
+            if (state != KShared.ChargablePartState.Charging) return;
+            state = KShared.ChargablePartState.Off;
             KShared.Log("Charging disabled.", "KhemistryISRU/DisableCharging");
         }
 
@@ -35,7 +35,7 @@ namespace Khemistry
                     "Converter must be fully charged before turning on.", 5f, ScreenMessageStyle.UPPER_CENTER));
                 return;
             }
-            state = ConverterState.On;
+            state = KShared.ChargablePartState.On;
             KShared.Log("Converter turned ON.", "KhemistryISRU/TurnOnContainer");
         }
 
@@ -43,7 +43,7 @@ namespace Khemistry
                   groupName = "khemistryisru", active = false)]
         public void TurnOffConverter()
         {
-            state = ConverterState.Off;
+            state = KShared.ChargablePartState.Off;
             KShared.Log("Converter turned OFF.", "KhemistryISRU/TurnOffContainer");
         }
 
@@ -58,7 +58,7 @@ namespace Khemistry
                     5f, ScreenMessageStyle.UPPER_CENTER));
                 return;
             }
-            if (state != ConverterState.On) return;
+            if (state != KShared.ChargablePartState.On) return;
 
             if (_depositConditions.Count > 0 && !IsAtRequiredDeposit())
             {

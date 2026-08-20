@@ -208,18 +208,7 @@ namespace Khemistry
             _chargeNames.Clear();
             _chargeAmounts.Clear();
             if (chargingRequired)
-            {
-                if (moduleNode.HasNode("CHARGE_CON_NAMES"))
-                    foreach (string n in moduleNode.GetNode("CHARGE_CON_NAMES").GetValues("name"))
-                        _chargeNames.Add(n.Trim());
-                if (moduleNode.HasNode("CHARGE_CON_AMOUNTS"))
-                    foreach (string a in moduleNode.GetNode("CHARGE_CON_AMOUNTS").GetValues("amount"))
-                        if (float.TryParse(a, out float tmp))
-                            _chargeAmounts.Add(tmp);
-                if (_chargeNames.Count != _chargeAmounts.Count)
-                    KShared.LogError("CHARGE_CON_NAMES and CHARGE_CON_AMOUNTS length mismatch.",
-                        "KhemistryISRU/LoadConfigFromPartInfo");
-            }
+                _chargeNames = KShared.GetChargingFromCFG(moduleNode, out _chargeAmounts);
 
             ///// Recipes: local RECIPE nodes /////
             recipes.Clear();
@@ -471,7 +460,7 @@ namespace Khemistry
             Events["SwitchRecipe"].unfocusedRange = _configMaxInteractionDistance;
 
             if (!chargingRequired)
-                this.state = ConverterState.On;
+                this.state = KShared.ChargablePartState.On;
 
             _runtimeData = new KhemistryRuntimeData(vessel);  // vessel could be null
 
@@ -552,22 +541,22 @@ namespace Khemistry
                 ? string.Format("{0:F1}%", chargePercent)
                 : "N/A";
 
-            if (state == ConverterState.On)
+            if (state == KShared.ChargablePartState.On)
                 stateDisplay = "Ready";
             else
                 stateDisplay = state.ToString();
 
-            Events["EnableCharging"].active = chargingRequired && state != ConverterState.Charging && state != ConverterState.On;
-            Events["DisableCharging"].active = chargingRequired && state == ConverterState.Charging;
-            Events["TurnOnConverter"].active = state != ConverterState.On;
-            Events["TurnOffConverter"].active = state == ConverterState.On;
+            Events["EnableCharging"].active = chargingRequired && state != KShared.ChargablePartState.Charging && state != KShared.ChargablePartState.On;
+            Events["DisableCharging"].active = chargingRequired && state == KShared.ChargablePartState.Charging;
+            Events["TurnOnConverter"].active = state != KShared.ChargablePartState.On;
+            Events["TurnOffConverter"].active = state == KShared.ChargablePartState.On;
         }
 
         public void HandleCharging(double dt)
         {
             if (!chargingRequired) return;
 
-            if (state == ConverterState.Off)
+            if (state == KShared.ChargablePartState.Off)
             {
                 if (chargeDecayRate > 0f)
                 {
@@ -578,12 +567,12 @@ namespace Khemistry
                 return;
             }
 
-            if (state != ConverterState.Charging) return;
+            if (state != KShared.ChargablePartState.Charging) return;
 
             if (chargePercent >= 100f)
             {
                 chargePercent = 100f;
-                state = ConverterState.On;
+                state = KShared.ChargablePartState.On;
                 KShared.Log("Converter fully charged, now ON.",
                     "KhemistryISRU/HandleCharging");
                 return;
@@ -623,7 +612,7 @@ namespace Khemistry
             TryTransferMaterialOutputBuffer();
             UpdateEventVisibility();
 
-            if (needsMaintenance || !isRunning || state != ConverterState.On || _activeRecipe == null)
+            if (needsMaintenance || !isRunning || state != KShared.ChargablePartState.On || _activeRecipe == null)
             {
                 statusDisplay = needsMaintenance ? "Needs maintenance" : (!isRunning ? "Stopped" : "Not ready");
                 progressDisplay = "Off";

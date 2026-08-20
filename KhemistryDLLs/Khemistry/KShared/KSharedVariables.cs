@@ -67,5 +67,13 @@ namespace Khemistry
         {
             Any, Landed, Splashed, FlyingLow, FlyingHigh, SpaceLow, SpaceHigh, SubOrbital
         }
+
+        /// <summary>
+        /// The state of a chargable part.
+        /// <list type="bullet">Off: The part is currently turned off and is not working.</list>
+        /// <list type="bullet">Charging: Same as Off but the part is charging.</list>
+        /// <list type="bullet">On: The part is currently turned on and is working.</list>
+        /// </summary>
+        public enum ChargablePartState { Off, Charging, On }
     }
 }
