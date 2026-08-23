@@ -36,7 +36,7 @@ namespace Khemistry
         }
 
         /// <summary>
-        /// Evaluates an OUTPUT_RESOURCE_MATERIAL outVolume expression: plain numbers, +, -, *, /,
+        /// Evaluates an OUTPUT_MATERIAL outVolume expression: plain numbers, +, -, *, /,
         /// parentheses, the constant PI, the function Pow(a,b), and [name] tokens referring to
         /// either "size" or a defined material parameter (substituted with their numeric value
         /// before evaluation). Logs a specific error and returns false on any failure — a

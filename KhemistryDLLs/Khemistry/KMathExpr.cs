@@ -6,7 +6,7 @@ namespace Khemistry
     /// <summary>
     /// A minimal recursive-descent arithmetic expression evaluator supporting +, -, *, /,
     /// parentheses, unary +/-, the constant PI, and the function Pow(a,b). Used to evaluate
-    /// OUTPUT_RESOURCE_MATERIAL outVolume expressions after [name] substitution.
+    /// OUTPUT_MATERIAL outVolume expressions after [name] substitution.
     /// </summary>
     public static class KMathExpr
     {

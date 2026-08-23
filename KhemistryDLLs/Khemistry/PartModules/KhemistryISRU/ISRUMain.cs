@@ -827,7 +827,7 @@ namespace Khemistry
         /// <summary>
         /// Attempts to consume a full batch of the active recipe's INPUT_RESOURCE amounts
         /// (all-or-nothing) and, if successful, produces the OUTPUT_RESOURCE amounts and
-        /// buffers OUTPUT_RESOURCE_MATERIAL production for KhemistryMaterialStorage pickup.
+        /// buffers OUTPUT_MATERIAL production for KhemistryMaterialStorage pickup.
         /// </summary>
         protected bool TryRunBatch(KhemistryISRUBiomeConfig biomeConfig)
         {
@@ -968,7 +968,7 @@ namespace Khemistry
                 if (material == null)
                 {
                     KShared.LogError(
-                        "Converter \"" + ConverterName + "\": OUTPUT_RESOURCE_MATERIAL \"" + matOutput.name
+                        "Converter \"" + ConverterName + "\": OUTPUT_MATERIAL \"" + matOutput.name
                         + "\" does not match any loaded KHEMISTRY_MATERIAL definition.",
                         "KhemistryISRU/TryTransferMaterialOutputBuffer");
                     continue;

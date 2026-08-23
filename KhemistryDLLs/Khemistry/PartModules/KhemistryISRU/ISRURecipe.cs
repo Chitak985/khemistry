@@ -301,7 +301,7 @@ namespace Khemistry
 
                 ///// Output materials /////
                 _outputMaterials.Clear();
-                foreach (ConfigNode matNode in node.GetNodes("OUTPUT_RESOURCE_MATERIAL"))
+                foreach (ConfigNode matNode in node.GetNodes("OUTPUT_MATERIAL"))
                 {
                     string matName = matNode.GetValue("name");
                     if (string.IsNullOrEmpty(matName)) continue;
@@ -331,7 +331,7 @@ namespace Khemistry
 
                 if (_outputs.Count == 0 && _outputMaterials.Count == 0)
                     KShared.LogError(
-                        "Recipe \"" + _name + "\" has no OUTPUT_RESOURCE nor OUTPUT_RESOURCE_MATERIAL nodes — it will do nothing.",
+                        "Recipe \"" + _name + "\" has no OUTPUT_RESOURCE nor OUTPUT_MATERIAL nodes — it will do nothing.",
                         "KhemistryISRURecipe/constructor");
 
                 ///// Timing and control /////
@@ -499,7 +499,7 @@ namespace Khemistry
         // entry, and a module entry with a new resource name is added alongside the base entries.
         private static readonly HashSet<string> _keyedByNameNodeKeys = new HashSet<string>
         {
-            "INPUT_RESOURCE", "OUTPUT_RESOURCE", "PINPUT_RESOURCE", "OUTPUT_RESOURCE_MATERIAL"
+            "INPUT_RESOURCE", "OUTPUT_RESOURCE", "PINPUT_RESOURCE", "OUTPUT_MATERIAL"
         };
 
         // Node types that hold a single node full of repeated values (e.g. CHARGE_CON_NAMES holding

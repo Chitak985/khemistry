@@ -10,7 +10,7 @@ namespace Khemistry
     {
         public string name = "LOADFAIL";
         public List<string> shapes = new List<string>();
-        public List<string> parameters = new List<string>();
+        public Dictionary<string, string> parameters = new Dictionary<string, string>();  // name: default
         public KhemistryMaterial(ConfigNode configNode)
         {
             // Check if the config node is valid
@@ -34,8 +34,8 @@ namespace Khemistry
 
             // Set parameters (if there are any) from the config
             if (configNode.HasNode("PARAMS"))
-                foreach (string param in configNode.GetNode("PARAMS").GetValues("name"))
-                    parameters.Add(param);
+                foreach (string key in configNode.GetNode("PARAMS").values.DistinctNames())
+                    parameters.Add(key, configNode.GetNode("PARAMS").GetValue(key));
         }
     }
     /// <summary>
@@ -58,9 +58,12 @@ namespace Khemistry
             this.volume = volume;
             this.parameters = parameters;
 
+            // Apply default values
+            parameters = new Dictionary<string, string>(material.parameters);
+
             // Check parameter validity
             foreach (string key in parameters.Keys)
-                if (!material.parameters.Contains(key))
+                if (!material.parameters.ContainsKey(key))
                     KShared.LogError("Material instance of material " + material.name + " has an invalid parameter " + key + " with value " + parameters[key] + "!", "KhemistryMaterialInstance/constructor");
 
             // Check shape validity
