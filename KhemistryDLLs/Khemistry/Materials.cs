@@ -1,5 +1,9 @@
 ﻿using System.Collections.Generic;
 
+using System;
+using System.Globalization;
+using System.Linq;
+
 namespace Khemistry
 {
     /// <summary>
@@ -46,15 +50,20 @@ namespace Khemistry
         public KhemistryMaterial material;
         public string shape = "null";
         public string size = "null";
-        public float volume = 0f;  // how much one material is in cubic meters
-        public int amount = 1;  // how many materials are combined into this one
+        public float volume = 0f;  // cubic meters occupied by one unit of this material
+        public int amount = 1;  // how many material units are combined into this instance
         public Dictionary<string, string> parameters = new Dictionary<string, string>();
+
+        public float TotalVolume => volume * amount;
 
         /// <summary>
         /// Create a material instance using parameters
         /// </summary>
         public KhemistryMaterialInstance(KhemistryMaterial material, string shape, string size, float volume, Dictionary<string, string> parameters)
         {
+            if (material == null)
+                throw new ArgumentNullException(nameof(material));
+
             // Assign values
             this.material = material;
             this.shape = shape;
@@ -65,11 +74,11 @@ namespace Khemistry
             this.parameters = new Dictionary<string, string>(material.parameters);  // Dict constructor makes a copy instead of a reference
 
             // Set keys that exist to the passed parameters values
-            foreach (string key in parameters.Keys)
+            foreach (string key in (parameters ?? new Dictionary<string, string>()).Keys)
                 if (this.parameters.ContainsKey(key))
                     this.parameters[key] = parameters[key];
                 else
-                    KShared.LogError("Material instance of material " + material.name + " has an invalid parameter " + key + " with value " + material.parameters[key] + "!", "KhemistryMaterialInstance/constructor");
+                    KShared.LogError("Material instance of material " + material.name + " has an invalid parameter " + key + " with value " + parameters[key] + "!", "KhemistryMaterialInstance/constructor");
 
             // Check shape validity
             if (!material.shapes.Contains(shape))
@@ -86,7 +95,7 @@ namespace Khemistry
             this.size = matInst.size;
             this.volume = matInst.volume;
             this.amount = matInst.amount;
-            this.parameters = matInst.parameters;
+            this.parameters = new Dictionary<string, string>(matInst.parameters);
         }
 
         /// <summary>
@@ -97,7 +106,12 @@ namespace Khemistry
         /// <returns>If possible to merge the two <see cref="KhemistryMaterialInstance"/>.</returns>
         public bool CanMerge(KhemistryMaterialInstance other)
         {
-            if (shape == other.shape && size == other.size && volume == other.volume && material.name == other.material.name)
+            if (other == null || material == null || other.material == null) return false;
+
+            if (shape == other.shape && size == other.size
+                && Math.Abs(volume - other.volume) <= 1e-7f
+                && material.name == other.material.name
+                && parameters.Count == other.parameters.Count)
             {
                 foreach (string key in parameters.Keys)
                 {
@@ -134,11 +148,13 @@ namespace Khemistry
         /// <returns>The split-off material.</returns>
         public KhemistryMaterialInstance SplitOff(int amount)
         {
-            // Error checking
-            if (this.amount == amount)
-                KShared.LogError($"Splitting off material would be the same as keeping the main material! (amount equal to this.amount, {amount})", "KhemistryMaterialInstance/SplitOff");
-            else if (this.amount < amount)
-                KShared.LogError($"Attempting to split off more than possible! (amount greater than this.amount, {this.amount} < {amount})", "KhemistryMaterialInstance/SplitOff");
+            if (amount <= 0 || amount >= this.amount)
+            {
+                KShared.LogError(
+                    $"Split amount must be greater than zero and less than the stored amount ({amount}, stored {this.amount}).",
+                    "KhemistryMaterialInstance/SplitOff");
+                return null;
+            }
 
             // Create the new material
             KhemistryMaterialInstance splitMat = new KhemistryMaterialInstance(this);
@@ -150,6 +166,65 @@ namespace Khemistry
             this.amount -= amount;
 
             return splitMat;
+        }
+
+        /// <summary>Serializes this instance for PartModule save data.</summary>
+        public ConfigNode ToConfigNode(string nodeName = "STORED_MATERIAL")
+        {
+            ConfigNode node = new ConfigNode(nodeName);
+            node.AddValue("name", material?.name ?? "");
+            node.AddValue("shape", shape ?? "");
+            node.AddValue("size", size ?? "");
+            node.AddValue("volume", volume.ToString("R", CultureInfo.InvariantCulture));
+            node.AddValue("amount", amount.ToString(CultureInfo.InvariantCulture));
+
+            ConfigNode paramsNode = new ConfigNode("PARAMS");
+            foreach (KeyValuePair<string, string> parameter in parameters)
+                paramsNode.AddValue(parameter.Key, parameter.Value);
+            node.AddNode(paramsNode);
+            return node;
+        }
+
+        /// <summary>Restores an instance from PartModule save data.</summary>
+        public static bool TryFromConfigNode(ConfigNode node, out KhemistryMaterialInstance instance,
+            string logContext = "KhemistryMaterialInstance/TryFromConfigNode")
+        {
+            instance = null;
+            if (node == null) return false;
+
+            string materialName = node.GetValue("name");
+            KhemistryMaterial definition = KShared.Instance?.materialList
+                .FirstOrDefault(m => m.name == materialName);
+            if (definition == null)
+            {
+                KShared.LogError("Saved material \"" + materialName + "\" has no loaded KHEMISTRY_MATERIAL definition.", logContext);
+                return false;
+            }
+
+            if (!float.TryParse(node.GetValue("volume"), NumberStyles.Float, CultureInfo.InvariantCulture, out float volume)
+                || float.IsNaN(volume) || float.IsInfinity(volume) || volume < 0f)
+            {
+                KShared.LogError("Saved material \"" + materialName + "\" has an invalid per-unit volume.", logContext);
+                return false;
+            }
+
+            if (!int.TryParse(node.GetValue("amount"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int amount)
+                || amount <= 0)
+            {
+                KShared.LogError("Saved material \"" + materialName + "\" has an invalid amount.", logContext);
+                return false;
+            }
+
+            Dictionary<string, string> savedParameters = node.HasNode("PARAMS")
+                ? KShared.NodeToDictionary(node.GetNode("PARAMS"))
+                : new Dictionary<string, string>();
+
+            instance = new KhemistryMaterialInstance(
+                definition, node.GetValue("shape"), node.GetValue("size"), volume, savedParameters)
+            {
+                amount = amount
+            };
+            return true;
         }
     }
 

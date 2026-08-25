@@ -1,5 +1,8 @@
 ﻿using System.Collections.Generic;
 
+using System;
+using System.Linq;
+
 namespace Khemistry
 {
     /// <summary>
@@ -26,6 +29,28 @@ namespace Khemistry
 
         public List<KhemistryMaterialInstance> contents = new List<KhemistryMaterialInstance>();
         private bool _fatalConfigError = false;
+        private readonly List<ConfigNode> _pendingSavedContents = new List<ConfigNode>();
+
+        public override void OnLoad(ConfigNode node)
+        {
+            base.OnLoad(node);
+            contents.Clear();
+            _pendingSavedContents.Clear();
+            foreach (ConfigNode savedNode in node.GetNodes("STORED_MATERIAL"))
+            {
+                ConfigNode copy = new ConfigNode("STORED_MATERIAL");
+                savedNode.CopyTo(copy);
+                _pendingSavedContents.Add(copy);
+            }
+        }
+
+        public override void OnSave(ConfigNode node)
+        {
+            base.OnSave(node);
+            foreach (KhemistryMaterialInstance material in contents)
+                if (material != null && material.amount > 0)
+                    node.AddNode(material.ToConfigNode());
+        }
 
         public override void OnStart(StartState state)
         {
@@ -40,6 +65,24 @@ namespace Khemistry
                 contentsDisplay = "ERROR: see log";
                 return;
             }
+
+            RestoreSavedContents();
+        }
+
+        private void RestoreSavedContents()
+        {
+            foreach (ConfigNode savedNode in _pendingSavedContents)
+            {
+                if (!KhemistryMaterialInstance.TryFromConfigNode(savedNode, out KhemistryMaterialInstance material,
+                        "KhemistryMaterialStorage/RestoreSavedContents"))
+                    continue;
+
+                if (!AddMaterial(material))
+                    KShared.LogError(
+                        "Saved material \"" + material.material.name + "\" no longer fits or is no longer supported by part \"" + part.name + "\".",
+                        "KhemistryMaterialStorage/RestoreSavedContents");
+            }
+            _pendingSavedContents.Clear();
         }
 
         public void FixedUpdate() => UpdateUI();
@@ -127,10 +170,13 @@ namespace Khemistry
         /// If the material is already present, it will be merged with the existing one.
         /// </summary>
         /// <param name="mat">The material instance to add to storage.</param>
-        /// <returns>Whether the material was added. This can only be false if there wasn't enough space.</returns>
+        /// <returns>Whether the material met the storage restrictions and there was enough space.</returns>
         public bool AddMaterial(KhemistryMaterialInstance mat)
         {
-            if (ComputeCurrentVolume(mat.volume) >= volume)
+            if (_fatalConfigError || !AcceptsMaterial(mat))
+                return false;
+
+            if (ComputeCurrentVolume(mat.TotalVolume) > volume + 1e-6f)
                 return false;
 
             foreach (KhemistryMaterialInstance m in contents)
@@ -139,6 +185,51 @@ namespace Khemistry
 
             contents.Add(mat);
             return true;
+        }
+
+        private bool AcceptsMaterial(KhemistryMaterialInstance mat)
+        {
+            if (mat?.material == null || mat.amount <= 0
+                || float.IsNaN(mat.volume) || float.IsInfinity(mat.volume) || mat.volume < 0f)
+                return false;
+
+            if (!supportedNames.Contains(mat.material.name) || !supportedShapes.Contains(mat.shape))
+                return false;
+
+            foreach (KeyValuePair<string, string> requirement in paramRequirements)
+            {
+                if (!mat.parameters.TryGetValue(requirement.Key, out string value)
+                    || !KShared.EvaluateParamComparison(value, requirement.Value))
+                    return false;
+            }
+            return true;
+        }
+
+        public static bool MatchesMaterial(KhemistryMaterialInstance material, string name, string shape,
+            string size, Dictionary<string, string> paramConditions)
+        {
+            if (material?.material == null || material.material.name != name
+                || material.shape != shape || material.size != size)
+                return false;
+
+            foreach (KeyValuePair<string, string> condition in
+                     paramConditions ?? new Dictionary<string, string>())
+            {
+                if (!material.parameters.TryGetValue(condition.Key, out string value)
+                    || !KShared.EvaluateParamComparison(value, condition.Value))
+                    return false;
+            }
+            return true;
+        }
+
+        public int GetMatchingMaterialAmount(string name, string shape, string size,
+            Dictionary<string, string> paramConditions)
+        {
+            int total = 0;
+            foreach (KhemistryMaterialInstance material in contents)
+                if (MatchesMaterial(material, name, shape, size, paramConditions))
+                    total += material.amount;
+            return total;
         }
 
         /// <summary>
@@ -152,51 +243,39 @@ namespace Khemistry
         /// <returns>If the material was removed successfully</returns>
         public bool RemoveMaterial(string name, string shape, string size, Dictionary<string, string> paramConditions, int amount)
         {
-            KhemistryMaterialInstance toRemove = null;
-            foreach (KhemistryMaterialInstance m in contents)  // Check every material stored
-            {
-                // Make sure name, shape, and size match
-                // Also check amount here, since no point in using the material if it isn't enough
-                // This does create problems of the amount being spread across multiple materials however...
-                // !TODO: Do something about it
-                if (m.material.name == name && m.shape == shape && m.size == size && m.amount >= amount)
-                {
-                    bool success = true;
-                    foreach (string param in paramConditions.Keys)  // Check every parameter of the material
-                    {
-                        // Check if the parameter exists in the material
-                        if (!m.parameters.ContainsKey(param))
-                            KShared.LogError(
-                                "RemoveMaterial has a parameter condition for a parameter that does not exist! Error information:   " +
-                                $"Material: Material {name}, shape {shape}, size {size}, and volume to subtract {volume}.   " +
-                                $"MaterialStorage: Maximum volume is {volume}, contents display is \"{contentsDisplay}\", supported names [{KShared.ListToString(supportedNames)}], and supported shapes [{KShared.ListToString(supportedShapes)}].",
-                                "KhemistryMaterialStorage/RemoveMaterial");
+            return TryRemoveMaterial(name, shape, size, paramConditions, amount, out _);
+        }
 
-                        // Evaluate parameter comparison and skip material if failes
-                        if (!KShared.EvaluateParamComparison(m.parameters[param], paramConditions[param]))
-                        {
-                            success = false;
-                            break;
-                        }
-                    }
-                    if (success)
-                    {
-                        toRemove = m;  // reference
-                        break;
-                    }
-                }
+        /// <summary>
+        /// Removes a requirement atomically, combining matching stacks within this storage.
+        /// The exact removed instances are returned so a caller can roll the transaction back.
+        /// </summary>
+        public bool TryRemoveMaterial(string name, string shape, string size,
+            Dictionary<string, string> paramConditions, int amount,
+            out List<KhemistryMaterialInstance> removed)
+        {
+            removed = new List<KhemistryMaterialInstance>();
+            if (amount <= 0 || GetMatchingMaterialAmount(name, shape, size, paramConditions) < amount)
+                return false;
+
+            int remaining = amount;
+            foreach (KhemistryMaterialInstance stored in contents.ToList())
+            {
+                if (!MatchesMaterial(stored, name, shape, size, paramConditions)) continue;
+
+                int take = Math.Min(remaining, stored.amount);
+                KhemistryMaterialInstance piece = new KhemistryMaterialInstance(stored) { amount = take };
+                removed.Add(piece);
+
+                if (take == stored.amount) contents.Remove(stored);
+                else stored.amount -= take;
+
+                remaining -= take;
+                if (remaining == 0) return true;
             }
 
-            if (toRemove != null)
-            {
-                if (toRemove.amount == amount)
-                    contents.Remove(toRemove);
-                else
-                    toRemove.amount -= amount;  // since it is a reference, this should work
-
-                return true;
-            }
-
+            foreach (KhemistryMaterialInstance piece in removed) AddMaterial(piece);
+            removed.Clear();
             return false;
         }
 
@@ -209,7 +288,7 @@ namespace Khemistry
         private float ComputeCurrentVolume(float usedVolume = 0f)
         {
             foreach (KhemistryMaterialInstance m in contents)
-                usedVolume += m.volume;
+                usedVolume += m.TotalVolume;
             return usedVolume;
         }
 
@@ -218,7 +297,7 @@ namespace Khemistry
             List<string> contentsDisplayNames = new List<string>();
             foreach (KhemistryMaterialInstance m in contents)
                 if (m.volume > 0)
-                    contentsDisplayNames.Add(m.material.name + " as " + m.shape + " (" + KShared.DictToString(m.parameters) + ")");
+                    contentsDisplayNames.Add(m.amount + "× " + m.material.name + " as " + m.shape + " (" + KShared.DictToString(m.parameters) + ")");
             contentsDisplay = string.Join("\n", contentsDisplayNames);
             volumeDisplay = $"{ComputeCurrentVolume():F10} / {volume:F10}";
         }

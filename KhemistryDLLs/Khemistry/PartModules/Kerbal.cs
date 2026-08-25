@@ -56,9 +56,8 @@ namespace Khemistry
         private float _materialSuitCellTransferDistance = 2f;
         private readonly List<KhemistryAllowedMaterial> _materialSuitCellAllowed = new List<KhemistryAllowedMaterial>();
 
-        // Not persisted across saves — matches KhemistryMaterialStorage.contents, which is
-        // likewise runtime-only.
         public readonly List<KhemistryMaterialInstance> materialSuitCellContents = new List<KhemistryMaterialInstance>();
+        private readonly List<ConfigNode> _pendingMaterialSuitContents = new List<ConfigNode>();
 
         [KSPField(isPersistant = false, guiActive = true, guiActiveEditor = false, guiName = "Material Cell")]
         public string MaterialCellContentsDisplay = "No material cell";
@@ -140,7 +139,7 @@ namespace Khemistry
         private float ComputeMaterialSuitCellVolume(float additional = 0f)
         {
             foreach (KhemistryMaterialInstance m in materialSuitCellContents)
-                additional += m.volume;
+                additional += m.TotalVolume;
             return additional;
         }
 
@@ -162,7 +161,10 @@ namespace Khemistry
             }
             if (!allowed) return false;
 
-            if (ComputeMaterialSuitCellVolume(mat.volume) >= _materialSuitCellVolume) return false;
+            if (mat.amount <= 0 || mat.volume < 0f || float.IsNaN(mat.volume) || float.IsInfinity(mat.volume))
+                return false;
+
+            if (ComputeMaterialSuitCellVolume(mat.TotalVolume) > _materialSuitCellVolume + 1e-6f) return false;
 
             foreach (KhemistryMaterialInstance existing in materialSuitCellContents)
                 if (existing.Merge(mat))
@@ -172,6 +174,43 @@ namespace Khemistry
             return true;
         }
 
+        public int GetSuitCellMatchingMaterialAmount(string name, string shape, string size,
+            Dictionary<string, string> paramConditions)
+        {
+            int total = 0;
+            foreach (KhemistryMaterialInstance material in materialSuitCellContents)
+                if (KhemistryMaterialStorage.MatchesMaterial(material, name, shape, size, paramConditions))
+                    total += material.amount;
+            return total;
+        }
+
+        public bool TryRemoveMaterialFromSuitCell(string name, string shape, string size,
+            Dictionary<string, string> paramConditions, int amount,
+            out List<KhemistryMaterialInstance> removed)
+        {
+            removed = new List<KhemistryMaterialInstance>();
+            if (amount <= 0 || GetSuitCellMatchingMaterialAmount(name, shape, size, paramConditions) < amount)
+                return false;
+
+            int remaining = amount;
+            foreach (KhemistryMaterialInstance stored in materialSuitCellContents.ToList())
+            {
+                if (!KhemistryMaterialStorage.MatchesMaterial(stored, name, shape, size, paramConditions)) continue;
+
+                int take = Math.Min(remaining, stored.amount);
+                removed.Add(new KhemistryMaterialInstance(stored) { amount = take });
+                if (take == stored.amount) materialSuitCellContents.Remove(stored);
+                else stored.amount -= take;
+
+                remaining -= take;
+                if (remaining == 0) return true;
+            }
+
+            foreach (KhemistryMaterialInstance piece in removed) TryAddMaterialToSuitCell(piece);
+            removed.Clear();
+            return false;
+        }
+
         private void UpdateMaterialSuitCellDisplay()
         {
             if (!HasMaterialSuitCell) { MaterialCellContentsDisplay = "No material cell"; return; }
@@ -179,7 +218,7 @@ namespace Khemistry
             var parts = new List<string>();
             foreach (KhemistryMaterialInstance m in materialSuitCellContents)
                 if (m.volume > 0)
-                    parts.Add(m.material.name + " as " + m.shape);
+                    parts.Add(m.amount + "× " + m.material.name + " as " + m.shape);
 
             string contentsStr = parts.Count > 0 ? string.Join(", ", parts) : "Empty";
             MaterialCellContentsDisplay = string.Format("{0} ({1:F2}/{2:F2})",
@@ -285,6 +324,43 @@ namespace Khemistry
                 "KhemistryKerbal/LoadConfigFromPartInfo");
         }
 
+        public override void OnLoad(ConfigNode node)
+        {
+            base.OnLoad(node);
+            materialSuitCellContents.Clear();
+            _pendingMaterialSuitContents.Clear();
+            foreach (ConfigNode savedNode in node.GetNodes("SUIT_STORED_MATERIAL"))
+            {
+                ConfigNode copy = new ConfigNode("SUIT_STORED_MATERIAL");
+                savedNode.CopyTo(copy);
+                _pendingMaterialSuitContents.Add(copy);
+            }
+        }
+
+        public override void OnSave(ConfigNode node)
+        {
+            base.OnSave(node);
+            foreach (KhemistryMaterialInstance material in materialSuitCellContents)
+                if (material != null && material.amount > 0)
+                    node.AddNode(material.ToConfigNode("SUIT_STORED_MATERIAL"));
+        }
+
+        private void RestoreMaterialSuitContents()
+        {
+            foreach (ConfigNode savedNode in _pendingMaterialSuitContents)
+            {
+                if (!KhemistryMaterialInstance.TryFromConfigNode(savedNode, out KhemistryMaterialInstance material,
+                        "KhemistryKerbal/RestoreMaterialSuitContents"))
+                    continue;
+
+                if (!TryAddMaterialToSuitCell(material))
+                    KShared.LogError(
+                        "Saved suit-cell material \"" + material.material.name + "\" no longer fits or is no longer allowed.",
+                        "KhemistryKerbal/RestoreMaterialSuitContents");
+            }
+            _pendingMaterialSuitContents.Clear();
+        }
+
         public override void OnStart(StartState state)
         {
             base.OnStart(state);
@@ -299,6 +375,7 @@ namespace Khemistry
             }
 
             LoadConfigFromPartInfo();
+            RestoreMaterialSuitContents();
 
             _inventory = part.FindModuleImplementing<ModuleInventoryPart>();
             if (_inventory == null)

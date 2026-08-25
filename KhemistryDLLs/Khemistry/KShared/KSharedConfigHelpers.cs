@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 
+using System.Globalization;
+
 namespace Khemistry
 {
     public partial class KShared
@@ -9,21 +11,21 @@ namespace Khemistry
         public static int GetIntValueFromCFG(ConfigNode node, string value, int defaultValue)
         {
             if (node.HasValue(value))
-                if (int.TryParse(node.GetValue(value), out int tmp))
+                if (int.TryParse(node.GetValue(value), NumberStyles.Integer, CultureInfo.InvariantCulture, out int tmp))
                     return tmp;
             return defaultValue;
         }
         public static float GetFloatValueFromCFG(ConfigNode node, string value, float defaultValue)
         {
             if (node.HasValue(value))
-                if (float.TryParse(node.GetValue(value), out float tmp))
+                if (float.TryParse(node.GetValue(value), NumberStyles.Float, CultureInfo.InvariantCulture, out float tmp))
                     return tmp;
             return defaultValue;
         }
         public static double GetDoubleValueFromCFG(ConfigNode node, string value, double defaultValue)
         {
             if (node.HasValue(value))
-                if (double.TryParse(node.GetValue(value), out double tmp))
+                if (double.TryParse(node.GetValue(value), NumberStyles.Float, CultureInfo.InvariantCulture, out double tmp))
                     return tmp;
             return defaultValue;
         }
@@ -49,7 +51,7 @@ namespace Khemistry
                     names.Add(n.Trim());
             if (moduleNode.HasNode("CHARGE_CON_AMOUNTS"))
                 foreach (string a in moduleNode.GetNode("CHARGE_CON_AMOUNTS").GetValues("amount"))
-                    if (float.TryParse(a, out float tmp))
+                    if (float.TryParse(a, NumberStyles.Float, CultureInfo.InvariantCulture, out float tmp))
                         amounts.Add(tmp);
 
             if (names.Count != amounts.Count)
@@ -75,16 +77,18 @@ namespace Khemistry
         {
             if (node.HasValue(value))
             {
-                string val = node.GetValue(value);
-                if (val.EndsWith("K"))
-                    if (double.TryParse(val.Substring(0, val.Length - 1), out double tmp))
-                        return tmp;
-                if (val.EndsWith("C"))
-                    if (double.TryParse(val.Substring(0, val.Length - 1), out double tmp))
-                        return tmp + 273.15;
-                if (val.EndsWith("F"))
-                    if (double.TryParse(val.Substring(0, val.Length - 1), out double tmp))
-                        return DoubleFarenheitToCelsius(tmp) + 273.15;
+                string val = node.GetValue(value).Trim();
+                if (val.Length == 0) return defaultValue;
+
+                char suffix = char.ToUpperInvariant(val[val.Length - 1]);
+                bool hasUnit = suffix == 'K' || suffix == 'C' || suffix == 'F';
+                string numericText = hasUnit ? val.Substring(0, val.Length - 1).Trim() : val;
+                if (!double.TryParse(numericText, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsed))
+                    return defaultValue;
+
+                if (!hasUnit || suffix == 'K') return parsed;
+                if (suffix == 'C') return parsed + 273.15;
+                if (suffix == 'F') return DoubleFarenheitToCelsius(parsed) + 273.15;
             }
             return defaultValue;
         }

@@ -36,12 +36,12 @@ namespace Khemistry
         public double minPressure = double.MinValue;
         public double maxPressure = double.MaxValue;
 
-        public double passiveMultiplier = 1.0;  // unused!
-        public double passivePeriodMultiplier = 1.0;  // unused!
+        public double passiveMultiplier = 1.0;
+        public double passivePeriodMultiplier = 1.0;
 
-        public double chargeRateMultiplier = 1.0;  // unused!
-        public double chargeDecayMultiplier = 1.0;  // unused!
-        public double chargeConsumptionMultiplier = 1.0;  // unused!
+        public double chargeRateMultiplier = 1.0;
+        public double chargeDecayMultiplier = 1.0;
+        public double chargeConsumptionMultiplier = 1.0;
 
         public double inputMultiplier = 1.0;
         public double outputMultiplier = 1.0;
@@ -149,12 +149,40 @@ namespace Khemistry
                 // Max distances multipliers
                 maxInteractionDistanceMultiplier = KShared.GetDoubleValueFromCFG(node, "maxInteractionDistanceMul", maxInteractionDistanceMultiplier);
                 maxDisplayDistanceMultiplier = KShared.GetDoubleValueFromCFG(node, "maxDisplayDistanceMul", maxDisplayDistanceMultiplier);
+
+                passiveMultiplier = ValidateMultiplier(passiveMultiplier, "passiveMul", true, ConverterName);
+                passivePeriodMultiplier = ValidateMultiplier(passivePeriodMultiplier, "passivePeriodMul", false, ConverterName);
+                chargeRateMultiplier = ValidateMultiplier(chargeRateMultiplier, "chargeRateMul", true, ConverterName);
+                chargeDecayMultiplier = ValidateMultiplier(chargeDecayMultiplier, "chargeDecayMul", true, ConverterName);
+                chargeConsumptionMultiplier = ValidateMultiplier(chargeConsumptionMultiplier, "chargeConMul", true, ConverterName);
+                inputMultiplier = ValidateMultiplier(inputMultiplier, "inMul", true, ConverterName);
+                outputMultiplier = ValidateMultiplier(outputMultiplier, "outMul", true, ConverterName);
+                speedMul = ValidateMultiplier(speedMul, "speedMul", true, ConverterName);
+                workersPilotsMultiplier = ValidateMultiplier(workersPilotsMultiplier, "workersPilotsMul", true, ConverterName);
+                workersEngineersMultiplier = ValidateMultiplier(workersEngineersMultiplier, "workersEngineersMul", true, ConverterName);
+                workersScientistsMultiplier = ValidateMultiplier(workersScientistsMultiplier, "workersScientistsMul", true, ConverterName);
+                maxInteractionDistanceMultiplier = ValidateMultiplier(maxInteractionDistanceMultiplier, "maxInteractionDistanceMul", true, ConverterName);
+                maxDisplayDistanceMultiplier = ValidateMultiplier(maxDisplayDistanceMultiplier, "maxDisplayDistanceMul", true, ConverterName);
             }
             else
             {
                 KShared.LogNoValueInNode("BIOME_CONFIG", "name", "Converter \"" + ConverterName + "\": Recipe ", "KhemistryISRUBiomeConfig/constructor");
                 return;
             }
+        }
+
+        private double ValidateMultiplier(double value, string fieldName, bool allowZero, string converterName)
+        {
+            bool valid = !double.IsNaN(value) && !double.IsInfinity(value)
+                && (allowZero ? value >= 0.0 : value > 0.0);
+            if (valid) return value;
+
+            KShared.LogError(
+                "Converter \"" + converterName + "\": Biome config \"" + biomeName + "\": "
+                + fieldName + " must be " + (allowZero ? "non-negative" : "greater than zero")
+                + "; defaulting to 1.",
+                "KhemistryISRUBiomeConfig/constructor");
+            return 1.0;
         }
     }
 }

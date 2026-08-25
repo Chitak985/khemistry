@@ -134,8 +134,8 @@ namespace Khemistry
             return paramValue == comparison;
         }
 
-        public static double DoubleFarenheitToCelsius(double f) => (f - 32) * (5 / 9);
-        public static float FloatFarenheitToCelsius(float f) => (f - 32) * (5 / 9);
+        public static double DoubleFarenheitToCelsius(double f) => (f - 32.0) * (5.0 / 9.0);
+        public static float FloatFarenheitToCelsius(float f) => (f - 32f) * (5f / 9f);
 
         public static double LatLonDistanceMeters(
             double lat1Deg,

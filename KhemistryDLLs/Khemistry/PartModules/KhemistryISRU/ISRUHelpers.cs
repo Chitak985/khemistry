@@ -12,7 +12,9 @@
 
         private static void ApplyShowRule(BaseEvent ev, bool showPAW, bool showEVA)
         {
-            ev.guiActive = ev.guiActiveUnfocused = ev.externalToEVAOnly = showEVA;
+            ev.guiActive = showPAW;
+            ev.guiActiveUnfocused = showEVA;
+            ev.externalToEVAOnly = showEVA && !showPAW;
             ev.active = showPAW || showEVA;
         }
 
@@ -22,11 +24,25 @@
         /// kerbal's fluid suit cell when moduleType == "kerbalEVA". Same amount/return contract
         /// as <see cref="Part.RequestResource(string, double)"/>.
         /// </summary>
-        private double RequestResourceRouted(string name, double amount)
+        private double RequestResourceRouted(string name, double amount,
+            ResourceFlowMode flowMode = ResourceFlowMode.STAGE_PRIORITY_FLOW)
         {
             if (moduleType == "kerbalEVA" && _kerbalHost != null)
                 return _kerbalHost.RequestSuitCellResource(name, amount);
-            return part.RequestResource(name, amount, ResourceFlowMode.STAGE_PRIORITY_FLOW);
+            return part.RequestResource(name, amount, flowMode);
+        }
+
+        private void ApplyInteractionRanges()
+        {
+            Fields["statusDisplay"].guiUnfocusedRange = _maxDisplayDistance;
+            Fields["chargeDisplay"].guiUnfocusedRange = _maxDisplayDistance;
+            Fields["progressDisplay"].guiUnfocusedRange = _maxDisplayDistance;
+            Fields["stateDisplay"].guiUnfocusedRange = _maxDisplayDistance;
+
+            Events["StartConverter"].unfocusedRange = _maxInteractionDistance;
+            Events["StopConverter"].unfocusedRange = _maxInteractionDistance;
+            Events["PerformMaintenance"].unfocusedRange = _maxInteractionDistance;
+            Events["SwitchRecipe"].unfocusedRange = _maxInteractionDistance;
         }
 
         /// <summary>

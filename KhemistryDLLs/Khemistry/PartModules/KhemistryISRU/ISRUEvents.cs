@@ -60,10 +60,14 @@ namespace Khemistry
             }
             if (state != KShared.ChargablePartState.On) return;
 
-            if (_depositConditions.Count > 0 && !IsAtRequiredDeposit())
+            KhemistryISRUBiomeConfig biomeConfig = _activeRecipe != null && _runtimeData != null
+                ? _activeRecipe.GetBiomeConfig(_runtimeData.planet, _runtimeData.biome)
+                : null;
+            List<string> depositConditions = GetRequiredDepositConditions(biomeConfig);
+            if (depositConditions.Count > 0 && !IsAtRequiredDeposit(biomeConfig))
             {
                 KShared.LogError(
-                    "Converter \"" + ConverterName + "\": No matching deposit (" + string.Join(", ", _depositConditions) + ") found at this location.",
+                    "Converter \"" + ConverterName + "\": No matching deposit (" + string.Join(", ", depositConditions) + ") found at this location.",
                     "KhemistryISRU/StartConverter");
                 ScreenMessages.PostScreenMessage(new ScreenMessage(
                     "Converter \"" + ConverterName + "\": Can't operate — not at a required deposit.",
@@ -118,7 +122,12 @@ namespace Khemistry
                 if (idx < 0) return;
                 if (recipes[idx] == _activeRecipe) return;
 
+                RefundPassiveConsumption();
                 ApplyRecipe(recipes[idx]);
+                if (chargingRequired && chargePercent < 100f && state == KShared.ChargablePartState.On)
+                    state = KShared.ChargablePartState.Off;
+                else if (!chargingRequired)
+                    state = KShared.ChargablePartState.On;
                 UpdateEventVisibility();
                 UpdateUI();
 

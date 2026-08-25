@@ -56,13 +56,6 @@ namespace Khemistry
         [KSPField(isPersistant = false)] public string StopActionName = "Stop working";
 
         /// <summary>
-        /// depositCondition values loaded from the MODULE node (0 or more). If non-empty, the
-        /// converter may only be started while at least one of the listed deposit resource names
-        /// (surface or underground) is present at the vessel's current location.
-        /// </summary>
-        protected readonly List<string> _depositConditions = new List<string>();
-
-        /// <summary>
         /// The moduleType loaded from the MODULE node. "normal" (default) behaves as before;
         /// "kerbalEVA" is EVA-suit-cell-routed ISRU meant to live on a kerbal part; "partEVA" is
         /// reserved for future use and is not currently implemented.
@@ -89,6 +82,11 @@ namespace Khemistry
 
         protected List<string> _chargeNames = new List<string>();
         protected List<float> _chargeAmounts = new List<float>();
+        protected bool _moduleChargingRequired = false;
+        protected float _moduleChargeRate = 0f;
+        protected float _moduleChargeDecayRate = 0f;
+        protected readonly List<string> _moduleChargeNames = new List<string>();
+        protected readonly List<float> _moduleChargeAmounts = new List<float>();
 
         /// <summary> Percentage of current charge </summary>
         [KSPField(isPersistant = true)]
@@ -113,7 +111,6 @@ namespace Khemistry
 
         /// <summary> Whether a config error occured and the ISRU cannot run </summary>
         protected bool _fatalConfigError = false;
-        protected double _outputWarnCooldown = 0.0;
 
         ///// Recipe importing /////
         [KSPField(isPersistant = false)] public string recipeType = null;
@@ -133,17 +130,19 @@ namespace Khemistry
 
         protected KhemistryISRURecipe _activeRecipe = null;
 
-        // Parallel to _activeRecipe._passiveInputs; not persisted (periods are short, so
-        // losing phase across a save/reload is a harmless simplification).
+        // Parallel to _activeRecipe._passiveInputs; serialized through PASSIVE_INPUT_STATE.
         protected readonly List<double> _passiveTimers = new List<double>();
 
         // Cumulative amount actually withdrawn per passive input since the last time
         // batchProgress was reset to 0 — needed so STOP can refund exactly what was taken
         // during the in-progress batch, while VOID/MAINT discard it instead.
         protected readonly List<double> _passiveConsumedThisBatch = new List<double>();
+        protected readonly List<double> _loadedPassiveTimers = new List<double>();
+        protected readonly List<double> _loadedPassiveConsumed = new List<double>();
 
         protected readonly Dictionary<KhemistryISRURecipe.ResourceOutputMaterial, double> _materialOutputAmount =
             new Dictionary<KhemistryISRURecipe.ResourceOutputMaterial, double>();
+        protected readonly List<ConfigNode> _pendingMaterialOutputNodes = new List<ConfigNode>();
 
         private static readonly System.Text.RegularExpressions.Regex _randfPattern =
            new System.Text.RegularExpressions.Regex(

@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 
+using System.Globalization;
+
 namespace Khemistry
 {
     /// <summary>
@@ -64,8 +66,6 @@ namespace Khemistry
         public readonly List<PassiveResourceInput> _passiveInputs = new List<PassiveResourceInput>();
         public readonly List<ResourceOutput> _outputs = new List<ResourceOutput>();
         public readonly List<ResourceOutputMaterial> _outputMaterials = new List<ResourceOutputMaterial>();
-        public Dictionary<ResourceOutputMaterial, double> _materialOutputAmount = new Dictionary<ResourceOutputMaterial, double>();
-
         public double _recipeTime = 0;  // in seconds
 
         public uint _workersPilots = 0;
@@ -83,6 +83,7 @@ namespace Khemistry
         public List<string> _recipeTypes = new List<string>();
         public List<string> _recipeSubtypes = new List<string>();
         public List<string> _recipeSubsubtypes = new List<string>();
+        public readonly List<string> _depositConditions = new List<string>();
 
         ///// Charging (optional per-recipe) /////
         public bool _chargingRequired = false;
@@ -116,6 +117,9 @@ namespace Khemistry
                 _recipeSubtypes.AddRange(node.GetValues("recipeSubtype"));
                 _recipeSubsubtypes.Clear();
                 _recipeSubsubtypes.AddRange(node.GetValues("recipeSubsubtype"));
+                _depositConditions.Clear();
+                foreach (string condition in node.GetValues("depositCondition"))
+                    if (!string.IsNullOrWhiteSpace(condition)) _depositConditions.Add(condition.Trim());
 
                 ///// Charging /////
                 _chargeNames.Clear();
@@ -125,7 +129,7 @@ namespace Khemistry
                         _chargeNames.Add(n.Trim());
                 if (node.HasNode("CHARGE_CON_AMOUNTS"))
                     foreach (string a in node.GetNode("CHARGE_CON_AMOUNTS").GetValues("amount"))
-                        if (float.TryParse(a, out float amtTmp)) _chargeAmounts.Add(amtTmp);
+                        if (float.TryParse(a, NumberStyles.Float, CultureInfo.InvariantCulture, out float amtTmp)) _chargeAmounts.Add(amtTmp);
                 if (_chargeNames.Count != _chargeAmounts.Count)
                 {
                     KShared.LogError(
@@ -213,6 +217,18 @@ namespace Khemistry
                         continue;
                     }
 
+                    string shape = matNode.GetValue("shape");
+                    string size = matNode.GetValue("size");
+                    int materialAmount = KShared.GetIntValueFromCFG(matNode, "amount", 1);
+                    if (string.IsNullOrEmpty(shape) || string.IsNullOrEmpty(size) || materialAmount <= 0)
+                    {
+                        KShared.LogError(
+                            "Recipe \"" + _name + "\": INPUT_MATERIAL \"" + matName
+                            + "\" requires non-empty shape/size and an amount greater than zero; entry skipped.",
+                            "KhemistryISRURecipe/constructor");
+                        continue;
+                    }
+
                     bool usesParams = matNode.HasNode("PARAM_REQUIREMENTS");
                     Dictionary<string, string> parameters = new Dictionary<string, string>();
                     if (usesParams)
@@ -222,11 +238,11 @@ namespace Khemistry
                     _inputMaterials.Add(new ResourceInputMaterial
                     {
                         name = matName,
-                        shape = matNode.GetValue("shape"),
-                        size = matNode.GetValue("size"),
+                        shape = shape,
+                        size = size,
                         usesParams = usesParams,
                         parameters = parameters,
-                        amount = KShared.GetIntValueFromCFG(matNode, "amount", 1)
+                        amount = materialAmount
                     });
                 }
 
@@ -288,8 +304,8 @@ namespace Khemistry
                         {
                             string[] parts = pf.Substring(8).Split(',');
                             if (parts.Length == 2
-                                && double.TryParse(parts[0], out double radius)
-                                && double.TryParse(parts[1], out double tempC))
+                                && double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out double radius)
+                                && double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out double tempC))
                             {
                                 powerfail = PowerfailResult.Explode;
                                 explosionRadius = radius;
@@ -350,6 +366,16 @@ namespace Khemistry
                     double amount = KShared.GetDoubleValueFromCFG(matNode, "amount", 1.0);
                     string outVolume = KShared.GetStrValueFromCFG(matNode, "outVolume", "0");
 
+                    if (string.IsNullOrEmpty(shape) || string.IsNullOrEmpty(size)
+                        || double.IsNaN(amount) || double.IsInfinity(amount) || amount <= 0.0)
+                    {
+                        KShared.LogError(
+                            "Recipe \"" + _name + "\": OUTPUT_MATERIAL \"" + matName
+                            + "\" requires non-empty shape/size and an amount greater than zero; entry skipped.",
+                            "KhemistryISRURecipe/constructor");
+                        continue;
+                    }
+
                     bool usesParams = matNode.HasNode("PARAMS");
                     Dictionary<string, string> parameters = new Dictionary<string, string>();
                     if (usesParams)
@@ -385,9 +411,9 @@ namespace Khemistry
                     out _controlsShowPAW, out _controlsShowEVA, "controlRules", _name);
 
                 ///// Workers /////
-                _workersEngineers = (uint)KShared.GetIntValueFromCFG(node, "workersEngineers", 0);
-                _workersPilots = (uint)KShared.GetIntValueFromCFG(node, "workersPilots", 0);
-                _workersScientists = (uint)KShared.GetIntValueFromCFG(node, "workersScientists", 0);
+                _workersEngineers = (uint)Math.Max(0, KShared.GetIntValueFromCFG(node, "workersEngineers", 0));
+                _workersPilots = (uint)Math.Max(0, KShared.GetIntValueFromCFG(node, "workersPilots", 0));
+                _workersScientists = (uint)Math.Max(0, KShared.GetIntValueFromCFG(node, "workersScientists", 0));
 
                 _workersEVA = true;
                 _workersCREW = false;
@@ -456,6 +482,7 @@ namespace Khemistry
             copy._recipeTypes = _recipeTypes;
             copy._recipeSubtypes = _recipeSubtypes;
             copy._recipeSubsubtypes = _recipeSubsubtypes;
+            copy._depositConditions.AddRange(_depositConditions);
             copy._chargingRequired = _chargingRequired;
             copy._chargeRate = _chargeRate;
             copy._chargeDecay = _chargeDecay;
@@ -477,15 +504,19 @@ namespace Khemistry
             foreach (ResourceInput inp in _inputs)
                 copy._inputs.Add(new ResourceInput { resourceName = inp.resourceName, amount = inp.amount * multiplier, flowMode = inp.flowMode });
             foreach (ResourceInputMaterial mat in _inputMaterials)
+            {
+                int scaledAmount = (int)Math.Round(mat.amount * multiplier, MidpointRounding.AwayFromZero);
+                if (mat.amount > 0 && multiplier > 0.0 && scaledAmount < 1) scaledAmount = 1;
                 copy._inputMaterials.Add(new ResourceInputMaterial
                 {
                     name = mat.name,
                     shape = mat.shape,
                     size = mat.size,
                     usesParams = mat.usesParams,
-                    parameters = mat.parameters,
-                    amount = (int)Math.Round(mat.amount * multiplier)
+                    parameters = new Dictionary<string, string>(mat.parameters),
+                    amount = scaledAmount
                 });
+            }
             foreach (PassiveResourceInput pinp in _passiveInputs)
                 copy._passiveInputs.Add(new PassiveResourceInput
                 {
@@ -507,7 +538,7 @@ namespace Khemistry
                     shape = mat.shape,
                     size = mat.size,
                     usesParams = mat.usesParams,
-                    parameters = mat.parameters,
+                    parameters = new Dictionary<string, string>(mat.parameters),
                     amount = mat.amount * multiplier,
                     outVolume = mat.outVolume
                 });
