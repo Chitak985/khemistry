@@ -535,6 +535,20 @@ namespace Khemistry
             return true;
         }
 
+        /// <summary>
+        /// Pulls the given input material from the vessel network. Returns true only if the
+        /// material was fully satisfied.
+        /// </summary>
+        private bool ConsumeVesselMaterials(KhemistryISRURecipe.ResourceInputMaterial material)
+        {
+            foreach (Part vesselPart in vessel.parts)
+                foreach (KhemistryMaterialStorage storageModule in vesselPart.Modules.OfType<KhemistryMaterialStorage>())
+                    if (storageModule.RemoveMaterial(material.name, material.shape, material.size, material.parameters, material.amount))
+                        return true;
+            
+            return false;
+        }
+
         public void UpdateUI()
         {
             chargeDisplay = chargingRequired
@@ -831,15 +845,20 @@ namespace Khemistry
         /// </summary>
         protected bool TryRunBatch(KhemistryISRUBiomeConfig biomeConfig)
         {
-            var names = new List<string>();
-            var amounts = new List<float>();
+            List<string> names = new List<string>();
+            List<float> amounts = new List<float>();
+
+            // Inputs
             foreach (var inp in _activeRecipe._inputs)
             {
                 names.Add(inp.resourceName);
                 amounts.Add((float)(inp.amount * biomeConfig.inputMultiplier));
             }
-
             if (!ConsumeVesselResources(names, amounts, 1.0)) return false;
+
+            // Material inputs
+            foreach (var inp in _activeRecipe._inputMaterials)
+                if (!ConsumeVesselMaterials(inp)) return false;
 
             foreach (var outp in _activeRecipe._outputs)
             {

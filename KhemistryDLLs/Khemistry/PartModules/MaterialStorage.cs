@@ -130,7 +130,7 @@ namespace Khemistry
         /// <returns>Whether the material was added. This can only be false if there wasn't enough space.</returns>
         public bool AddMaterial(KhemistryMaterialInstance mat)
         {
-            if (DoesExceedCapacity(ComputeCurrentVolume(mat.volume)))
+            if (ComputeCurrentVolume(mat.volume) >= volume)
                 return false;
 
             foreach (KhemistryMaterialInstance m in contents)
@@ -139,6 +139,65 @@ namespace Khemistry
 
             contents.Add(mat);
             return true;
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="name">Required material name</param>
+        /// <param name="shape">Required material shape</param>
+        /// <param name="size">Required material size</param>
+        /// <param name="paramConditions">Parameter conditions</param>
+        /// <param name="amount">Amount to remove</param>
+        /// <returns>If the material was removed successfully</returns>
+        public bool RemoveMaterial(string name, string shape, string size, Dictionary<string, string> paramConditions, int amount)
+        {
+            KhemistryMaterialInstance toRemove = null;
+            foreach (KhemistryMaterialInstance m in contents)  // Check every material stored
+            {
+                // Make sure name, shape, and size match
+                // Also check amount here, since no point in using the material if it isn't enough
+                // This does create problems of the amount being spread across multiple materials however...
+                // !TODO: Do something about it
+                if (m.material.name == name && m.shape == shape && m.size == size && m.amount >= amount)
+                {
+                    bool success = true;
+                    foreach (string param in paramConditions.Keys)  // Check every parameter of the material
+                    {
+                        // Check if the parameter exists in the material
+                        if (!m.parameters.ContainsKey(param))
+                            KShared.LogError(
+                                "RemoveMaterial has a parameter condition for a parameter that does not exist! Error information:   " +
+                                $"Material: Material {name}, shape {shape}, size {size}, and volume to subtract {volume}.   " +
+                                $"MaterialStorage: Maximum volume is {volume}, contents display is \"{contentsDisplay}\", supported names [{KShared.ListToString(supportedNames)}], and supported shapes [{KShared.ListToString(supportedShapes)}].",
+                                "KhemistryMaterialStorage/RemoveMaterial");
+
+                        // Evaluate parameter comparison and skip material if failes
+                        if (!KShared.EvaluateParamComparison(m.parameters[param], paramConditions[param]))
+                        {
+                            success = false;
+                            break;
+                        }
+                    }
+                    if (success)
+                    {
+                        toRemove = m;  // reference
+                        break;
+                    }
+                }
+            }
+
+            if (toRemove != null)
+            {
+                if (toRemove.amount == amount)
+                    contents.Remove(toRemove);
+                else
+                    toRemove.amount -= amount;  // since it is a reference, this should work
+
+                return true;
+            }
+
+            return false;
         }
 
         /// <summary>
@@ -153,8 +212,6 @@ namespace Khemistry
                 usedVolume += m.volume;
             return usedVolume;
         }
-
-        private bool DoesExceedCapacity(float volumeToCompare) => volumeToCompare >= volume;
 
         private void UpdateUI()
         {

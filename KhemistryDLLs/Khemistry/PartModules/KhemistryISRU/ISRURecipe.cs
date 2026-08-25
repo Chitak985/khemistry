@@ -46,10 +46,21 @@ namespace Khemistry
             public string outVolume;
         }
 
+        public struct ResourceInputMaterial
+        {
+            public string name;
+            public string shape;
+            public string size;
+            public bool usesParams;
+            public Dictionary<string, string> parameters;
+            public int amount;
+        }
+
         public enum PowerfailResult { Pause, Stop, Explode, Maint, Void }
 
         ///// Variables /////
         public readonly List<ResourceInput> _inputs = new List<ResourceInput>();
+        public readonly List<ResourceInputMaterial> _inputMaterials = new List<ResourceInputMaterial>();
         public readonly List<PassiveResourceInput> _passiveInputs = new List<PassiveResourceInput>();
         public readonly List<ResourceOutput> _outputs = new List<ResourceOutput>();
         public readonly List<ResourceOutputMaterial> _outputMaterials = new List<ResourceOutputMaterial>();
@@ -189,6 +200,34 @@ namespace Khemistry
                     }
 
                     _inputs.Add(new ResourceInput { resourceName = resName, amount = amount, flowMode = flowMode });
+                }
+
+                ///// Input materials /////
+                _inputMaterials.Clear();
+                foreach (ConfigNode matNode in node.GetNodes("INPUT_MATERIAL"))
+                {
+                    string matName = matNode.GetValue("name");
+                    if (string.IsNullOrEmpty(matName))
+                    {
+                        KShared.LogNoValueInNode("INPUT_MATERIAL", "name", "Recipe \"" + _name + "\" ", "KhemistryISRURecipe/constructor");
+                        continue;
+                    }
+
+                    bool usesParams = matNode.HasNode("PARAM_REQUIREMENTS");
+                    Dictionary<string, string> parameters = new Dictionary<string, string>();
+                    if (usesParams)
+                        foreach (string key in matNode.GetNode("PARAM_REQUIREMENTS").values.DistinctNames())
+                            parameters.Add(key, matNode.GetNode("PARAM_REQUIREMENTS").GetValue(key));
+
+                    _inputMaterials.Add(new ResourceInputMaterial
+                    {
+                        name = matName,
+                        shape = matNode.GetValue("shape"),
+                        size = matNode.GetValue("size"),
+                        usesParams = usesParams,
+                        parameters = parameters,
+                        amount = KShared.GetIntValueFromCFG(matNode, "amount", 1)
+                    });
                 }
 
                 ///// Passive inputs (PINPUT_RESOURCE) /////
@@ -437,6 +476,16 @@ namespace Khemistry
 
             foreach (ResourceInput inp in _inputs)
                 copy._inputs.Add(new ResourceInput { resourceName = inp.resourceName, amount = inp.amount * multiplier, flowMode = inp.flowMode });
+            foreach (ResourceInputMaterial mat in _inputMaterials)
+                copy._inputMaterials.Add(new ResourceInputMaterial
+                {
+                    name = mat.name,
+                    shape = mat.shape,
+                    size = mat.size,
+                    usesParams = mat.usesParams,
+                    parameters = mat.parameters,
+                    amount = (int)Math.Round(mat.amount * multiplier)
+                });
             foreach (PassiveResourceInput pinp in _passiveInputs)
                 copy._passiveInputs.Add(new PassiveResourceInput
                 {
@@ -499,7 +548,7 @@ namespace Khemistry
         // entry, and a module entry with a new resource name is added alongside the base entries.
         private static readonly HashSet<string> _keyedByNameNodeKeys = new HashSet<string>
         {
-            "INPUT_RESOURCE", "OUTPUT_RESOURCE", "PINPUT_RESOURCE", "OUTPUT_MATERIAL"
+            "INPUT_RESOURCE", "OUTPUT_RESOURCE", "PINPUT_RESOURCE", "INPUT_MATERIAL", "OUTPUT_MATERIAL"
         };
 
         // Node types that hold a single node full of repeated values (e.g. CHARGE_CON_NAMES holding

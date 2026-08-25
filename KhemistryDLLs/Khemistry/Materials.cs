@@ -43,12 +43,16 @@ namespace Khemistry
     /// </summary>
     public class KhemistryMaterialInstance
     {
+        public KhemistryMaterial material;
         public string shape = "null";
         public string size = "null";
-        public float volume = 0f;
+        public float volume = 0f;  // how much one material is in cubic meters
+        public int amount = 1;  // how many materials are combined into this one
         public Dictionary<string, string> parameters = new Dictionary<string, string>();
-        public KhemistryMaterial material;
 
+        /// <summary>
+        /// Create a material instance using parameters
+        /// </summary>
         public KhemistryMaterialInstance(KhemistryMaterial material, string shape, string size, float volume, Dictionary<string, string> parameters)
         {
             // Assign values
@@ -56,19 +60,33 @@ namespace Khemistry
             this.shape = shape;
             this.size = size;
             this.volume = volume;
-            this.parameters = parameters;
 
-            // Apply default values
-            parameters = new Dictionary<string, string>(material.parameters);
+            // Apply default parameters
+            this.parameters = new Dictionary<string, string>(material.parameters);  // Dict constructor makes a copy instead of a reference
 
-            // Check parameter validity
+            // Set keys that exist to the passed parameters values
             foreach (string key in parameters.Keys)
-                if (!material.parameters.ContainsKey(key))
-                    KShared.LogError("Material instance of material " + material.name + " has an invalid parameter " + key + " with value " + parameters[key] + "!", "KhemistryMaterialInstance/constructor");
+                if (this.parameters.ContainsKey(key))
+                    this.parameters[key] = parameters[key];
+                else
+                    KShared.LogError("Material instance of material " + material.name + " has an invalid parameter " + key + " with value " + material.parameters[key] + "!", "KhemistryMaterialInstance/constructor");
 
             // Check shape validity
             if (!material.shapes.Contains(shape))
                 KShared.LogError("Material instance of material " + material.name + " has an invalid shape " + shape + "!", "KhemistryMaterialInstance/constructor");
+        }
+
+        /// <summary>
+        /// Create a copy of an existing material instance
+        /// </summary>
+        public KhemistryMaterialInstance(KhemistryMaterialInstance matInst)
+        {
+            this.material = matInst.material;
+            this.shape = matInst.shape;
+            this.size = matInst.size;
+            this.volume = matInst.volume;
+            this.amount = matInst.amount;
+            this.parameters = matInst.parameters;
         }
 
         /// <summary>
@@ -79,7 +97,7 @@ namespace Khemistry
         /// <returns>If possible to merge the two <see cref="KhemistryMaterialInstance"/>.</returns>
         public bool CanMerge(KhemistryMaterialInstance other)
         {
-            if (shape == other.shape && size == other.size && material.name == other.material.name)
+            if (shape == other.shape && size == other.size && volume == other.volume && material.name == other.material.name)
             {
                 foreach (string key in parameters.Keys)
                 {
@@ -102,10 +120,36 @@ namespace Khemistry
         {
             if (CanMerge(other))
             {
-                volume += other.volume;
+                amount += other.amount;
                 return true;
             }
             return false;
+        }
+
+        /// <summary>
+        /// Split off some amount of materials off of this one.
+        /// Silently errors if the amount is too large or is equal to main material amount
+        /// </summary>
+        /// <param name="amount">Amount to split off.</param>
+        /// <returns>The split-off material.</returns>
+        public KhemistryMaterialInstance SplitOff(int amount)
+        {
+            // Error checking
+            if (this.amount == amount)
+                KShared.LogError($"Splitting off material would be the same as keeping the main material! (amount equal to this.amount, {amount})", "KhemistryMaterialInstance/SplitOff");
+            else if (this.amount < amount)
+                KShared.LogError($"Attempting to split off more than possible! (amount greater than this.amount, {this.amount} < {amount})", "KhemistryMaterialInstance/SplitOff");
+
+            // Create the new material
+            KhemistryMaterialInstance splitMat = new KhemistryMaterialInstance(this);
+
+            // Set the amount to the split-off
+            splitMat.amount = amount;
+
+            // Subtract the amount from the new material
+            this.amount -= amount;
+
+            return splitMat;
         }
     }
 
