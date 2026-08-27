@@ -9,12 +9,14 @@ namespace Khemistry
     /// <summary>
     /// A material usually loaded from configs. It defines its name, allowed shapes, and allowed parameters.
     /// An instance of this material used as a resource is <see cref="KhemistryMaterialInstance"/>.
+    /// Warning: Derived parameters are always calculated using the formula in their default value. Overwriting these won't do anything.
     /// </summary>
     public class KhemistryMaterial
     {
         public string name = "LOADFAIL";
         public List<string> shapes = new List<string>();
-        public Dictionary<string, string> parameters = new Dictionary<string, string>();  // name: default
+        public Dictionary<string, string> parameters = new Dictionary<string, string>();  // name: default or DERequation
+        public Dictionary<string, string> parameterMergers = new Dictionary<string, string>();  // name: merge equation
         public KhemistryMaterial(ConfigNode configNode)
         {
             // Check if the config node is valid
@@ -40,6 +42,16 @@ namespace Khemistry
             if (configNode.HasNode("PARAMS"))
                 foreach (string key in configNode.GetNode("PARAMS").values.DistinctNames())
                     parameters.Add(key, configNode.GetNode("PARAMS").GetValue(key));
+
+            // Set parameter merge expressions (if there are any) from the config
+            if (configNode.HasNode("PARAM_MERGING"))
+                foreach (string key in configNode.GetNode("PARAMS").values.DistinctNames())
+                    parameterMergers.Add(key, configNode.GetNode("PARAMS").GetValue(key));
+
+            // Default merge expressions to averaging
+            foreach (string param in parameters.Keys)
+                if (!parameterMergers.ContainsKey(param))
+                    parameterMergers.Add(param, $"({param}+{param}N)/2");
         }
     }
     /// <summary>
@@ -52,7 +64,17 @@ namespace Khemistry
         public string size = "null";
         public float volume = 0f;  // cubic meters occupied by one unit of this material
         public int amount = 1;  // how many material units are combined into this instance
+        /// <summary>
+        /// Contains all of the parameters of this KhemistryMaterialInstance.
+        /// PLEASE call <c>.UpdateParams("class/function");</c> every time this is accessed.
+        /// </summary>
         public Dictionary<string, string> parameters = new Dictionary<string, string>();
+
+        public void UpdateParams(string location="KhemistryMaterialInstance/constructor(matInst)")
+        {
+            if (!DeriveAllParameters())
+                KShared.LogError("DeriveAllParamters() has failed with an error and not all parameters were derived!", location);
+        }
 
         public float TotalVolume => volume * amount;
 
@@ -73,6 +95,10 @@ namespace Khemistry
             // Apply default parameters
             this.parameters = new Dictionary<string, string>(material.parameters);  // Dict constructor makes a copy instead of a reference
 
+            // Check shape validity
+            if (!material.shapes.Contains(shape))
+                KShared.LogError("Material instance of material " + material.name + " has an invalid shape " + shape + "!", "KhemistryMaterialInstance/constructor");
+
             // Set keys that exist to the passed parameters values
             foreach (string key in (parameters ?? new Dictionary<string, string>()).Keys)
                 if (this.parameters.ContainsKey(key))
@@ -80,9 +106,8 @@ namespace Khemistry
                 else
                     KShared.LogError("Material instance of material " + material.name + " has an invalid parameter " + key + " with value " + parameters[key] + "!", "KhemistryMaterialInstance/constructor");
 
-            // Check shape validity
-            if (!material.shapes.Contains(shape))
-                KShared.LogError("Material instance of material " + material.name + " has an invalid shape " + shape + "!", "KhemistryMaterialInstance/constructor");
+            // Derive derivable parameters
+            UpdateParams("KhemistryMaterialInstance/constructor");
         }
 
         /// <summary>
@@ -96,6 +121,27 @@ namespace Khemistry
             this.volume = matInst.volume;
             this.amount = matInst.amount;
             this.parameters = new Dictionary<string, string>(matInst.parameters);
+
+            UpdateParams("KhemistryMaterialInstance/constructor(matInst)");
+        }
+
+        /// <summary>
+        /// Derive all parameters on the material.
+        /// The derive formula is taken from the default material.
+        /// </summary>
+        /// <returns>Was the operation successful or not.</returns>
+        public bool DeriveAllParameters()
+        {
+            foreach (string param in material.parameters.Keys)
+                if (parameters[param].StartsWith("DER"))
+                    if (KMathExpr.TryEvaluate(parameters[param].Remove(0, 3), out double val, out string error, parameters))
+                        parameters[param] = val.ToString();
+                    else
+                    {
+                        KShared.LogError("An error occured while evaulating parameter " + param + ": " + error, "KhemistryMaterialInstance/DeriveAllParameters");
+                        return false;
+                    }
+            return true;
         }
 
         /// <summary>
@@ -113,6 +159,10 @@ namespace Khemistry
                 && material.name == other.material.name
                 && parameters.Count == other.parameters.Count)
             {
+                // Update parameters before checking them
+                UpdateParams("KhemistryMaterialInstance/CanMerge");
+                other.UpdateParams("KhemistryMaterialInstance/CanMerge, other");
+                
                 foreach (string key in parameters.Keys)
                 {
                     if (!other.parameters.ContainsKey(key))
@@ -140,37 +190,12 @@ namespace Khemistry
             return false;
         }
 
-        /// <summary>
-        /// Split off some amount of materials off of this one.
-        /// Silently errors if the amount is too large or is equal to main material amount
-        /// </summary>
-        /// <param name="amount">Amount to split off.</param>
-        /// <returns>The split-off material.</returns>
-        public KhemistryMaterialInstance SplitOff(int amount)
-        {
-            if (amount <= 0 || amount >= this.amount)
-            {
-                KShared.LogError(
-                    $"Split amount must be greater than zero and less than the stored amount ({amount}, stored {this.amount}).",
-                    "KhemistryMaterialInstance/SplitOff");
-                return null;
-            }
-
-            // Create the new material
-            KhemistryMaterialInstance splitMat = new KhemistryMaterialInstance(this);
-
-            // Set the amount to the split-off
-            splitMat.amount = amount;
-
-            // Subtract the amount from the new material
-            this.amount -= amount;
-
-            return splitMat;
-        }
-
         /// <summary>Serializes this instance for PartModule save data.</summary>
         public ConfigNode ToConfigNode(string nodeName = "STORED_MATERIAL")
         {
+            // Update parameters before saving them
+            UpdateParams("KhemistryMaterialInstance/CanMerge");
+            
             ConfigNode node = new ConfigNode(nodeName);
             node.AddValue("name", material?.name ?? "");
             node.AddValue("shape", shape ?? "");
@@ -218,6 +243,8 @@ namespace Khemistry
             Dictionary<string, string> savedParameters = node.HasNode("PARAMS")
                 ? KShared.NodeToDictionary(node.GetNode("PARAMS"))
                 : new Dictionary<string, string>();
+
+            // No need to update parameters here as they are saved as already derived
 
             instance = new KhemistryMaterialInstance(
                 definition, node.GetValue("shape"), node.GetValue("size"), volume, savedParameters)
@@ -277,6 +304,7 @@ namespace Khemistry
 
             foreach (var kv in paramRequirements)
             {
+                instance.UpdateParams("KhemistryAllowedMaterial/Matches");
                 if (!instance.parameters.TryGetValue(kv.Key, out string paramValue)) return false;
 
                 bool anyPassed = false;

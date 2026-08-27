@@ -1,17 +1,26 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Globalization;
 
 namespace Khemistry
 {
     /// <summary>
     /// A minimal recursive-descent arithmetic expression evaluator supporting +, -, *, /,
-    /// parentheses, unary +/-, the constant PI, and the function Pow(a,b). Used to evaluate
-    /// OUTPUT_MATERIAL outVolume expressions after [name] substitution.
+    /// parentheses, unary +/-, the constant PI, and the function Pow(a,b).
+    /// Used for parsing mathematic expressions in config values.
     /// </summary>
     public static class KMathExpr
     {
-        public static bool TryEvaluate(string expr, out double result, out string error)
+        public static bool TryEvaluate(string expr, out double result, out string error, Dictionary<string, string> vars=null)
         {
+            // Failsafe if no variables are set
+            if(vars == null)
+                vars = new Dictionary<string, string>();
+
+            // Replace every variable in the expression with the provided variable
+            foreach (string var in vars.Keys)
+                expr.Replace(var, vars[var]);
+
             result = 0.0;
             error = null;
             try

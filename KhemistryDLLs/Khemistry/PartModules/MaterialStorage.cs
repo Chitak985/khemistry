@@ -1,6 +1,5 @@
-﻿using System.Collections.Generic;
-
-using System;
+﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 
 namespace Khemistry
@@ -198,6 +197,7 @@ namespace Khemistry
 
             foreach (KeyValuePair<string, string> requirement in paramRequirements)
             {
+                mat.UpdateParams("KhemistryMaterialStorage/AcceptsMaterial");
                 if (!mat.parameters.TryGetValue(requirement.Key, out string value)
                     || !KShared.EvaluateParamComparison(value, requirement.Value))
                     return false;
@@ -215,6 +215,7 @@ namespace Khemistry
             foreach (KeyValuePair<string, string> condition in
                      paramConditions ?? new Dictionary<string, string>())
             {
+                material.UpdateParams("KhemistryMaterialStorage/MatchesMaterial");
                 if (!material.parameters.TryGetValue(condition.Key, out string value)
                     || !KShared.EvaluateParamComparison(value, condition.Value))
                     return false;
