@@ -1,6 +1,5 @@
-﻿using System.Collections.Generic;
-
-using System;
+﻿using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 
@@ -13,10 +12,30 @@ namespace Khemistry
     /// </summary>
     public class KhemistryMaterial
     {
+        /// <summary>Name of the material, must be unique.</summary>
         public string name = "LOADFAIL";
+        
+        /// <summary>Shapes allowed by the material.</summary>
         public List<string> shapes = new List<string>();
-        public Dictionary<string, string> parameters = new Dictionary<string, string>();  // name: default or DERequation
-        public Dictionary<string, string> parameterMergers = new Dictionary<string, string>();  // name: merge equation
+        
+        /// <summary>
+        /// List of parameters of the material.
+        /// The value is either a default value or the equation to derive it from.
+        /// The derivation equation must start with DER and it is a KMathExpr.
+        /// </summary>
+        public Dictionary<string, string> parameters = new Dictionary<string, string>();
+        
+        /// <summary>
+        /// List of equations to merge parameters of the material.
+        /// If one isn't loaded for a parameter, it will default to (current+new)/2.
+        /// The merge equation is a KMathExpr and can include the current parameter and the new parameter with N at the end.
+        /// </summary>
+        public Dictionary<string, string> parameterMergers = new Dictionary<string, string>();
+
+        /// <summary>
+        /// Construct the material from a ConfigNode.
+        /// The node must be named KHEMISTRY_MATERIAL.
+        /// </summary>
         public KhemistryMaterial(ConfigNode configNode)
         {
             // Check if the config node is valid
@@ -67,19 +86,28 @@ namespace Khemistry
         /// <summary>
         /// Contains all of the parameters of this KhemistryMaterialInstance.
         /// PLEASE call <c>.UpdateParams("class/function");</c> every time this is accessed.
+        /// Not using get and set because this is a dictionary and I don't want to make my own class for it.
         /// </summary>
         public Dictionary<string, string> parameters = new Dictionary<string, string>();
 
+        /// <summary>
+        /// Update all derivable parameters.
+        /// Should be called before accessing parameters to make sure they are up to date.
+        /// </summary>
         public void UpdateParams(string location="KhemistryMaterialInstance/constructor(matInst)")
         {
             if (!DeriveAllParameters())
                 KShared.LogError("DeriveAllParamters() has failed with an error and not all parameters were derived!", location);
         }
 
+        /// <summary>
+        /// Total volume of the material instance.
+        /// This is just the base volume multiplied by material amount.
+        /// </summary>
         public float TotalVolume => volume * amount;
 
         /// <summary>
-        /// Create a material instance using parameters
+        /// Create a material instance using parameters.
         /// </summary>
         public KhemistryMaterialInstance(KhemistryMaterial material, string shape, string size, float volume, Dictionary<string, string> parameters)
         {
@@ -111,7 +139,7 @@ namespace Khemistry
         }
 
         /// <summary>
-        /// Create a copy of an existing material instance
+        /// Create a copy of an existing material instance.
         /// </summary>
         public KhemistryMaterialInstance(KhemistryMaterialInstance matInst)
         {
@@ -190,7 +218,9 @@ namespace Khemistry
             return false;
         }
 
-        /// <summary>Serializes this instance for PartModule save data.</summary>
+        /// <summary>
+        /// Serializes this material instance for PartModule save data.
+        /// </summary>
         public ConfigNode ToConfigNode(string nodeName = "STORED_MATERIAL")
         {
             // Update parameters before saving them
