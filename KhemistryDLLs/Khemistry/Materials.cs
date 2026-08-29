@@ -27,8 +27,9 @@ namespace Khemistry
         
         /// <summary>
         /// List of equations to merge parameters of the material.
-        /// If one isn't loaded for a parameter, it will default to (current+new)/2.
-        /// The merge equation is a KMathExpr and can include the current parameter and the new parameter with N at the end.
+        /// If one isn't loaded for a numeric parameter, it defaults to a weighted average by amount.
+        /// The merge equation is a KMathExpr and can include the current variables and the other
+        /// material's variables with an O suffix.
         /// </summary>
         public Dictionary<string, string> parameterMergers = new Dictionary<string, string>();
 
@@ -62,15 +63,52 @@ namespace Khemistry
                 foreach (string key in configNode.GetNode("PARAMS").values.DistinctNames())
                     parameters.Add(key, configNode.GetNode("PARAMS").GetValue(key));
 
-            // Set parameter merge expressions (if there are any) from the config
+            // Set parameter merge expressions (if there are any) from the config.
             if (configNode.HasNode("PARAM_MERGING"))
-                foreach (string key in configNode.GetNode("PARAMS").values.DistinctNames())
-                    parameterMergers.Add(key, configNode.GetNode("PARAMS").GetValue(key));
+            {
+                ConfigNode mergingNode = configNode.GetNode("PARAM_MERGING");
+                foreach (string key in mergingNode.values.DistinctNames())
+                {
+                    if (!parameters.ContainsKey(key))
+                    {
+                        KShared.LogError(
+                            "Material \"" + name + "\" has a PARAM_MERGING equation for unknown parameter \""
+                            + key + "\"; the equation was ignored.",
+                            "KhemistryMaterial/constructor");
+                        continue;
+                    }
+                    if (IsDerivedParameter(key))
+                    {
+                        KShared.LogError(
+                            "Material \"" + name + "\" has a PARAM_MERGING equation for derived parameter \""
+                            + key + "\"; derived parameters are recalculated after a merge, so the equation was ignored.",
+                            "KhemistryMaterial/constructor");
+                        continue;
+                    }
 
-            // Default merge expressions to averaging
+                    string expression = mergingNode.GetValue(key);
+                    if (!string.IsNullOrWhiteSpace(expression))
+                        parameterMergers[key] = expression.Trim();
+                }
+            }
+
+            // Default non-derived merge expressions to a weighted average.
             foreach (string param in parameters.Keys)
-                if (!parameterMergers.ContainsKey(param))
-                    parameterMergers.Add(param, $"({param}+{param}N)/2");
+                if (!IsDerivedParameter(param) && !parameterMergers.ContainsKey(param))
+                    parameterMergers.Add(param, $"(({param}*amount)+({param}O*amountO))/(amount+amountO)");
+        }
+
+        public bool IsDerivedParameter(string parameterName)
+        {
+            return parameters.TryGetValue(parameterName, out string configuredValue)
+                && configuredValue?.TrimStart().StartsWith("DER", StringComparison.OrdinalIgnoreCase) == true;
+        }
+
+        public string GetDerivationExpression(string parameterName)
+        {
+            if (!IsDerivedParameter(parameterName)) return null;
+            string configuredValue = parameters[parameterName].TrimStart();
+            return configuredValue.Substring(3);
         }
     }
     /// <summary>
@@ -89,6 +127,8 @@ namespace Khemistry
         /// Not using get and set because this is a dictionary and I don't want to make my own class for it.
         /// </summary>
         public Dictionary<string, string> parameters = new Dictionary<string, string>();
+        private string _lastContaminatedMergeError;
+        private string _lastDerivedParameterError;
 
         /// <summary>
         /// Update all derivable parameters.
@@ -96,8 +136,17 @@ namespace Khemistry
         /// </summary>
         public void UpdateParams(string location="KhemistryMaterialInstance/constructor(matInst)")
         {
-            if (!DeriveAllParameters())
-                KShared.LogError("DeriveAllParamters() has failed with an error and not all parameters were derived!", location);
+            if (TryCalculateDerivedParameters(parameters, amount,
+                    out Dictionary<string, string> updated, out string error))
+            {
+                ReplaceParameters(updated);
+                _lastDerivedParameterError = null;
+            }
+            else if (!string.Equals(_lastDerivedParameterError, error, StringComparison.Ordinal))
+            {
+                KShared.LogError("Not all derived parameters could be updated: " + error, location);
+                _lastDerivedParameterError = error;
+            }
         }
 
         /// <summary>
@@ -154,48 +203,163 @@ namespace Khemistry
         }
 
         /// <summary>
+        /// Gets the material-related variable list to use in <see cref="KMathExpr"/> expressions.
+        /// This includes:
+        /// <list type="bullet">Parameters</list>
+        /// <list type="bullet">Amount</list>
+        /// <list type="bullet">Volume</list>
+        /// <list type="bullet">Any additional ones provided in the argument</list>
+        /// </summary>
+        /// <param name="additional"></param>
+        /// <returns>The list of variables to use in <see cref="KMathExpr.TryEvaluate(string, out double, out string, Dictionary{string, string})"/>.</returns>
+        public Dictionary<string, string> GetVariableList(Dictionary<string, string> additional = null)
+        {
+            return BuildVariableList(parameters, amount, additional);
+        }
+
+        private Dictionary<string, string> BuildVariableList(Dictionary<string, string> sourceParameters,
+            int sourceAmount, Dictionary<string, string> additional = null)
+        {
+            Dictionary<string, string> variables = new Dictionary<string, string>();
+            foreach (KeyValuePair<string, string> pair in sourceParameters)
+                variables[pair.Key] = pair.Value;
+
+            // These names are reserved for instance properties and intentionally override params.
+            variables["amount"] = sourceAmount.ToString(CultureInfo.InvariantCulture);
+            variables["volume"] = volume.ToString("R", CultureInfo.InvariantCulture);
+
+            if (additional != null)
+                foreach (KeyValuePair<string, string> pair in additional)
+                    variables[pair.Key] = pair.Value;
+
+            return variables;
+        }
+
+        private static void ReplaceDictionary(Dictionary<string, string> destination,
+            Dictionary<string, string> source)
+        {
+            destination.Clear();
+            foreach (KeyValuePair<string, string> pair in source)
+                destination[pair.Key] = pair.Value;
+        }
+
+        private void ReplaceParameters(Dictionary<string, string> replacement)
+        {
+            ReplaceDictionary(parameters, replacement);
+        }
+
+        private bool TryCalculateDerivedParameters(Dictionary<string, string> sourceParameters,
+            int sourceAmount, out Dictionary<string, string> updated, out string error)
+        {
+            updated = new Dictionary<string, string>(sourceParameters);
+            error = null;
+
+            List<string> pending = material.parameters.Keys
+                .Where(material.IsDerivedParameter)
+                .ToList();
+            foreach (string derivedParameter in pending)
+                updated.Remove(derivedParameter);
+
+            Dictionary<string, string> latestErrors = new Dictionary<string, string>();
+            while (pending.Count > 0)
+            {
+                bool madeProgress = false;
+                foreach (string parameterName in pending.ToList())
+                {
+                    string expression = material.GetDerivationExpression(parameterName);
+                    if (!KMathExpr.TryEvaluate(expression, out double value, out string evaluationError,
+                            BuildVariableList(updated, sourceAmount)))
+                    {
+                        latestErrors[parameterName] = evaluationError;
+                        continue;
+                    }
+
+                    updated[parameterName] = value.ToString("R", CultureInfo.InvariantCulture);
+                    latestErrors.Remove(parameterName);
+                    pending.Remove(parameterName);
+                    madeProgress = true;
+                }
+
+                if (madeProgress) continue;
+
+                error = string.Join("; ", pending.Select(parameterName =>
+                    parameterName + ": " + (latestErrors.TryGetValue(parameterName, out string value)
+                        ? value : "unresolved dependency")));
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
         /// Derive all parameters on the material.
         /// The derive formula is taken from the default material.
         /// </summary>
         /// <returns>Was the operation successful or not.</returns>
         public bool DeriveAllParameters()
         {
-            foreach (string param in material.parameters.Keys)
-                if (parameters[param].StartsWith("DER"))
-                    if (KMathExpr.TryEvaluate(parameters[param].Remove(0, 3), out double val, out string error, parameters))
-                        parameters[param] = val.ToString();
-                    else
-                    {
-                        KShared.LogError("An error occured while evaulating parameter " + param + ": " + error, "KhemistryMaterialInstance/DeriveAllParameters");
-                        return false;
-                    }
+            if (!TryCalculateDerivedParameters(parameters, amount,
+                    out Dictionary<string, string> updated, out string error))
+            {
+                if (!string.Equals(_lastDerivedParameterError, error, StringComparison.Ordinal))
+                {
+                    KShared.LogError("Could not derive material parameters: " + error,
+                        "KhemistryMaterialInstance/DeriveAllParameters");
+                    _lastDerivedParameterError = error;
+                }
+                return false;
+            }
+
+            ReplaceParameters(updated);
+            _lastDerivedParameterError = null;
             return true;
         }
 
+        private static bool ParameterValuesEqual(string left, string right)
+        {
+            if (string.Equals(left, right, StringComparison.Ordinal)) return true;
+            if (!double.TryParse(left, NumberStyles.Float, CultureInfo.InvariantCulture, out double leftNumber)
+                || !double.TryParse(right, NumberStyles.Float, CultureInfo.InvariantCulture, out double rightNumber))
+                return false;
+            if (leftNumber.Equals(rightNumber)) return true;
+            if (double.IsNaN(leftNumber) || double.IsNaN(rightNumber)
+                || double.IsInfinity(leftNumber) || double.IsInfinity(rightNumber))
+                return false;
+
+            double scale = Math.Max(1.0, Math.Max(Math.Abs(leftNumber), Math.Abs(rightNumber)));
+            return Math.Abs(leftNumber - rightNumber) <= scale * 1e-12;
+        }
+
         /// <summary>
-        /// Checks if it is possible to merge the volumes of another <see cref="KhemistryMaterialInstance"/> into this one.
-        /// For this to be true, they must be exactly the same except for the volume.
+        /// Checks if it is possible to merge the amount of another <see cref="KhemistryMaterialInstance"/> into this one.
+        /// For this to be true, they must be exactly the same except for the amount.
         /// </summary>
         /// <param name="other">The other <see cref="KhemistryMaterialInstance"/> to test merging for.</param>
         /// <returns>If possible to merge the two <see cref="KhemistryMaterialInstance"/>.</returns>
         public bool CanMerge(KhemistryMaterialInstance other)
         {
-            if (other == null || material == null || other.material == null) return false;
+            if (other == null || material == null || other.material == null
+                || amount <= 0 || other.amount <= 0 || (long)amount + other.amount > int.MaxValue)
+                return false;
 
-            if (shape == other.shape && size == other.size
+            if (shape == other.shape
+                && size == other.size
                 && Math.Abs(volume - other.volume) <= 1e-7f
                 && material.name == other.material.name
                 && parameters.Count == other.parameters.Count)
             {
-                // Update parameters before checking them
-                UpdateParams("KhemistryMaterialInstance/CanMerge");
-                other.UpdateParams("KhemistryMaterialInstance/CanMerge, other");
-                
-                foreach (string key in parameters.Keys)
+                if (!TryCalculateDerivedParameters(parameters, amount,
+                        out Dictionary<string, string> currentParameters, out _)
+                    || !other.TryCalculateDerivedParameters(other.parameters, other.amount,
+                        out Dictionary<string, string> otherParameters, out _))
+                    return false;
+
+                foreach (string key in material.parameters.Keys)
                 {
-                    if (!other.parameters.ContainsKey(key))
+                    if (!currentParameters.ContainsKey(key) || !otherParameters.ContainsKey(key))
                         return false;
-                    if (other.parameters[key] != parameters[key])
+                    if (material.IsDerivedParameter(key)) continue;
+                    if (!ParameterValuesEqual(otherParameters[key], currentParameters[key]))
                         return false;
                 }
                 return true;
@@ -204,7 +368,7 @@ namespace Khemistry
         }
 
         /// <summary>
-        /// Merge the volumes of another <see cref="KhemistryMaterialInstance"/> into this one.
+        /// Merge the amount of another <see cref="KhemistryMaterialInstance"/> into this one.
         /// </summary>
         /// <param name="other">The other <see cref="KhemistryMaterialInstance"/> to merge.</param>
         /// <returns>If merging succeeded or not.</returns>
@@ -212,8 +376,138 @@ namespace Khemistry
         {
             if (CanMerge(other))
             {
-                amount += other.amount;
+                int mergedAmount = amount + other.amount;
+                if (!TryCalculateDerivedParameters(parameters, mergedAmount,
+                        out Dictionary<string, string> mergedParameters, out string error))
+                {
+                    KShared.LogError("Could not update derived parameters after merging: " + error,
+                        "KhemistryMaterialInstance/Merge");
+                    return false;
+                }
+
+                ReplaceParameters(mergedParameters);
+                amount = mergedAmount;
                 return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Checks if it is possible to merge another <see cref="KhemistryMaterialInstance"/> into this one with contamination.
+        /// This is usually forced and passes all the time.
+        /// For this to be true, they must be exactly the same except for the parameters.
+        /// </summary>
+        /// <param name="other">The other <see cref="KhemistryMaterialInstance"/> to test contaminated merging for.</param>
+        /// <returns>If possible to contaminated merge the two <see cref="KhemistryMaterialInstance"/>.</returns>
+        public bool CanContaminatedMerge(KhemistryMaterialInstance other)
+        {
+            if (other == null || material == null || other.material == null
+                || amount <= 0 || other.amount <= 0 || (long)amount + other.amount > int.MaxValue)
+                return false;
+
+            if (shape != other.shape || size != other.size
+                || Math.Abs(volume - other.volume) > 1e-7f
+                || material.name != other.material.name
+                || parameters.Count != material.parameters.Count
+                || other.parameters.Count != material.parameters.Count)
+                return false;
+
+            foreach (string parameterName in material.parameters.Keys)
+            {
+                if (!parameters.ContainsKey(parameterName) || !other.parameters.ContainsKey(parameterName))
+                    return false;
+                if (material.IsDerivedParameter(parameterName)) continue;
+                if (!material.parameterMergers.ContainsKey(parameterName)) return false;
+
+                string currentValue = parameters[parameterName];
+                string otherValue = other.parameters[parameterName];
+                bool currentNumeric = double.TryParse(currentValue, NumberStyles.Float,
+                    CultureInfo.InvariantCulture, out _);
+                bool otherNumeric = double.TryParse(otherValue, NumberStyles.Float,
+                    CultureInfo.InvariantCulture, out _);
+                if (currentNumeric != otherNumeric) return false;
+                if (!currentNumeric && !string.Equals(currentValue, otherValue, StringComparison.Ordinal))
+                    return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Merge another <see cref="KhemistryMaterialInstance"/> into this one with contamination.
+        /// This means that parameters will be combined together using an equation.
+        /// Variables available in the equation:
+        /// <list type="bullet">Parameters (this material)</list>
+        /// <list type="bullet">Amount (this material)</list>
+        /// <list type="bullet">Volume (this material)</list>
+        /// <list type="bullet">Parameters (other material, end with O)</list>
+        /// <list type="bullet">Amount (other material, amountO)</list>
+        /// <list type="bullet">Volume (other material, volumeO)</list>
+        /// </summary>
+        /// <param name="other">The other <see cref="KhemistryMaterialInstance"/> to try merging.</param>
+        /// <returns>If the <see cref="KhemistryMaterialInstance"/> was merged into this one.</returns>
+        public bool ContaminatedMerge(KhemistryMaterialInstance other)
+        {
+            if (!CanContaminatedMerge(other)) return false;
+
+            if (!TryCalculateDerivedParameters(parameters, amount,
+                    out Dictionary<string, string> currentSnapshot, out string currentDerivationError))
+                return FailContaminatedMerge("Could not derive the receiving material: " + currentDerivationError);
+            if (!other.TryCalculateDerivedParameters(other.parameters, other.amount,
+                    out Dictionary<string, string> otherSnapshot, out string otherDerivationError))
+                return FailContaminatedMerge("Could not derive the incoming material: " + otherDerivationError);
+
+            Dictionary<string, string> otherVariables = other.BuildVariableList(otherSnapshot, other.amount)
+                .ToDictionary(pair => pair.Key + "O", pair => pair.Value);
+            Dictionary<string, string> mergeVariables = BuildVariableList(
+                currentSnapshot, amount, otherVariables);
+            Dictionary<string, string> mergedParameters = new Dictionary<string, string>(currentSnapshot);
+            int mergedAmount = amount + other.amount;
+
+            foreach (string parameterName in material.parameters.Keys)
+            {
+                if (material.IsDerivedParameter(parameterName)) continue;
+
+                string currentValue = currentSnapshot[parameterName];
+                string otherValue = otherSnapshot[parameterName];
+                bool currentNumeric = double.TryParse(currentValue, NumberStyles.Float,
+                    CultureInfo.InvariantCulture, out _);
+                bool otherNumeric = double.TryParse(otherValue, NumberStyles.Float,
+                    CultureInfo.InvariantCulture, out _);
+                if (!currentNumeric && !otherNumeric)
+                {
+                    // Equal non-numeric values carry through unchanged; differing ones were
+                    // rejected by CanContaminatedMerge because KMathExpr is numeric-only.
+                    mergedParameters[parameterName] = currentValue;
+                    continue;
+                }
+
+                string expression = material.parameterMergers[parameterName];
+                if (!KMathExpr.TryEvaluate(expression, out double mergedValue, out string mergeError,
+                        mergeVariables))
+                    return FailContaminatedMerge("Parameter \"" + parameterName + "\": " + mergeError);
+                if (double.IsNaN(mergedValue) || double.IsInfinity(mergedValue))
+                    return FailContaminatedMerge("Parameter \"" + parameterName
+                        + "\" produced a non-finite value.");
+
+                mergedParameters[parameterName] = mergedValue.ToString("R", CultureInfo.InvariantCulture);
+            }
+
+            if (!TryCalculateDerivedParameters(mergedParameters, mergedAmount,
+                    out Dictionary<string, string> finalParameters, out string derivationError))
+                return FailContaminatedMerge("Could not derive the merged material: " + derivationError);
+
+            ReplaceParameters(finalParameters);
+            amount = mergedAmount;
+            _lastContaminatedMergeError = null;
+            return true;
+        }
+
+        private bool FailContaminatedMerge(string error)
+        {
+            if (!string.Equals(_lastContaminatedMergeError, error, StringComparison.Ordinal))
+            {
+                KShared.LogError(error, "KhemistryMaterialInstance/ContaminatedMerge");
+                _lastContaminatedMergeError = error;
             }
             return false;
         }
@@ -224,7 +518,7 @@ namespace Khemistry
         public ConfigNode ToConfigNode(string nodeName = "STORED_MATERIAL")
         {
             // Update parameters before saving them
-            UpdateParams("KhemistryMaterialInstance/CanMerge");
+            UpdateParams("KhemistryMaterialInstance/ToConfigNode");
             
             ConfigNode node = new ConfigNode(nodeName);
             node.AddValue("name", material?.name ?? "");
@@ -274,13 +568,13 @@ namespace Khemistry
                 ? KShared.NodeToDictionary(node.GetNode("PARAMS"))
                 : new Dictionary<string, string>();
 
-            // No need to update parameters here as they are saved as already derived
-
             instance = new KhemistryMaterialInstance(
                 definition, node.GetValue("shape"), node.GetValue("size"), volume, savedParameters)
             {
                 amount = amount
             };
+            // Derived expressions may use amount, so recalculate after restoring the saved amount.
+            instance.UpdateParams(logContext);
             return true;
         }
     }
@@ -332,9 +626,9 @@ namespace Khemistry
             if (instance?.material == null || instance.material.name != name) return false;
             if (supportedShapes.Count > 0 && !supportedShapes.Contains(instance.shape)) return false;
 
+            instance.UpdateParams("KhemistryAllowedMaterial/Matches");
             foreach (var kv in paramRequirements)
             {
-                instance.UpdateParams("KhemistryAllowedMaterial/Matches");
                 if (!instance.parameters.TryGetValue(kv.Key, out string paramValue)) return false;
 
                 bool anyPassed = false;

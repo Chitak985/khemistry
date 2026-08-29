@@ -84,7 +84,42 @@ namespace Khemistry
             _pendingSavedContents.Clear();
         }
 
-        public void FixedUpdate() => UpdateUI();
+        public void FixedUpdate()
+        {
+            // Apply tank-caused contamination to all materials on the part
+            // !TODO
+
+            // Consolidate compatible stacks after their parameters have changed. A failed
+            // contaminated merge leaves both instances untouched.
+            for (int i = 0; i < contents.Count; i++)
+            {
+                for (int j = i + 1; j < contents.Count;)
+                {
+                    KhemistryMaterialInstance m = contents[i];
+                    KhemistryMaterialInstance otherM = contents[j];
+
+                    if (m.ContaminatedMerge(otherM))
+                    {
+                        KShared.Log(
+                            $"Instance of {otherM.material.name} was contamination-merged into {m.material.name}.",
+                            "KhemistryMaterialStorage/FixedUpdate/contaminatedMergeLogic"
+                        );
+
+                        contents.RemoveAt(j);
+
+                        // Do NOT increment j.
+                        // The next material has now shifted into index j.
+                    }
+                    else
+                    {
+                        j++;
+                    }
+                }
+            }
+
+            // Reflect merges in the same physics update instead of displaying stale contents.
+            UpdateUI();
+        }
 
         private void LoadConfigFromPartInfo()
         {
@@ -195,9 +230,9 @@ namespace Khemistry
             if (!supportedNames.Contains(mat.material.name) || !supportedShapes.Contains(mat.shape))
                 return false;
 
+            mat.UpdateParams("KhemistryMaterialStorage/AcceptsMaterial");
             foreach (KeyValuePair<string, string> requirement in paramRequirements)
             {
-                mat.UpdateParams("KhemistryMaterialStorage/AcceptsMaterial");
                 if (!mat.parameters.TryGetValue(requirement.Key, out string value)
                     || !KShared.EvaluateParamComparison(value, requirement.Value))
                     return false;
@@ -212,10 +247,10 @@ namespace Khemistry
                 || material.shape != shape || material.size != size)
                 return false;
 
+            material.UpdateParams("KhemistryMaterialStorage/MatchesMaterial");
             foreach (KeyValuePair<string, string> condition in
                      paramConditions ?? new Dictionary<string, string>())
             {
-                material.UpdateParams("KhemistryMaterialStorage/MatchesMaterial");
                 if (!material.parameters.TryGetValue(condition.Key, out string value)
                     || !KShared.EvaluateParamComparison(value, condition.Value))
                     return false;
@@ -231,20 +266,6 @@ namespace Khemistry
                 if (MatchesMaterial(material, name, shape, size, paramConditions))
                     total += material.amount;
             return total;
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="name">Required material name</param>
-        /// <param name="shape">Required material shape</param>
-        /// <param name="size">Required material size</param>
-        /// <param name="paramConditions">Parameter conditions</param>
-        /// <param name="amount">Amount to remove</param>
-        /// <returns>If the material was removed successfully</returns>
-        public bool RemoveMaterial(string name, string shape, string size, Dictionary<string, string> paramConditions, int amount)
-        {
-            return TryRemoveMaterial(name, shape, size, paramConditions, amount, out _);
         }
 
         /// <summary>
@@ -266,10 +287,15 @@ namespace Khemistry
 
                 int take = Math.Min(remaining, stored.amount);
                 KhemistryMaterialInstance piece = new KhemistryMaterialInstance(stored) { amount = take };
+                piece.UpdateParams("KhemistryMaterialStorage/TryRemoveMaterial");
                 removed.Add(piece);
 
                 if (take == stored.amount) contents.Remove(stored);
-                else stored.amount -= take;
+                else
+                {
+                    stored.amount -= take;
+                    stored.UpdateParams("KhemistryMaterialStorage/TryRemoveMaterial");
+                }
 
                 remaining -= take;
                 if (remaining == 0) return true;
@@ -297,8 +323,11 @@ namespace Khemistry
         {
             List<string> contentsDisplayNames = new List<string>();
             foreach (KhemistryMaterialInstance m in contents)
+            {
+                m.UpdateParams("KhemistryMaterialStorage/UpdateUI");
                 if (m.volume > 0)
                     contentsDisplayNames.Add(m.amount + "× " + m.material.name + " as " + m.shape + " (" + KShared.DictToString(m.parameters) + ")");
+            }
             contentsDisplay = string.Join("\n", contentsDisplayNames);
             volumeDisplay = $"{ComputeCurrentVolume():F10} / {volume:F10}";
         }

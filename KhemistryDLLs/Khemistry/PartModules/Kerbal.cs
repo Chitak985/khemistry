@@ -198,9 +198,15 @@ namespace Khemistry
                 if (!KhemistryMaterialStorage.MatchesMaterial(stored, name, shape, size, paramConditions)) continue;
 
                 int take = Math.Min(remaining, stored.amount);
-                removed.Add(new KhemistryMaterialInstance(stored) { amount = take });
+                KhemistryMaterialInstance piece = new KhemistryMaterialInstance(stored) { amount = take };
+                piece.UpdateParams("KhemistryKerbal/TryRemoveMaterialFromSuitCell");
+                removed.Add(piece);
                 if (take == stored.amount) materialSuitCellContents.Remove(stored);
-                else stored.amount -= take;
+                else
+                {
+                    stored.amount -= take;
+                    stored.UpdateParams("KhemistryKerbal/TryRemoveMaterialFromSuitCell");
+                }
 
                 remaining -= take;
                 if (remaining == 0) return true;
