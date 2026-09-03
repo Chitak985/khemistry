@@ -10,12 +10,17 @@ namespace Khemistry
     {
         /// <summary>
         /// Returns a biome name using a latitude-longitude position on a CelestialBody.
-        /// This function will cause a NullReferenceException if the planet does not exist.
+        /// Returns null if the planet does not exist or has no biome map.
         /// </summary>
         /// <param name="planet">The planet used to find the biome.</param>
         /// <param name="pos">The latitude-longitude Vector2 position to find the biome at.</param>
         /// <returns>The name of the biome.</returns>
-        public static string GetBiomeNameFromLatLon(string planet, Vector2 pos) => FlightGlobals.GetBodyByName(planet).BiomeMap.GetAtt(pos[0] * Mathf.Deg2Rad, pos[1] * Mathf.Deg2Rad).name;
+        public static string GetBiomeNameFromLatLon(string planet, Vector2 pos)
+        {
+            CelestialBody body = FlightGlobals.GetBodyByName(planet);
+            if (body?.BiomeMap == null) return null;
+            return body.BiomeMap.GetAtt(pos[0] * Mathf.Deg2Rad, pos[1] * Mathf.Deg2Rad)?.name;
+        }
 
         /// <summary>
         /// Gets a list of biome names for a planet.
@@ -38,8 +43,9 @@ namespace Khemistry
         /// <summary>
         /// Evaluates an OUTPUT_MATERIAL outVolume expression: plain numbers, +, -, *, /,
         /// parentheses, the constant PI, the function Pow(a,b), and [name] tokens referring to
-        /// either "size" or a defined material parameter (substituted with their numeric value
-        /// before evaluation). Logs a specific error and returns false on any failure — a
+        /// either "size" or a defined material parameter (matched case-insensitively and
+        /// substituted with its numeric value before evaluation). Logs a specific error and
+        /// returns false on any failure — a
         /// reserved "size" parameter name, an unknown [name], a non-numeric substituted value,
         /// or a malformed expression.
         /// </summary>
@@ -49,7 +55,23 @@ namespace Khemistry
             result = 0.0;
             if (string.IsNullOrEmpty(rawExpr)) return false;
 
-            if (parameters != null && parameters.ContainsKey("size"))
+            var parameterLookup = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<string, string> parameter in
+                     parameters ?? new Dictionary<string, string>())
+            {
+                if (parameterLookup.ContainsKey(parameter.Key))
+                {
+                    LogError("outVolume expression \"" + rawExpr
+                        + "\": parameters \"" + parameterLookup.Keys.First(key =>
+                            string.Equals(key, parameter.Key, StringComparison.OrdinalIgnoreCase))
+                        + "\" and \"" + parameter.Key
+                        + "\" differ only by case and are ambiguous.", logContext);
+                    return false;
+                }
+                parameterLookup.Add(parameter.Key, parameter.Value);
+            }
+
+            if (parameterLookup.ContainsKey("size"))
             {
                 LogError("outVolume expression \"" + rawExpr
                     + "\": this material defines a parameter named \"size\", which is reserved for the material's size — rename it.",
@@ -64,8 +86,8 @@ namespace Khemistry
                 string name = m.Groups[1].Value;
                 if (!substituted.Contains("[" + name + "]")) continue;  // already substituted
 
-                string raw = name == "size" ? sizeValue
-                    : (parameters != null && parameters.TryGetValue(name, out string pv) ? pv : null);
+                string raw = string.Equals(name, "size", StringComparison.OrdinalIgnoreCase) ? sizeValue
+                    : (parameterLookup.TryGetValue(name, out string pv) ? pv : null);
 
                 if (raw == null)
                 {
@@ -74,7 +96,8 @@ namespace Khemistry
                     return false;
                 }
 
-                if (!double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out double numeric))
+                if (!double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out double numeric)
+                    || double.IsNaN(numeric) || double.IsInfinity(numeric))
                 {
                     LogError("outVolume expression \"" + rawExpr + "\": \"" + name + "\" = \"" + raw
                         + "\" is not a number.", logContext);
@@ -107,7 +130,8 @@ namespace Khemistry
             if (comparison == null) return false;
 
             bool TryNumeric(string raw, out double parsed) =>
-                double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out parsed);
+                double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out parsed)
+                && !double.IsNaN(parsed) && !double.IsInfinity(parsed);
 
             if (comparison.StartsWith("EM", StringComparison.Ordinal))
             {
@@ -144,6 +168,14 @@ namespace Khemistry
             double lon2Deg,
             string body)
         {
+            CelestialBody celestialBody = FlightGlobals.GetBodyByName(body);
+            if (celestialBody == null) return double.PositiveInfinity;
+            if (double.IsNaN(lat1Deg) || double.IsInfinity(lat1Deg)
+                || double.IsNaN(lon1Deg) || double.IsInfinity(lon1Deg)
+                || double.IsNaN(lat2Deg) || double.IsInfinity(lat2Deg)
+                || double.IsNaN(lon2Deg) || double.IsInfinity(lon2Deg))
+                return double.PositiveInfinity;
+
             double lat1 = DegreesToRadians(lat1Deg);
             double lon1 = DegreesToRadians(lon1Deg);
             double lat2 = DegreesToRadians(lat2Deg);
@@ -157,11 +189,13 @@ namespace Khemistry
                 Math.Cos(lat1) * Math.Cos(lat2) *
                 Math.Pow(Math.Sin(dLon / 2), 2);
 
+            a = Math.Max(0.0, Math.Min(1.0, a));
+
             double c = 2 * Math.Atan2(
                 Math.Sqrt(a),
                 Math.Sqrt(1 - a));
 
-            return FlightGlobals.GetBodyByName(body).Radius * c;
+            return celestialBody.Radius * c;
         }
 
         public static double DegreesToRadians(double degrees) => degrees * Math.PI / 180.0;
@@ -191,10 +225,24 @@ namespace Khemistry
             return tmp;
         }
 
+        /// <summary>
+        /// Returns underground resources whose horizontal footprint is below a point. This is
+        /// used by surface-mounted extractors, which have no meaningful drill-depth value to
+        /// pass to <see cref="UndergroundDepositsAtPoint"/>.
+        /// </summary>
+        public List<string> UndergroundDepositsBelowPoint(float lat, float lon, string body)
+        {
+            List<string> result = new List<string>();
+            foreach (KhemistryUDeposit deposit in undergroundDeposits)
+                if (body == deposit.Planet && deposit.IsInsideDeposit(lat, lon))
+                    result.Add(deposit.Resource);
+            return result;
+        }
+
         public static void ParseShowRule(string raw, out bool showPAW, out bool showEVA,
             string fieldName, string moduleName = null)
         {
-            string val = raw.Trim().Trim('"').ToUpper();
+            string val = (raw ?? "PAW").Trim().Trim('"').ToUpperInvariant();
             switch (val)
             {
                 case "PAW":
@@ -216,6 +264,7 @@ namespace Khemistry
         public static Dictionary<string, string> NodeToDictionary(ConfigNode node)
         {
             var dict = new Dictionary<string, string>();
+            if (node == null) return dict;
             foreach (ConfigNode.Value value in node.values)
                 dict[value.name] = value.value;
             return dict;

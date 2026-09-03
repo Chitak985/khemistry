@@ -9,7 +9,8 @@ namespace Khemistry
     {
         private void OnDepositsLauncherReady()
         {
-            if (_depositsToolbarButton != null) return;
+            if (_depositsToolbarButton != null || ApplicationLauncher.Instance == null
+                || _depositsButtonTexture == null) return;
             _depositsToolbarButton = ApplicationLauncher.Instance.AddModApplication(
                 () => _depositsVisible = true,
                 () => _depositsVisible = false,
@@ -19,7 +20,33 @@ namespace Khemistry
             );
         }
 
-        private void OnDepositsLauncherDestroyed() => _depositsToolbarButton = null;
+        private void OnDepositsLauncherDestroyed()
+        {
+            _depositsToolbarButton = null;
+            _depositsVisible = false;
+        }
+
+        private void OnGameSceneLoadRequested(GameScenes destination)
+        {
+            CloseTransientWindows();
+        }
+
+        /// <summary>
+        /// Closes persistent KShared windows and releases their callbacks before changing
+        /// scenes. A callback often captures a PartModule, so retaining it after the part's
+        /// vessel is destroyed can both keep stale objects alive and invoke invalid game state.
+        /// </summary>
+        private void CloseTransientWindows()
+        {
+            _selectorVisible = false;
+            _kcoSelectorVisible = false;
+            _amountVisible = false;
+            _depositsVisible = false;
+            _selectorCallback = null;
+            _amountCallback = null;
+            _selectorOptions = null;
+            _selectorResources = null;
+        }
 
         /// <summary>
         /// Lists every loaded surface/underground deposit on the active vessel's current body,
@@ -82,18 +109,25 @@ namespace Khemistry
                 HighLogic.Skin.scrollView,
                 GUILayout.Height(180f)
             );
-            foreach (string res in KShared.Instance?._selectorResources)
+            foreach (string res in _selectorResources ?? new List<string>())
             {
                 if (GUILayout.Button(res, HighLogic.Skin.button))
                 {
                     _kcoSelectorVisible = false;
-                    _selectorCallback(res);
+                    Action<string> callback = _selectorCallback;
+                    _selectorCallback = null;
+                    _selectorResources = null;
+                    callback?.Invoke(res);
                 }
             }
             GUILayout.EndScrollView();
 
             if (GUILayout.Button("Cancel", HighLogic.Skin.button))
+            {
                 _kcoSelectorVisible = false;
+                _selectorCallback = null;
+                _selectorResources = null;
+            }
 
             // Allow the player to drag the window around
             GUI.DragWindow();
@@ -104,22 +138,28 @@ namespace Khemistry
         // Used in KhemistryConstructionOverhaul
         public void ShowResourceSelector(List<string> resources, Action<string> onSelect)
         {
-            _selectorResources = resources;
+            // Keep a snapshot. Callers commonly build this list from live vessel state, and an
+            // external mutation during an IMGUI pass would otherwise invalidate the enumerator.
+            _selectorResources = resources == null
+                ? new List<string>() : new List<string>(resources);
             _selectorCallback = onSelect;
             _selectorScroll = Vector2.zero;
+            _selectorTitle = "Send resources to the KSC";
             _windowRect = new Rect(
                 (Screen.width - _windowRect.width) / 2f,
                 (Screen.height - _windowRect.height) / 2f,
                 _windowRect.width,
                 _windowRect.height
             );
-            _selectorVisible = true;
+            _selectorVisible = false;
+            _kcoSelectorVisible = true;
         }
 
         public void ShowSelector(string title, List<string> options, Action<string> onSelect)
         {
-            _selectorTitle = title;
-            _selectorOptions = options;
+            _selectorTitle = title ?? "";
+            _selectorOptions = options == null
+                ? new List<string>() : new List<string>(options);
             _selectorCallback = onSelect;
             _selectorScroll = Vector2.zero;
             _windowRect = new Rect(
@@ -128,6 +168,7 @@ namespace Khemistry
                 _windowRect.width,
                 _windowRect.height
             );
+            _kcoSelectorVisible = false;
             _selectorVisible = true;
         }
 
@@ -150,11 +191,11 @@ namespace Khemistry
                     HighLogic.Skin.window);
 
             if (_kcoSelectorVisible)
-                _amountRect = GUILayout.Window(
-                    _amountWindowId,
-                    _amountRect,
+                _windowRect = GUILayout.Window(
+                    _windowId,
+                    _windowRect,
                     DrawSelectorWindowKCO,
-                    _amountTitle,
+                    _selectorTitle,
                     HighLogic.Skin.window);
 
             if (_depositsVisible)
@@ -168,7 +209,16 @@ namespace Khemistry
 
         public void ShowAmountSelector(string title, float min, float max, float initial, Action<float> onConfirm)
         {
-            _amountTitle = title;
+            if (float.IsNaN(min) || float.IsInfinity(min)) min = 0f;
+            if (float.IsNaN(max) || float.IsInfinity(max)) max = min;
+            if (max < min)
+            {
+                float swap = min;
+                min = max;
+                max = swap;
+            }
+            if (float.IsNaN(initial) || float.IsInfinity(initial)) initial = min;
+            _amountTitle = title ?? "";
             _amountMin = min;
             _amountMax = max;
             _amountValue = Mathf.Clamp(initial, min, max);
@@ -193,10 +243,15 @@ namespace Khemistry
             if (GUILayout.Button("Confirm", HighLogic.Skin.button))
             {
                 _amountVisible = false;
-                _amountCallback(_amountValue);
+                Action<float> callback = _amountCallback;
+                _amountCallback = null;
+                callback?.Invoke(_amountValue);
             }
             if (GUILayout.Button("Cancel", HighLogic.Skin.button))
+            {
                 _amountVisible = false;
+                _amountCallback = null;
+            }
             GUILayout.EndHorizontal();
             GUI.DragWindow();
         }
@@ -208,18 +263,25 @@ namespace Khemistry
                 HighLogic.Skin.scrollView,
                 GUILayout.Height(220f)
             );
-            foreach (string option in _selectorOptions)
+            foreach (string option in _selectorOptions ?? new List<string>())
             {
                 if (GUILayout.Button(option, HighLogic.Skin.button))
                 {
                     _selectorVisible = false;
-                    _selectorCallback(option);
+                    Action<string> callback = _selectorCallback;
+                    _selectorCallback = null;
+                    _selectorOptions = null;
+                    callback?.Invoke(option);
                 }
             }
             GUILayout.EndScrollView();
 
             if (GUILayout.Button("Cancel", HighLogic.Skin.button))
+            {
                 _selectorVisible = false;
+                _selectorCallback = null;
+                _selectorOptions = null;
+            }
 
             GUI.DragWindow();
         }

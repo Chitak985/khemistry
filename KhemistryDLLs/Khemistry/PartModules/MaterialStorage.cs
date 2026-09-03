@@ -46,6 +46,19 @@ namespace Khemistry
         public override void OnSave(ConfigNode node)
         {
             base.OnSave(node);
+
+            while (node.HasNode("STORED_MATERIAL")) node.RemoveNode("STORED_MATERIAL");
+
+            // OnSave can run before OnStart (and a bad future config can prevent a
+            // saved stack from being restored). Keep those opaque nodes verbatim so
+            // a temporary configuration problem never erases a player's materials.
+            foreach (ConfigNode pendingNode in _pendingSavedContents)
+            {
+                ConfigNode copy = new ConfigNode("STORED_MATERIAL");
+                pendingNode.CopyTo(copy);
+                node.AddNode(copy);
+            }
+
             foreach (KhemistryMaterialInstance material in contents)
                 if (material != null && material.amount > 0)
                     node.AddNode(material.ToConfigNode());
@@ -70,18 +83,25 @@ namespace Khemistry
 
         private void RestoreSavedContents()
         {
-            foreach (ConfigNode savedNode in _pendingSavedContents)
+            List<ConfigNode> savedContents = new List<ConfigNode>(_pendingSavedContents);
+            _pendingSavedContents.Clear();
+            foreach (ConfigNode savedNode in savedContents)
             {
                 if (!KhemistryMaterialInstance.TryFromConfigNode(savedNode, out KhemistryMaterialInstance material,
                         "KhemistryMaterialStorage/RestoreSavedContents"))
+                {
+                    _pendingSavedContents.Add(savedNode);
                     continue;
+                }
 
                 if (!AddMaterial(material))
+                {
                     KShared.LogError(
                         "Saved material \"" + material.material.name + "\" no longer fits or is no longer supported by part \"" + part.name + "\".",
                         "KhemistryMaterialStorage/RestoreSavedContents");
+                    _pendingSavedContents.Add(savedNode);
+                }
             }
-            _pendingSavedContents.Clear();
         }
 
         public void FixedUpdate()
@@ -89,31 +109,44 @@ namespace Khemistry
             // Apply tank-caused contamination to all materials on the part
             // !TODO
 
-            // Consolidate compatible stacks after their parameters have changed. A failed
-            // contaminated merge leaves both instances untouched.
+            contents.RemoveAll(material => material == null || material.amount <= 0);
+
+            // Complete a separate exact pass before applying any contamination formula. A
+            // one-pass Merge || ContaminatedMerge loop could contaminate the first stack before
+            // reaching a later exact match, making non-associative custom formulas list-order
+            // dependent even when exact consolidation was possible.
             for (int i = 0; i < contents.Count; i++)
             {
                 for (int j = i + 1; j < contents.Count;)
                 {
-                    KhemistryMaterialInstance m = contents[i];
-                    KhemistryMaterialInstance otherM = contents[j];
+                    if (contents[i].Merge(contents[j]))
+                        contents.RemoveAt(j);
+                    else
+                        j++;
+                }
+            }
 
-                    if (m.ContaminatedMerge(otherM))
+            // Contaminate only after every original exact stack has been consolidated. Try an
+            // exact merge again because an earlier contamination result can legitimately become
+            // identical to a later stack.
+            for (int i = 0; i < contents.Count; i++)
+            {
+                for (int j = i + 1; j < contents.Count;)
+                {
+                    KhemistryMaterialInstance receiver = contents[i];
+                    KhemistryMaterialInstance incoming = contents[j];
+                    bool exactMerge = receiver.Merge(incoming);
+                    if (exactMerge || receiver.ContaminatedMerge(incoming))
                     {
-                        KShared.Log(
-                            $"Instance of {otherM.material.name} was contamination-merged into {m.material.name}.",
-                            "KhemistryMaterialStorage/FixedUpdate/contaminatedMergeLogic"
-                        );
+                        if (!exactMerge)
+                            KShared.Log(
+                                $"Instance of {incoming.material.name} was contamination-merged into {receiver.material.name}.",
+                                "KhemistryMaterialStorage/FixedUpdate/contaminatedMergeLogic"
+                            );
 
                         contents.RemoveAt(j);
-
-                        // Do NOT increment j.
-                        // The next material has now shifted into index j.
                     }
-                    else
-                    {
-                        j++;
-                    }
+                    else j++;
                 }
             }
 
@@ -131,15 +164,21 @@ namespace Khemistry
                 return;
             }
 
-            ConfigNode moduleNode = null;
-            foreach (ConfigNode n in part.partInfo.partConfig.GetNodes("MODULE"))
-            {
-                if (n.GetValue("name") == "KhemistryMaterialStorage") { moduleNode = n; break; }
-            }
+            ConfigNode moduleNode = KShared.FindModuleConfigNode(this,
+                "KhemistryMaterialStorage");
 
             if (moduleNode == null)
             {
                 KShared.LogError("Could not find MODULE node in partConfig!",
+                    "KhemistryMaterialStorage/LoadConfigFromPartInfo");
+                _fatalConfigError = true;
+                return;
+            }
+
+            if (float.IsNaN(volume) || float.IsInfinity(volume) || volume <= 0f)
+            {
+                KShared.LogError(
+                    "Part \"" + part.name + "\" has an invalid KhemistryMaterialStorage volume. This module will not load.",
                     "KhemistryMaterialStorage/LoadConfigFromPartInfo");
                 _fatalConfigError = true;
                 return;
@@ -155,7 +194,11 @@ namespace Khemistry
                 return;
             }
             foreach (string n in moduleNode.GetNode("SUPPORTED_NAMES").GetValues("name"))
-                supportedNames.Add(n.Trim());
+            {
+                string trimmed = n?.Trim();
+                if (!string.IsNullOrEmpty(trimmed) && !supportedNames.Contains(trimmed))
+                    supportedNames.Add(trimmed);
+            }
             if (supportedNames.Count == 0)
             {
                 KShared.LogError(
@@ -175,7 +218,11 @@ namespace Khemistry
                 return;
             }
             foreach (string n in moduleNode.GetNode("SUPPORTED_SHAPES").GetValues("name"))
-                supportedShapes.Add(n.Trim());
+            {
+                string trimmed = n?.Trim();
+                if (!string.IsNullOrEmpty(trimmed) && !supportedShapes.Contains(trimmed))
+                    supportedShapes.Add(trimmed);
+            }
             if (supportedShapes.Count == 0)
             {
                 KShared.LogError(
@@ -210,7 +257,10 @@ namespace Khemistry
             if (_fatalConfigError || !AcceptsMaterial(mat))
                 return false;
 
-            if (ComputeCurrentVolume(mat.TotalVolume) > volume + 1e-6f)
+            double incomingVolume = mat.TotalVolume;
+            double capacityTolerance = Math.Max(1e-12, Math.Abs(volume) * 1e-6);
+            if (double.IsNaN(incomingVolume) || double.IsInfinity(incomingVolume)
+                || ComputeCurrentVolume(incomingVolume) > volume + capacityTolerance)
                 return false;
 
             foreach (KhemistryMaterialInstance m in contents)
@@ -221,10 +271,27 @@ namespace Khemistry
             return true;
         }
 
+        /// <summary>
+        /// Restores a piece removed by an in-progress transaction. The piece was already accepted
+        /// and occupied capacity in this exact container, so reapplying current restrictions could
+        /// lose it when an amount-dependent derived parameter changed during the split.
+        /// </summary>
+        internal bool RestoreRemovedMaterial(KhemistryMaterialInstance mat)
+        {
+            if (mat?.material == null || mat.amount <= 0 || mat.volume <= 0f
+                || float.IsNaN(mat.volume) || float.IsInfinity(mat.volume))
+                return false;
+            foreach (KhemistryMaterialInstance existing in contents)
+                if (existing != null && existing.Merge(mat))
+                    return true;
+            contents.Add(mat);
+            return true;
+        }
+
         private bool AcceptsMaterial(KhemistryMaterialInstance mat)
         {
             if (mat?.material == null || mat.amount <= 0
-                || float.IsNaN(mat.volume) || float.IsInfinity(mat.volume) || mat.volume < 0f)
+                || float.IsNaN(mat.volume) || float.IsInfinity(mat.volume) || mat.volume <= 0f)
                 return false;
 
             if (!supportedNames.Contains(mat.material.name) || !supportedShapes.Contains(mat.shape))
@@ -261,11 +328,14 @@ namespace Khemistry
         public int GetMatchingMaterialAmount(string name, string shape, string size,
             Dictionary<string, string> paramConditions)
         {
-            int total = 0;
+            long total = 0;
             foreach (KhemistryMaterialInstance material in contents)
                 if (MatchesMaterial(material, name, shape, size, paramConditions))
+                {
                     total += material.amount;
-            return total;
+                    if (total >= int.MaxValue) return int.MaxValue;
+                }
+            return (int)total;
         }
 
         /// <summary>
@@ -301,7 +371,7 @@ namespace Khemistry
                 if (remaining == 0) return true;
             }
 
-            foreach (KhemistryMaterialInstance piece in removed) AddMaterial(piece);
+            foreach (KhemistryMaterialInstance piece in removed) RestoreRemovedMaterial(piece);
             removed.Clear();
             return false;
         }
@@ -312,10 +382,20 @@ namespace Khemistry
         /// </summary>
         /// <param name="usedVolume">An additional amount to add to the volume being used.</param>
         /// <returns>How much volume is used.</returns>
-        private float ComputeCurrentVolume(float usedVolume = 0f)
+        private double ComputeCurrentVolume(double usedVolume = 0.0)
         {
             foreach (KhemistryMaterialInstance m in contents)
-                usedVolume += m.TotalVolume;
+                if (m != null)
+                    usedVolume += m.TotalVolume;
+            foreach (ConfigNode pending in _pendingSavedContents)
+            {
+                if (!KhemistryMaterialInstance.TryGetSerializedTotalVolume(pending,
+                        out double pendingVolume))
+                    return double.PositiveInfinity;
+                usedVolume += pendingVolume;
+                if (double.IsNaN(usedVolume) || double.IsInfinity(usedVolume))
+                    return double.PositiveInfinity;
+            }
             return usedVolume;
         }
 
@@ -324,12 +404,15 @@ namespace Khemistry
             List<string> contentsDisplayNames = new List<string>();
             foreach (KhemistryMaterialInstance m in contents)
             {
+                if (m?.material == null || m.amount <= 0) continue;
                 m.UpdateParams("KhemistryMaterialStorage/UpdateUI");
-                if (m.volume > 0)
-                    contentsDisplayNames.Add(m.amount + "× " + m.material.name + " as " + m.shape + " (" + KShared.DictToString(m.parameters) + ")");
+                contentsDisplayNames.Add(m.amount + "× " + m.material.name + " as " + m.shape + " (" + KShared.DictToString(m.parameters) + ")");
             }
-            contentsDisplay = string.Join("\n", contentsDisplayNames);
-            volumeDisplay = $"{ComputeCurrentVolume():F10} / {volume:F10}";
+            contentsDisplay = contentsDisplayNames.Count == 0 ? "Empty" : string.Join("\n", contentsDisplayNames);
+            double usedVolume = ComputeCurrentVolume();
+            volumeDisplay = double.IsNaN(usedVolume) || double.IsInfinity(usedVolume)
+                ? $"Preserved saved material / {volume:F10}"
+                : $"{usedVolume:F10} / {volume:F10}";
         }
     }
 }

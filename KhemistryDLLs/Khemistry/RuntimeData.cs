@@ -31,8 +31,11 @@
                 temperature = vessel.externalTemperature;  // Kelvin
                 pressure = vessel.staticPressurekPa;  // kPa
                 sitCon = KShared.GetVesselSituation(vessel);
-                planet = vessel.mainBody?.name ?? "";
-                biome = ScienceUtil.GetExperimentBiome(vessel.mainBody, vessel.latitude, vessel.longitude);
+                CelestialBody body = vessel.mainBody;
+                planet = body?.name ?? "";
+                biome = body == null
+                    ? ""
+                    : (ScienceUtil.GetExperimentBiome(body, vessel.latitude, vessel.longitude) ?? "");
             }
         }
     }

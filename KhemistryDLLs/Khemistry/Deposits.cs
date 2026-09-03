@@ -24,14 +24,49 @@ namespace Khemistry
             }
             catch (Exception ex)
             {
-                KShared.Log(
-                string.Format("An error occured, returning 0 meters. Message: {0}. Stack trace: {1}. ",
+                KShared.LogError(
+                string.Format("Could not calculate deposit distance; treating the deposit as out of range. Message: {0}. Stack trace: {1}. ",
                     ex.Message, ex.StackTrace),
                 "KhemistryDeposit/DistanceFromDeposit");
-                return 0f;
+                return float.PositiveInfinity;
             }
         }
         public bool IsInsideDeposit(float lat, float lon) => DistanceFromDeposit(lat, lon) <= Radius;
+
+        protected static float RollRadius(KShared kinst, float minRadius, float maxRadius,
+            string logContext)
+        {
+            if (kinst?.rand == null || float.IsNaN(minRadius) || float.IsInfinity(minRadius)
+                || float.IsNaN(maxRadius) || float.IsInfinity(maxRadius)
+                || minRadius < 0f || maxRadius < minRadius)
+            {
+                KShared.LogError(
+                    "Invalid deposit radius range [" + minRadius + ", " + maxRadius + "]. Using 0.",
+                    logContext);
+                return 0f;
+            }
+
+            if (minRadius.Equals(maxRadius)) return minRadius;
+            return minRadius + (float)kinst.rand.NextDouble() * (maxRadius - minRadius);
+        }
+
+        protected static Vector2 RollPosition(KShared kinst, string logContext)
+        {
+            if (kinst?.rand == null)
+            {
+                KShared.LogError("Could not generate a deposit position because the random generator is unavailable.",
+                    logContext);
+                return Vector2.zero;
+            }
+
+            // Uniform latitude values over-represent the polar regions. Sampling the sine of
+            // latitude uniformly instead gives every equal-area patch of the body the same
+            // chance of receiving a deposit.
+            double sinLatitude = (kinst.rand.NextDouble() * 2.0) - 1.0;
+            float latitude = (float)(Math.Asin(sinLatitude) * 180.0 / Math.PI);
+            float longitude = (float)(kinst.rand.NextDouble() * 360.0) - 180f;
+            return new Vector2(latitude, longitude);
+        }
     }
 
     /// <summary>
@@ -42,7 +77,10 @@ namespace Khemistry
     {
         public float DepthStart { get; set; }
 
-        public bool IsDepthInsideDeposit(float depth2) => depth2 > DepthStart && depth2 < DepthStart + Depth;
+        internal KhemistryUDeposit() { }
+
+        public bool IsDepthInsideDeposit(float depth2)
+            => depth2 >= DepthStart && depth2 <= DepthStart + Depth;
 
         public KhemistryUDeposit(KShared kinst, string planet, string requiredBiome, float depthStart, float depth, string resource, float minRadius, float maxRadius, float latOverride = -12345, float lonOverride = -12345)
         {
@@ -53,37 +91,13 @@ namespace Khemistry
                 Depth = depth;
                 Resource = resource;
 
-                if (minRadius == maxRadius)
-                    Radius = minRadius;
-                else
-                {
-                    // Keep rolling a radius until it clears minRadius, up to a sane attempt cap —
-                    // a misconfigured minRadius >= maxRadius (or a negative value reaching this
-                    // constructor via a mislabeled call) would otherwise spin forever.
-                    const int maxRadiusAttempts = 10000;
-                    float tmp = -1.0f;
-                    int radiusAttempts = 0;
-                    while (!(minRadius > tmp))
-                    {
-                        radiusAttempts++;
-                        if (radiusAttempts >= maxRadiusAttempts)
-                        {
-                            KShared.LogError(
-                                "Could not roll a radius above minRadius " + minRadius + " with maxRadius " + maxRadius +
-                                " after " + maxRadiusAttempts + " attempts (minRadius >= maxRadius?). Using maxRadius instead.",
-                                "KhemistryUDeposit/constructor");
-                            tmp = maxRadius;
-                            break;
-                        }
-                        tmp = (float)(kinst.rand.NextDouble() * maxRadius);
-                    }
-                    Radius = tmp;
-                }
+                Radius = RollRadius(kinst, minRadius, maxRadius,
+                    "KhemistryUDeposit/constructor");
 
                 // Generate position
                 if ((int)latOverride == -12345 || (int)lonOverride == -12345)  // If either of them are not set, calculate as normal
                 {
-                    Position = new Vector2((float)(kinst.rand.NextDouble() * 180) - 90, (float)(kinst.rand.NextDouble() * 360) - 180);
+                    Position = RollPosition(kinst, "KhemistryUDeposit/constructor");
                     if (requiredBiome != null)  // If it is null, any biome is supported
                     {
                         // Just keep randomizing the deposit until it hits the right biome, up to a
@@ -103,7 +117,7 @@ namespace Khemistry
                                     "KhemistryUDeposit/constructor");
                                 break;
                             }
-                            Position = new Vector2((float)(kinst.rand.NextDouble() * 180) - 90, (float)(kinst.rand.NextDouble() * 360) - 180);
+                            Position = RollPosition(kinst, "KhemistryUDeposit/constructor");
                         }
                     }
                 }
@@ -128,15 +142,19 @@ namespace Khemistry
     {
         public KhemistryUDeposit PairGDeposit { get; set; }
 
+        internal KhemistryGDeposit() { }
+
         /// <summary>
         /// Helper function to see if a depth is inside the deposit.
-        /// Uses -1 in the comparison to make sure 0 works as well.
+        /// Includes both configured boundaries; negative depths are not surface deposits.
         /// </summary>
         /// <param name="depth2">Depth of the point in meters.</param>
         /// <returns>Whether the depth is inside the deposit.</returns>
-        public bool IsDepthInsideDeposit(float depth2) => depth2 > -1 && depth2 < Depth;
+        public bool IsDepthInsideDeposit(float depth2) => depth2 >= 0f && depth2 <= Depth;
 
-        public KhemistryGDeposit(KShared kinst, string planet, string requiredBiome, float depth, string resource, float minRadius, float maxRadius, string resource2, float underDepth)
+        public KhemistryGDeposit(KShared kinst, string planet, string requiredBiome, float depth,
+            string resource, float minRadius, float maxRadius, string resource2,
+            float undergroundDepthStart, float undergroundDepth)
         {
             try
             {
@@ -145,29 +163,11 @@ namespace Khemistry
                 Depth = depth;
                 Resource = resource;
 
-                // if it works, it works — keep rolling a radius until it clears minRadius, up to a
-                // sane attempt cap; a misconfigured minRadius >= maxRadius would otherwise spin forever.
-                const int maxRadiusAttempts = 10000;
-                float tmp = -1.0f;
-                int radiusAttempts = 0;
-                while (!(minRadius > tmp))
-                {
-                    radiusAttempts++;
-                    if (radiusAttempts >= maxRadiusAttempts)
-                    {
-                        KShared.LogError(
-                            "Could not roll a radius above minRadius " + minRadius + " with maxRadius " + maxRadius +
-                            " after " + maxRadiusAttempts + " attempts (minRadius >= maxRadius?). Using maxRadius instead.",
-                            "KhemistryGDeposit/constructor");
-                        tmp = maxRadius;
-                        break;
-                    }
-                    tmp = (float)(kinst.rand.NextDouble() * maxRadius);
-                }
-                Radius = tmp;
+                Radius = RollRadius(kinst, minRadius, maxRadius,
+                    "KhemistryGDeposit/constructor");
 
                 // Generate position
-                Position = new Vector2((float)(kinst.rand.NextDouble() * 180) - 90, (float)(kinst.rand.NextDouble() * 360) - 180);
+                Position = RollPosition(kinst, "KhemistryGDeposit/constructor");
                 if (requiredBiome != null)
                 {
                     // Just keep randomizing the deposit until it hits the right biome, up to a sane
@@ -187,7 +187,7 @@ namespace Khemistry
                                 "KhemistryGDeposit/constructor");
                             break;
                         }
-                        Position = new Vector2((float)(kinst.rand.NextDouble() * 180) - 90, (float)(kinst.rand.NextDouble() * 360) - 180);
+                        Position = RollPosition(kinst, "KhemistryGDeposit/constructor");
                     }
                 }
 
@@ -195,7 +195,14 @@ namespace Khemistry
                 // The biome is not passed here because the override will ignore it anyway
                 // If resource2 is null, the deposit is considered "surfaceOnly" and the underground deposit won't be created
                 if (resource2 != null)
-                    PairGDeposit = new KhemistryUDeposit(kinst, planet, null, depth, underDepth, resource2, minRadius, maxRadius, latOverride: Position[0], lonOverride: Position[1]);
+                {
+                    PairGDeposit = new KhemistryUDeposit(kinst, planet, null,
+                        undergroundDepthStart, undergroundDepth, resource2, minRadius, maxRadius,
+                        latOverride: Position[0], lonOverride: Position[1]);
+                    // A paired deposit describes the same horizontal body of ore at a
+                    // different depth. It must not independently reroll its footprint.
+                    PairGDeposit.Radius = Radius;
+                }
             }
             catch (Exception ex)
             {
@@ -206,4 +213,5 @@ namespace Khemistry
             }
         }
     }
+
 }

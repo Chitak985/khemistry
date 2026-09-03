@@ -13,6 +13,8 @@ namespace Khemistry
     [KSPAddon(KSPAddon.Startup.MainMenu, true)]
     public class KhemistryEngineeringInterface : MonoBehaviour  // KEI (minecraft reference)
     {
+        private static KhemistryEngineeringInterface _instance;
+
         private const int MainWindowId = 856201;
         private const int DetailWindowId = 856202;
         private const int RecipeWindowId = 856203;
@@ -45,6 +47,12 @@ namespace Khemistry
 
         public void Awake()
         {
+            if (_instance != null && _instance != this)
+            {
+                Destroy(gameObject);
+                return;
+            }
+            _instance = this;
             DontDestroyOnLoad(gameObject);
 
             float sw = Screen.width;
@@ -67,25 +75,42 @@ namespace Khemistry
 
         public void OnDestroy()
         {
+            if (_instance != this) return;
             GameEvents.onGUIApplicationLauncherReady.Remove(OnLauncherReady);
             GameEvents.onGUIApplicationLauncherDestroyed.Remove(OnLauncherDestroyed);
             if (_toolbarButton != null && ApplicationLauncher.Instance != null)
                 ApplicationLauncher.Instance.RemoveModApplication(_toolbarButton);
+            if (_buttonTexture != null) Destroy(_buttonTexture);
+            _toolbarButton = null;
+            _buttonTexture = null;
+            _instance = null;
         }
 
         private void OnLauncherReady()
         {
-            if (_toolbarButton != null) return;
-            _toolbarButton = ApplicationLauncher.Instance.AddModApplication(
+            ApplicationLauncher launcher = ApplicationLauncher.Instance;
+            if (_toolbarButton != null || launcher == null || _buttonTexture == null) return;
+            _toolbarButton = launcher.AddModApplication(
                 () => _mainVisible = true,
-                () => _mainVisible = false,
+                HideAllWindows,
                 null, null, null, null,
                 ApplicationLauncher.AppScenes.ALWAYS,
                 _buttonTexture
             );
         }
 
-        private void OnLauncherDestroyed() => _toolbarButton = null;
+        private void OnLauncherDestroyed()
+        {
+            _toolbarButton = null;
+            HideAllWindows();
+        }
+
+        private void HideAllWindows()
+        {
+            _mainVisible = false;
+            _detailVisible = false;
+            _recipeVisible = false;
+        }
 
         private void EnsureStyles()
         {
@@ -98,6 +123,7 @@ namespace Khemistry
 
         private void OnGUI()
         {
+            if (!_mainVisible && !_detailVisible && !_recipeVisible) return;
             EnsureStyles();
             if (_mainVisible)
                 _mainRect = GUILayout.Window(MainWindowId, _mainRect, DrawMainWindow, "Khemistry Engineering Interface", HighLogic.Skin.window);
@@ -112,7 +138,7 @@ namespace Khemistry
             GUILayout.BeginHorizontal();
             GUILayout.FlexibleSpace();
             if (GUILayout.Button("X", HighLogic.Skin.button, GUILayout.Width(28)))
-                _mainVisible = false;
+                HideAllWindows();
             GUILayout.EndHorizontal();
 
             GUILayout.BeginHorizontal();
@@ -125,7 +151,7 @@ namespace Khemistry
             GUILayout.BeginHorizontal();
             GUILayout.Label("Name", _boldLabel, GUILayout.Width(230));
             GUILayout.Label("Abbreviation", _boldLabel, GUILayout.Width(120));
-            GUILayout.Label("Cost per KG", _boldLabel, GUILayout.Width(100));
+            GUILayout.Label("Cost per unit", _boldLabel, GUILayout.Width(100));
             GUILayout.EndHorizontal();
 
             _mainScroll = GUILayout.BeginScrollView(_mainScroll, HighLogic.Skin.scrollView);
@@ -134,12 +160,12 @@ namespace Khemistry
                 GUILayout.Label("Resources and recipes are still loading.", _wrapLabel);
             else
             {
-                string filter = _searchText.Trim().ToLower();
+                string filter = _searchText.Trim().ToLowerInvariant();
                 foreach (KhemistryResourceInfo res in KEILoader.Resources)
                 {
                     if (!string.IsNullOrEmpty(filter) &&
-                        !res.displayName.ToLower().Contains(filter) &&
-                        !res.name.ToLower().Contains(filter))
+                        !res.displayName.ToLowerInvariant().Contains(filter) &&
+                        !res.name.ToLowerInvariant().Contains(filter))
                         continue;
 
                     GUILayout.BeginHorizontal();
@@ -187,7 +213,7 @@ namespace Khemistry
 
             DrawRow("Internal Name", res.name);
             DrawRow("Abbreviation", res.abbreviation ?? "-");
-            DrawRow("Cost per KG", res.unitCost.ToString("F4"));
+            DrawRow("Cost per unit", res.unitCost.ToString("F4"));
             DrawRow("Can be adjusted in VAB?", res.isTweakable ? "Yes" : "No");
             DrawRow("Hidden resource?", res.isVisible ? "No" : "Yes");
             DrawRow("Flow mode", res.flowMode ?? "-");

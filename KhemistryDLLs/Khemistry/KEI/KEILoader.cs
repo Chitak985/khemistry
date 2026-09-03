@@ -11,21 +11,36 @@ namespace Khemistry
     [KSPAddon(KSPAddon.Startup.MainMenu, true)]
     public class KEILoader : MonoBehaviour
     {
+        private static KEILoader _instance;
+
         public static List<KhemistryResourceInfo> Resources { get; private set; }
         public static List<KhemistryRecipeInfo> Recipes { get; private set; }
         public static bool IsLoaded { get; private set; } = false;
 
         public void Awake()
         {
+            if (_instance != null && _instance != this)
+            {
+                Destroy(gameObject);
+                return;
+            }
+            _instance = this;
             DontDestroyOnLoad(gameObject);
             LoadData();
+        }
+
+        public void OnDestroy()
+        {
+            if (_instance == this) _instance = null;
         }
 
         private void LoadData()
         {
             KShared.Log("Loading resource and recipe library...", "KhemistryLibraryLoader/LoadData");
 
-            var descriptions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            // KSP resource names are case-sensitive (for example Co/CO, Hf/HF, No/NO and
+            // Cn/CN are distinct elemental/molecular resources in this mod).
+            var descriptions = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (ConfigNode node in GameDatabase.Instance.GetConfigNodes("RESOURCE_DEFINITION"))
             {
                 string resName = node.GetValue("name");
@@ -76,14 +91,14 @@ namespace Khemistry
                     {
                         string resName = inputNode.GetValue("ResourceName");
                         if (string.IsNullOrEmpty(resName)) continue;
-                        double.TryParse(inputNode.GetValue("Ratio"), out double ratio);
+                        if (!TryReadRatio(inputNode, recipe.converterName, out double ratio)) continue;
                         recipe.inputs.Add(new KhemistryRecipeIO { resourceName = resName, ratio = ratio });
                     }
                     foreach (ConfigNode outputNode in moduleNode.GetNodes("OUTPUT_RESOURCE"))
                     {
                         string resName = outputNode.GetValue("ResourceName");
                         if (string.IsNullOrEmpty(resName)) continue;
-                        double.TryParse(outputNode.GetValue("Ratio"), out double ratio);
+                        if (!TryReadRatio(outputNode, recipe.converterName, out double ratio)) continue;
                         recipe.outputs.Add(new KhemistryRecipeIO { resourceName = resName, ratio = ratio });
                     }
 
@@ -95,6 +110,20 @@ namespace Khemistry
             KShared.Log(
                 string.Format("Library loaded: {0} resources, {1} recipes.", Resources.Count, Recipes.Count),
                 "KhemistryLibraryLoader/LoadData");
+        }
+
+        private static bool TryReadRatio(ConfigNode node, string converterName, out double ratio)
+        {
+            string raw = node.GetValue("Ratio");
+            if (double.TryParse(raw, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out ratio)
+                && !double.IsNaN(ratio) && !double.IsInfinity(ratio) && ratio >= 0.0)
+                return true;
+
+            KShared.LogWarning("Recipe library skipped invalid ratio \"" + raw
+                + "\" in converter \"" + converterName + "\".", "KhemistryLibraryLoader/LoadData");
+            ratio = 0.0;
+            return false;
         }
     }
 }

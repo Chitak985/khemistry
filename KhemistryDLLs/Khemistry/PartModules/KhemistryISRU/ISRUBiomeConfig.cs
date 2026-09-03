@@ -65,13 +65,19 @@ namespace Khemistry
         /// <param name="ConverterName">The name of the converter the biome config belongs to.</param>
         public KhemistryISRUBiomeConfig(ConfigNode node, string ConverterName = "UNKNOWN")
         {
-            if (node.HasValue("name"))
+            if (node != null && node.HasValue("name"))
             {
-                biomeName = node.GetValue("name");
+                biomeName = node.GetValue("name")?.Trim();
 
-                if (node.HasValue("disable"))
-                    if (node.GetValue("disable") == "true")
-                        disabled = true;
+                // "disabled" is the documented/configured key. Keep "disable" as a
+                // backwards-compatible alias for older third-party recipes.
+                string disabledValue = node.HasValue("disabled") ? node.GetValue("disabled")
+                    : (node.HasValue("disable") ? node.GetValue("disable") : null);
+                if (disabledValue != null && !bool.TryParse(disabledValue, out disabled))
+                    KShared.LogError(
+                        "Converter \"" + ConverterName + "\": Biome config \"" + biomeName
+                        + "\": invalid disabled value \"" + disabledValue + "\"; defaulting to false.",
+                        "KhemistryISRUBiomeConfig/constructor");
 
                 // Altitude
                 minOperatingAltitude = KShared.GetDoubleValueFromCFG(node, "minOperatingAltitude", minOperatingAltitude);
@@ -89,7 +95,8 @@ namespace Khemistry
                 situationOperating.Clear();
                 foreach (string situationOperatingStr in node.GetValues("situationOperating"))
                 {
-                    if (Enum.TryParse(situationOperatingStr, true, out KShared.SituationCondition parsed))
+                    if (Enum.TryParse(situationOperatingStr, true, out KShared.SituationCondition parsed)
+                        && Enum.IsDefined(typeof(KShared.SituationCondition), parsed))
                         situationOperating.Add(parsed);
                     else
                         KShared.LogError(
@@ -99,7 +106,8 @@ namespace Khemistry
                 situationDestructive.Clear();
                 foreach (string situationDestructiveStr in node.GetValues("situationDestructive"))
                 {
-                    if (Enum.TryParse(situationDestructiveStr, true, out KShared.SituationCondition parsed))
+                    if (Enum.TryParse(situationDestructiveStr, true, out KShared.SituationCondition parsed)
+                        && Enum.IsDefined(typeof(KShared.SituationCondition), parsed))
                         situationDestructive.Add(parsed);
                     else
                         KShared.LogError(
@@ -110,7 +118,11 @@ namespace Khemistry
                 // Conditions
                 depositConditions.Clear();
                 foreach (string depositConditionStr in node.GetValues("depositCondition"))
-                    depositConditions.Add(depositConditionStr);
+                {
+                    string trimmed = depositConditionStr?.Trim();
+                    if (!string.IsNullOrEmpty(trimmed) && !depositConditions.Contains(trimmed))
+                        depositConditions.Add(trimmed);
+                }
 
                 // Temperature
                 minOperatingTemperature = KShared.GetDoubleTemperatureValueFromCFG(node, "minOperatingTemperature", minOperatingTemperature);
@@ -157,12 +169,28 @@ namespace Khemistry
                 chargeConsumptionMultiplier = ValidateMultiplier(chargeConsumptionMultiplier, "chargeConMul", true, ConverterName);
                 inputMultiplier = ValidateMultiplier(inputMultiplier, "inMul", true, ConverterName);
                 outputMultiplier = ValidateMultiplier(outputMultiplier, "outMul", true, ConverterName);
-                speedMul = ValidateMultiplier(speedMul, "speedMul", true, ConverterName);
+                speedMul = ValidateMultiplier(speedMul, "speedMul", false, ConverterName);
                 workersPilotsMultiplier = ValidateMultiplier(workersPilotsMultiplier, "workersPilotsMul", true, ConverterName);
                 workersEngineersMultiplier = ValidateMultiplier(workersEngineersMultiplier, "workersEngineersMul", true, ConverterName);
                 workersScientistsMultiplier = ValidateMultiplier(workersScientistsMultiplier, "workersScientistsMul", true, ConverterName);
                 maxInteractionDistanceMultiplier = ValidateMultiplier(maxInteractionDistanceMultiplier, "maxInteractionDistanceMul", true, ConverterName);
                 maxDisplayDistanceMultiplier = ValidateMultiplier(maxDisplayDistanceMultiplier, "maxDisplayDistanceMul", true, ConverterName);
+
+                ValidateRange(ref minOperatingAltitude, ref maxOperatingAltitude,
+                    "minOperatingAltitude", "maxOperatingAltitude", ConverterName);
+                ValidateRange(ref minAltitude, ref maxAltitude,
+                    "minAltitude", "maxAltitude", ConverterName);
+                ValidateRange(ref minOperatingG, ref maxOperatingG,
+                    "minOperatingG", "maxOperatingG", ConverterName);
+                ValidateRange(ref minG, ref maxG, "minG", "maxG", ConverterName);
+                ValidateRange(ref minOperatingTemperature, ref maxOperatingTemperature,
+                    "minOperatingTemperature", "maxOperatingTemperature", ConverterName);
+                ValidateRange(ref minTemperature, ref maxTemperature,
+                    "minTemperature", "maxTemperature", ConverterName);
+                ValidateRange(ref minOperatingPressure, ref maxOperatingPressure,
+                    "minOperatingPressure", "maxOperatingPressure", ConverterName);
+                ValidateRange(ref minPressure, ref maxPressure,
+                    "minPressure", "maxPressure", ConverterName);
             }
             else
             {
@@ -183,6 +211,20 @@ namespace Khemistry
                 + "; defaulting to 1.",
                 "KhemistryISRUBiomeConfig/constructor");
             return 1.0;
+        }
+
+        private void ValidateRange(ref double minimum, ref double maximum,
+            string minimumName, string maximumName, string converterName)
+        {
+            if (minimum <= maximum) return;
+
+            KShared.LogError(
+                "Converter \"" + converterName + "\": Biome config \"" + biomeName + "\": "
+                + minimumName + " is greater than " + maximumName + "; swapping the values.",
+                "KhemistryISRUBiomeConfig/constructor");
+            double swap = minimum;
+            minimum = maximum;
+            maximum = swap;
         }
     }
 }

@@ -70,3 +70,5 @@ C:\Users\name\Documents\GitHub\khemistry\KhemistryDLLs\Khemistry\obj\Debug\Khemi
 C:\Users\name\Documents\GitHub\khemistry\KhemistryDLLs\Khemistry\obj\Debug\Khemistry.csproj.Up2Date
 C:\Users\name\Documents\GitHub\khemistry\KhemistryDLLs\Khemistry\obj\Debug\Khemistry.dll
 C:\Users\name\Documents\GitHub\khemistry\KhemistryDLLs\Khemistry\obj\Debug\Khemistry.pdb
+C:\Users\name\Documents\Codex\2026-08-25\look-at-the-code-for-khemistry\suit-build\Khemistry.dll
+C:\Users\name\Documents\Codex\2026-08-25\look-at-the-code-for-khemistry\suit-build\Khemistry.pdb

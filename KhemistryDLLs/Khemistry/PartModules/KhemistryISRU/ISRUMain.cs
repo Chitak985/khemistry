@@ -38,7 +38,17 @@ namespace Khemistry
 
             _activeAnim = animators[0];
             _activeAnimationName = animName;
-            _activeAnim[_activeAnimationName].wrapMode = WrapMode.Loop;
+            AnimationState animationState = _activeAnim[_activeAnimationName];
+            if (animationState == null)
+            {
+                KShared.LogError(
+                    "Converter \"" + ConverterName + "\": Animator does not contain clip \""
+                    + animName + "\".", "KhemistryISRU/SetupActiveAnimation");
+                _activeAnim = null;
+                _activeAnimationName = null;
+                return;
+            }
+            animationState.wrapMode = WrapMode.Loop;
 
             KShared.Log(
                 "Converter \"" + ConverterName + "\": Hooked active animation \"" + animName + "\""
@@ -60,15 +70,6 @@ namespace Khemistry
             else _activeAnim.Stop(_activeAnimationName);
 
             _animationPlaying = playing;
-        }
-
-        /// <summary>
-        /// Play the active animation once, without looping.
-        /// </summary>
-        private void PlayActiveAnimationOnce()
-        {
-            if (_activeAnim == null || string.IsNullOrEmpty(_activeAnimationName)) return;
-            _activeAnim.Play(_activeAnimationName);
         }
 
         ///// Powerfail /////
@@ -94,18 +95,21 @@ namespace Khemistry
                     break;
                 case KhemistryISRURecipe.PowerfailResult.Stop:
                     RefundPassiveConsumption();
+                    ResetPassiveTimers();
                     batchProgress = 0.0;
                     isRunning = false;
                     statusDisplay = "Stopped (powerfail)";
                     break;
                 case KhemistryISRURecipe.PowerfailResult.Void:
                     ClearPassiveConsumption();
+                    ResetPassiveTimers();
                     batchProgress = 0.0;
                     isRunning = false;
                     statusDisplay = "Stopped (powerfail, resources lost)";
                     break;
                 case KhemistryISRURecipe.PowerfailResult.Maint:
                     ClearPassiveConsumption();
+                    ResetPassiveTimers();
                     batchProgress = 0.0;
                     isRunning = false;
                     needsMaintenance = true;
@@ -129,9 +133,20 @@ namespace Khemistry
             for (int i = 0; i < _activeRecipe._passiveInputs.Count && i < _passiveConsumedThisBatch.Count; i++)
             {
                 double amount = _passiveConsumedThisBatch[i];
-                if (amount <= 0.0) continue;
-                RequestResourceRouted(_activeRecipe._passiveInputs[i].resourceName, -amount,
-                    _activeRecipe._passiveInputs[i].flowMode);
+                if (double.IsNaN(amount) || double.IsInfinity(amount) || amount <= 0.0)
+                {
+                    _passiveConsumedThisBatch[i] = 0.0;
+                    continue;
+                }
+                KhemistryISRURecipe.PassiveResourceInput input =
+                    _activeRecipe._passiveInputs[i];
+                double returned = Math.Abs(RequestResourceRouted(input.resourceName,
+                    -amount, input.flowMode));
+                if (double.IsNaN(returned) || double.IsInfinity(returned)
+                    || returned < 0.0) returned = 0.0;
+                double unreturned = amount - Math.Min(amount, returned);
+                if (unreturned > 0.0)
+                    QueuePassiveRefund(input.resourceName, input.flowMode, unreturned);
                 _passiveConsumedThisBatch[i] = 0.0;
             }
         }
@@ -168,7 +183,8 @@ namespace Khemistry
             if (vessel == null || vessel.mainBody == null) return false;
 
             List<string> here = shared.SurfaceDepositsAtPoint((float)vessel.latitude, (float)vessel.longitude, vessel.mainBody.name, 0);
-            here.AddRange(shared.UndergroundDepositsAtPoint((float)vessel.latitude, (float)vessel.longitude, vessel.mainBody.name, 0));
+            here.AddRange(shared.UndergroundDepositsBelowPoint((float)vessel.latitude,
+                (float)vessel.longitude, vessel.mainBody.name));
             return conditions.Any(d => here.Contains(d));
         }
 
@@ -220,6 +236,19 @@ namespace Khemistry
             {
                 _moduleChargeNames.AddRange(KShared.GetChargingFromCFG(moduleNode, out List<float> moduleChargeAmounts));
                 _moduleChargeAmounts.AddRange(moduleChargeAmounts);
+
+                if (float.IsNaN(_moduleChargeRate) || float.IsInfinity(_moduleChargeRate)
+                    || _moduleChargeRate <= 0f
+                    || float.IsNaN(_moduleChargeDecayRate) || float.IsInfinity(_moduleChargeDecayRate)
+                    || _moduleChargeDecayRate < 0f
+                    || _moduleChargeNames.Count == 0)
+                {
+                    KShared.LogError("Converter \"" + ConverterName
+                        + "\": chargingRequired needs a finite positive chargeRate, a finite non-negative chargeDecayRate, and valid charging resources; the converter was disabled to prevent uncharged operation.",
+                        "KhemistryISRU/LoadConfigFromPartInfo");
+                    _fatalConfigError = true;
+                    return;
+                }
             }
 
             ///// Recipes: local RECIPE nodes /////
@@ -229,15 +258,38 @@ namespace Khemistry
                 foreach (ConfigNode recipeNode in moduleNode.GetNodes("RECIPE"))
                 {
                     ConfigNode mergedNode = KhemistryISRURecipe.ApplyModuleOverrides(moduleNode, recipeNode);
-                    recipes.Add(new KhemistryISRURecipe(mergedNode, ConverterName));
+                    KhemistryISRURecipe recipe = new KhemistryISRURecipe(mergedNode, ConverterName);
+                    if (recipe.IsValid)
+                        recipe.ValidateReferences(shared?.materialList,
+                            "KhemistryISRU/LoadConfigFromPartInfo");
+                    if (recipe.IsValid && !recipes.Any(existing => existing._name == recipe._name))
+                        recipes.Add(recipe);
+                    else if (!recipe.IsValid)
+                        KShared.LogError("Converter \"" + ConverterName + "\": invalid local recipe \""
+                            + recipe._name + "\" was ignored.", "KhemistryISRU/LoadConfigFromPartInfo");
+                    else
+                        KShared.LogError("Converter \"" + ConverterName + "\": duplicate local recipe \""
+                            + recipe._name + "\" was ignored.", "KhemistryISRU/LoadConfigFromPartInfo");
                 }
             }
 
             ///// Recipes: imported by name (RECIPE_NAMES & RECIPE_MULTIPLIERS) /////
             recipeMultiplier = KShared.GetFloatValueFromCFG(moduleNode, "recipeMultiplier", 1f);
+            if (float.IsNaN(recipeMultiplier) || float.IsInfinity(recipeMultiplier) || recipeMultiplier <= 0f)
+            {
+                KShared.LogError("Converter \"" + ConverterName
+                    + "\": recipeMultiplier must be finite and greater than zero; using 1.",
+                    "KhemistryISRU/LoadConfigFromPartInfo");
+                recipeMultiplier = 1f;
+            }
 
             recipeType = KShared.GetStrValueFromCFG(moduleNode, "recipeType", moduleType == "kerbalEVA" ? "kerbalEVA" : null);
-            recipeSubtype = KShared.GetStrValueFromCFG(moduleNode, "recipeSubtype", null);
+            recipeSubtype = KShared.GetStrValueFromCFG(moduleNode, "recipeSubtype",
+                KShared.GetStrValueFromCFG(moduleNode, "recipeSubype", null));
+            if (!moduleNode.HasValue("recipeSubtype") && moduleNode.HasValue("recipeSubype"))
+                KShared.LogWarning("Converter \"" + ConverterName
+                    + "\" uses legacy misspelling \"recipeSubype\"; use \"recipeSubtype\".",
+                    "KhemistryISRU/LoadConfigFromPartInfo");
             recipeSubsubtype = KShared.GetStrValueFromCFG(moduleNode, "recipeSubsubtype", null);
 
             _recipeNames.Clear();
@@ -253,15 +305,18 @@ namespace Khemistry
 
                 if (moduleNode.HasNode("RECIPE_MULTIPLIERS"))
                 {
+                    bool validMultipliers = true;
                     foreach (string amt in moduleNode.GetNode("RECIPE_MULTIPLIERS").GetValues("amount"))
-                        if (float.TryParse(amt, NumberStyles.Float, CultureInfo.InvariantCulture, out float mTmp))
+                        if (float.TryParse(amt, NumberStyles.Float, CultureInfo.InvariantCulture, out float mTmp)
+                            && !float.IsNaN(mTmp) && !float.IsInfinity(mTmp) && mTmp > 0f)
                             _recipeMultipliers.Add(mTmp);
+                        else
+                            validMultipliers = false;
 
-                    if (_recipeMultipliers.Count != _recipeNames.Count)
+                    if (!validMultipliers || _recipeMultipliers.Count != _recipeNames.Count)
                     {
                         KShared.LogError(
-                            "Converter \"" + ConverterName + "\": RECIPE_NAMES and RECIPE_MULTIPLIERS have unequal counts ("
-                            + _recipeNames.Count + ", " + _recipeMultipliers.Count + ") — ignoring RECIPE_MULTIPLIERS.",
+                            "Converter \"" + ConverterName + "\": RECIPE_MULTIPLIERS must contain one finite positive amount for every RECIPE_NAMES entry — ignoring RECIPE_MULTIPLIERS.",
                             "KhemistryISRU/LoadConfigFromPartInfo");
                         _recipeMultipliers.Clear();
                     }
@@ -278,7 +333,7 @@ namespace Khemistry
                 {
                     for (int i = 0; i < _recipeNames.Count; i++)
                     {
-                        string wantedName = _recipeNames[i];
+                        string wantedName = _recipeNames[i]?.Trim();
                         KhemistryISRURecipe found = shared.batchRecipeList.FirstOrDefault(r => r._name == wantedName);
                         if (found == null)
                         {
@@ -293,7 +348,19 @@ namespace Khemistry
                         float localMult = (i < _recipeMultipliers.Count) ? _recipeMultipliers[i] : 1f;
                         ConfigNode mergedFoundNode = KhemistryISRURecipe.ApplyModuleOverrides(moduleNode, found.mainNode);
                         KhemistryISRURecipe overriddenFound = new KhemistryISRURecipe(mergedFoundNode, ConverterName);
-                        recipes.Add(overriddenFound.ScaledCopy(recipeMultiplier * localMult));
+                        if (overriddenFound.IsValid)
+                            overriddenFound.ValidateReferences(shared.materialList,
+                                "KhemistryISRU/LoadConfigFromPartInfo");
+                        if (!overriddenFound.IsValid)
+                        {
+                            KShared.LogError("Converter \"" + ConverterName + "\": overridden recipe \""
+                                + wantedName + "\" is invalid and was ignored.", "KhemistryISRU/LoadConfigFromPartInfo");
+                            continue;
+                        }
+
+                        KhemistryISRURecipe scaled = overriddenFound.ScaledCopy(recipeMultiplier * localMult);
+                        if (!recipes.Any(recipe => recipe._name == scaled._name))
+                            recipes.Add(scaled);
                     }
                 }
                 if (recipeType != null || recipeSubtype != null || recipeSubsubtype != null)
@@ -304,6 +371,16 @@ namespace Khemistry
                         {
                             ConfigNode mergedCandidateNode = KhemistryISRURecipe.ApplyModuleOverrides(moduleNode, candidate.mainNode);
                             KhemistryISRURecipe overriddenCandidate = new KhemistryISRURecipe(mergedCandidateNode, ConverterName);
+                            if (overriddenCandidate.IsValid)
+                                overriddenCandidate.ValidateReferences(shared.materialList,
+                                    "KhemistryISRU/LoadConfigFromPartInfo");
+
+                            if (!overriddenCandidate.IsValid)
+                            {
+                                KShared.LogError("Converter \"" + ConverterName + "\": overridden recipe \""
+                                    + candidate._name + "\" is invalid and was ignored.", "KhemistryISRU/LoadConfigFromPartInfo");
+                                continue;
+                            }
 
                             if (recipes.Any(recipe => recipe._name == overriddenCandidate._name))
                                 continue;
@@ -348,17 +425,47 @@ namespace Khemistry
                     workersCrewSamePart = wcspTmp;
                 _configMaxInteractionDistance = KShared.GetFloatValueFromCFG(moduleNode, "maxInteractionDistance", _configMaxInteractionDistance);
                 _configMaxDisplayDistance = KShared.GetFloatValueFromCFG(moduleNode, "maxDisplayDistance", _configMaxDisplayDistance);
+                if (float.IsNaN(_configMaxInteractionDistance) || float.IsInfinity(_configMaxInteractionDistance)
+                    || _configMaxInteractionDistance < 0f)
+                {
+                    KShared.LogError("Converter \"" + ConverterName
+                        + "\": maxInteractionDistance must be finite and non-negative; using 7.",
+                        "KhemistryISRU/LoadConfigFromPartInfo");
+                    _configMaxInteractionDistance = 7f;
+                }
+                if (float.IsNaN(_configMaxDisplayDistance) || float.IsInfinity(_configMaxDisplayDistance)
+                    || _configMaxDisplayDistance < 0f)
+                {
+                    KShared.LogError("Converter \"" + ConverterName
+                        + "\": maxDisplayDistance must be finite and non-negative; using 10.",
+                        "KhemistryISRU/LoadConfigFromPartInfo");
+                    _configMaxDisplayDistance = 10f;
+                }
             }
             _maxInteractionDistance = _configMaxInteractionDistance;
             _maxDisplayDistance = _configMaxDisplayDistance;
 
             ///// Select active recipe /////
             KhemistryISRURecipe initial = null;
-            if (!string.IsNullOrEmpty(activeRecipeName))
-                initial = recipes.FirstOrDefault(r => r._name == activeRecipeName);
+            string savedRecipeName = activeRecipeName;
+            if (!string.IsNullOrEmpty(savedRecipeName))
+                initial = recipes.FirstOrDefault(r => r._name == savedRecipeName);
             bool restoringSavedRecipe = initial != null;
+            PrepareLegacyPassiveStates(savedRecipeName, initial);
+            if (!string.IsNullOrEmpty(savedRecipeName) && !restoringSavedRecipe)
+            {
+                // A different first recipe is useful for the selector/UI, but must never start
+                // automatically using progress and withdrawals that belonged to a removed one.
+                isRunning = false;
+                batchProgress = 0.0;
+                KShared.LogWarning("Converter \"" + ConverterName + "\": saved recipe \""
+                    + savedRecipeName
+                    + "\" is no longer available; the converter was stopped and selected the first available recipe.",
+                    "KhemistryISRU/LoadConfigFromPartInfo");
+            }
             if (initial == null) initial = recipes[0];
             ApplyRecipe(initial, resetProgress: !restoringSavedRecipe);
+            ProcessPendingPassiveRefunds();
         }
 
         /// <summary>
@@ -370,17 +477,48 @@ namespace Khemistry
         {
             _activeRecipe = recipe;
             activeRecipeName = recipe._name;
-            if (resetProgress) batchProgress = 0.0;
+            if (resetProgress || double.IsNaN(batchProgress) || double.IsInfinity(batchProgress)
+                || batchProgress < 0.0)
+                batchProgress = 0.0;
+            else if (batchProgress > recipe._recipeTime)
+                batchProgress = recipe._recipeTime;
 
             _passiveTimers.Clear();
             _passiveConsumedThisBatch.Clear();
             for (int i = 0; i < recipe._passiveInputs.Count; i++)
             {
-                _passiveTimers.Add(!resetProgress && i < _loadedPassiveTimers.Count ? _loadedPassiveTimers[i] : 0.0);
-                _passiveConsumedThisBatch.Add(!resetProgress && i < _loadedPassiveConsumed.Count ? _loadedPassiveConsumed[i] : 0.0);
+                double timer = 0.0;
+                double consumed = 0.0;
+                if (!resetProgress)
+                {
+                    KhemistryISRURecipe.PassiveResourceInput input = recipe._passiveInputs[i];
+                    int savedIndex = _loadedPassiveStates.FindIndex(saved =>
+                        SavedPassiveInputMatches(saved, input));
+                    if (savedIndex >= 0)
+                    {
+                        timer = _loadedPassiveStates[savedIndex].timer;
+                        consumed = _loadedPassiveStates[savedIndex].consumed;
+                        _loadedPassiveStates.RemoveAt(savedIndex);
+                    }
+                }
+                _passiveTimers.Add(timer);
+                _passiveConsumedThisBatch.Add(consumed);
             }
-            _loadedPassiveTimers.Clear();
-            _loadedPassiveConsumed.Clear();
+
+            // A saved entry whose recipe identity no longer exists cannot safely be attached
+            // to a different input. Return its tracked withdrawal using its own saved identity.
+            foreach (PassiveInputSaveState unmatched in _loadedPassiveStates)
+            {
+                if (unmatched.consumed > 0.0)
+                    QueuePassiveRefund(unmatched.resourceName, unmatched.flowMode,
+                        unmatched.consumed);
+                KShared.LogWarning("Converter \"" + ConverterName
+                    + "\": detached unmatched saved passive-input state for \""
+                    + unmatched.resourceName
+                    + "\" after its recipe definition changed; its consumed resource is queued for refund.",
+                    "KhemistryISRU/ApplyRecipe");
+            }
+            _loadedPassiveStates.Clear();
 
             if (recipe._chargingRequired)
             {
@@ -407,22 +545,216 @@ namespace Khemistry
             _controlsShowEVA = recipe._controlsShowEVA;
         }
 
+        private void PrepareLegacyPassiveStates(string savedRecipeName,
+            KhemistryISRURecipe selectedRecipe)
+        {
+            if (_pendingLegacyPassiveNodes.Count == 0) return;
+
+            foreach (ConfigNode legacyNode in _pendingLegacyPassiveNodes)
+            {
+                string legacyRecipeName = legacyNode.GetValue("recipeName")?.Trim();
+                bool belongsToSelected = selectedRecipe != null
+                    && !string.IsNullOrEmpty(savedRecipeName)
+                    && string.Equals(legacyRecipeName, savedRecipeName,
+                        StringComparison.Ordinal)
+                    && string.Equals(selectedRecipe._name, savedRecipeName,
+                        StringComparison.Ordinal);
+
+                bool alreadyQuarantined = bool.TryParse(
+                    legacyNode.GetValue("quarantined"), out bool quarantined)
+                    && quarantined;
+                if (alreadyQuarantined) continue;
+
+                legacyNode.SetValue("quarantined", true, true);
+                if (belongsToSelected && _loadedPassiveStates.Count == 0)
+                {
+                    // The old format stores only list positions. Even a same-name recipe may
+                    // have changed or reordered its passive inputs, so applying or refunding
+                    // those values could create the wrong resource. Start a fresh batch once,
+                    // while retaining the opaque record for possible manual/future recovery.
+                    isRunning = false;
+                    batchProgress = 0.0;
+                }
+
+                KShared.LogWarning("Converter \"" + ConverterName
+                    + "\": quarantined legacy positional passive-input state for recipe \""
+                    + (legacyRecipeName ?? "")
+                    + "\" because it has no resource identities; it was not applied or refunded.",
+                    "KhemistryISRU/PrepareLegacyPassiveStates");
+            }
+        }
+
+        private void QueuePassiveRefund(string resourceName, ResourceFlowMode flowMode,
+            double amount)
+        {
+            if (string.IsNullOrWhiteSpace(resourceName) || double.IsNaN(amount)
+                || double.IsInfinity(amount) || amount <= 0.0
+                || !Enum.IsDefined(typeof(ResourceFlowMode), flowMode)) return;
+            resourceName = resourceName.Trim();
+            PassiveRefundSaveState existing = _pendingPassiveRefunds.FirstOrDefault(
+                refund => refund.resourceName == resourceName && refund.flowMode == flowMode);
+            if (existing != null)
+            {
+                double combined = existing.amount + amount;
+                if (!double.IsNaN(combined) && !double.IsInfinity(combined))
+                {
+                    existing.amount = combined;
+                    return;
+                }
+            }
+            _pendingPassiveRefunds.Add(new PassiveRefundSaveState
+            {
+                resourceName = resourceName,
+                flowMode = flowMode,
+                amount = amount
+            });
+        }
+
+        private void ProcessPendingPassiveRefunds()
+        {
+            for (int i = _pendingPassiveRefunds.Count - 1; i >= 0; i--)
+            {
+                PassiveRefundSaveState refund = _pendingPassiveRefunds[i];
+                if (refund == null || string.IsNullOrEmpty(refund.resourceName)
+                    || double.IsNaN(refund.amount) || double.IsInfinity(refund.amount)
+                    || refund.amount <= 0.0)
+                {
+                    _pendingPassiveRefunds.RemoveAt(i);
+                    continue;
+                }
+
+                double returned = Math.Abs(RequestResourceRouted(refund.resourceName,
+                    -refund.amount, refund.flowMode));
+                if (double.IsNaN(returned) || double.IsInfinity(returned)
+                    || returned < 0.0) returned = 0.0;
+                returned = Math.Min(returned, refund.amount);
+                refund.amount -= returned;
+                if (refund.amount <= 0.0) _pendingPassiveRefunds.RemoveAt(i);
+            }
+        }
+
+        private static bool SavedPassiveInputMatches(PassiveInputSaveState saved,
+            KhemistryISRURecipe.PassiveResourceInput input)
+        {
+            return saved != null
+                && string.Equals(saved.resourceName, input.resourceName,
+                    StringComparison.Ordinal)
+                && saved.flowMode == input.flowMode
+                && NearlyEqualSavedValue(saved.amount, input.amount)
+                && NearlyEqualSavedValue(saved.period, input.period);
+        }
+
+        private static bool NearlyEqualSavedValue(double left, double right)
+        {
+            return !double.IsNaN(left) && !double.IsInfinity(left)
+                && !double.IsNaN(right) && !double.IsInfinity(right)
+                && left.Equals(right);
+        }
+
         public override void OnLoad(ConfigNode node)
         {
             base.OnLoad(node);
-            _loadedPassiveTimers.Clear();
-            _loadedPassiveConsumed.Clear();
+            if (node != null && (node.HasValue("isRunning")
+                || node.HasValue("needsMaintenance") || node.HasValue("state")
+                || node.HasValue("chargePercent") || node.HasValue("activeRecipeName")
+                || node.HasValue("batchProgress") || node.HasNode("PASSIVE_INPUT_STATE")
+                || node.HasNode("PENDING_PASSIVE_REFUND")
+                || node.HasNode("ORPHANED_LEGACY_PASSIVE_STATE")
+                || node.HasNode("MATERIAL_OUTPUT_BUFFER")))
+                _loadedAuthoritativePersistentState = true;
+            _loadedPassiveStates.Clear();
+            _opaquePassiveInputNodes.Clear();
+            _pendingPassiveRefunds.Clear();
+            _opaquePassiveRefundNodes.Clear();
+            _pendingLegacyPassiveNodes.Clear();
             _pendingMaterialOutputNodes.Clear();
+            _materialOutputAmount.Clear();
+            _materialOutputRandomSeed.Clear();
+            _materialOutputRandomSequence.Clear();
 
             ConfigNode passiveNode = node.GetNode("PASSIVE_INPUT_STATE");
             if (passiveNode != null)
             {
-                foreach (string raw in passiveNode.GetValues("timer"))
-                    if (double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out double value))
-                        _loadedPassiveTimers.Add(Math.Max(0.0, value));
-                foreach (string raw in passiveNode.GetValues("consumed"))
-                    if (double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out double value))
-                        _loadedPassiveConsumed.Add(Math.Max(0.0, value));
+                foreach (ConfigNode inputNode in passiveNode.GetNodes("INPUT"))
+                {
+                    string resourceName = inputNode.GetValue("name")?.Trim();
+                    string flowModeRaw = inputNode.GetValue("flowmode");
+                    if (string.IsNullOrEmpty(resourceName)
+                        || !TryReadSavedPassiveDouble(inputNode, "amount", true,
+                            out double amount)
+                        || !TryReadSavedPassiveDouble(inputNode, "period", true,
+                            out double period)
+                        || !TryReadSavedPassiveDouble(inputNode, "timer", false,
+                            out double timer)
+                        || !TryReadSavedPassiveDouble(inputNode, "consumed", false,
+                            out double consumed)
+                        || !Enum.TryParse(flowModeRaw, true, out ResourceFlowMode flowMode)
+                        || !Enum.IsDefined(typeof(ResourceFlowMode), flowMode))
+                    {
+                        KShared.LogError("Converter \"" + ConverterName
+                            + "\": preserved a malformed named passive-input save record without applying it.",
+                            "KhemistryISRU/OnLoad");
+                        ConfigNode opaque = new ConfigNode("INPUT");
+                        inputNode.CopyTo(opaque);
+                        _opaquePassiveInputNodes.Add(opaque);
+                        continue;
+                    }
+
+                    _loadedPassiveStates.Add(new PassiveInputSaveState
+                    {
+                        resourceName = resourceName,
+                        amount = amount,
+                        period = period,
+                        flowMode = flowMode,
+                        timer = timer,
+                        consumed = consumed
+                    });
+                }
+
+                // Preserve old positional values exactly until their original recipe identity
+                // can be checked. Parsing them here used to collapse invalid/missing positions
+                // and could attach a withdrawal to the wrong resource.
+                if (passiveNode.GetValues("timer").Length > 0
+                    || passiveNode.GetValues("consumed").Length > 0)
+                {
+                    ConfigNode legacy = new ConfigNode("ORPHANED_LEGACY_PASSIVE_STATE");
+                    legacy.AddValue("recipeName", activeRecipeName ?? "");
+                    foreach (string raw in passiveNode.GetValues("timer"))
+                        legacy.AddValue("timer", raw ?? "");
+                    foreach (string raw in passiveNode.GetValues("consumed"))
+                        legacy.AddValue("consumed", raw ?? "");
+                    _pendingLegacyPassiveNodes.Add(legacy);
+                }
+            }
+
+            foreach (ConfigNode legacyNode in node.GetNodes("ORPHANED_LEGACY_PASSIVE_STATE"))
+            {
+                ConfigNode copy = new ConfigNode("ORPHANED_LEGACY_PASSIVE_STATE");
+                legacyNode.CopyTo(copy);
+                _pendingLegacyPassiveNodes.Add(copy);
+            }
+
+            foreach (ConfigNode refundNode in node.GetNodes("PENDING_PASSIVE_REFUND"))
+            {
+                string resourceName = refundNode.GetValue("name")?.Trim();
+                string flowModeRaw = refundNode.GetValue("flowmode");
+                if (!string.IsNullOrEmpty(resourceName)
+                    && TryReadSavedPassiveDouble(refundNode, "amount", true,
+                        out double amount)
+                    && Enum.TryParse(flowModeRaw, true, out ResourceFlowMode flowMode)
+                    && Enum.IsDefined(typeof(ResourceFlowMode), flowMode))
+                {
+                    QueuePassiveRefund(resourceName, flowMode, amount);
+                }
+                else
+                {
+                    ConfigNode copy = new ConfigNode("PENDING_PASSIVE_REFUND");
+                    refundNode.CopyTo(copy);
+                    _opaquePassiveRefundNodes.Add(copy);
+                    KShared.LogError("Converter \"" + ConverterName
+                        + "\": preserved a malformed pending passive refund without applying it.",
+                        "KhemistryISRU/OnLoad");
+                }
             }
 
             foreach (ConfigNode bufferedNode in node.GetNodes("MATERIAL_OUTPUT_BUFFER"))
@@ -431,61 +763,270 @@ namespace Khemistry
                 bufferedNode.CopyTo(copy);
                 _pendingMaterialOutputNodes.Add(copy);
             }
+            _completedOnLoadCount++;
+        }
+
+        internal bool HasAuthoritativePersistentState
+            => _loadedAuthoritativePersistentState;
+
+        internal bool LoadEVAISRUBoardingState(ConfigNode node)
+        {
+            if (node == null) return false;
+            int completedBefore = _completedOnLoadCount;
+            Load(node);
+            return _completedOnLoadCount > completedBefore;
+        }
+
+        private void ResetPassiveTimers()
+        {
+            for (int i = 0; i < _passiveTimers.Count; i++)
+                _passiveTimers[i] = 0.0;
+        }
+
+        /// <summary>
+        /// Reverses only the passive-resource work performed during one attempted simulation
+        /// step. This keeps PAUSE atomic when a later passive input cannot be satisfied.
+        /// </summary>
+        private void RollBackPassiveInputStep(IList<double> timersBefore,
+            IList<double> consumedBefore)
+        {
+            if (_activeRecipe != null)
+            {
+                int count = Math.Min(_activeRecipe._passiveInputs.Count,
+                    Math.Min(_passiveConsumedThisBatch.Count, consumedBefore.Count));
+                for (int i = count - 1; i >= 0; i--)
+                {
+                    double newlyConsumed = _passiveConsumedThisBatch[i] - consumedBefore[i];
+                    if (double.IsNaN(newlyConsumed) || double.IsInfinity(newlyConsumed)
+                        || newlyConsumed <= 0.0) continue;
+                    KhemistryISRURecipe.PassiveResourceInput input =
+                        _activeRecipe._passiveInputs[i];
+                    RequestResourceRouted(input.resourceName, -newlyConsumed, input.flowMode);
+                }
+            }
+
+            _passiveTimers.Clear();
+            _passiveTimers.AddRange(timersBefore);
+            _passiveConsumedThisBatch.Clear();
+            _passiveConsumedThisBatch.AddRange(consumedBefore);
         }
 
         public override void OnSave(ConfigNode node)
         {
             base.OnSave(node);
+            if (node == null) return;
 
-            if (_passiveTimers.Count > 0 || _passiveConsumedThisBatch.Count > 0)
+            while (node.HasNode("PASSIVE_INPUT_STATE"))
+                node.RemoveNode("PASSIVE_INPUT_STATE");
+            while (node.HasNode("PENDING_PASSIVE_REFUND"))
+                node.RemoveNode("PENDING_PASSIVE_REFUND");
+            while (node.HasNode("ORPHANED_LEGACY_PASSIVE_STATE"))
+                node.RemoveNode("ORPHANED_LEGACY_PASSIVE_STATE");
+            while (node.HasNode("MATERIAL_OUTPUT_BUFFER"))
+                node.RemoveNode("MATERIAL_OUTPUT_BUFFER");
+
+            ConfigNode passiveNode = new ConfigNode("PASSIVE_INPUT_STATE");
+            foreach (ConfigNode opaqueInput in _opaquePassiveInputNodes)
             {
-                ConfigNode passiveNode = new ConfigNode("PASSIVE_INPUT_STATE");
-                foreach (double timer in _passiveTimers)
-                    passiveNode.AddValue("timer", timer.ToString("R", CultureInfo.InvariantCulture));
-                foreach (double consumed in _passiveConsumedThisBatch)
-                    passiveNode.AddValue("consumed", consumed.ToString("R", CultureInfo.InvariantCulture));
+                ConfigNode copy = new ConfigNode("INPUT");
+                opaqueInput.CopyTo(copy);
+                passiveNode.AddNode(copy);
+            }
+            if (_activeRecipe != null
+                && _passiveTimers.Count == _activeRecipe._passiveInputs.Count
+                && _passiveConsumedThisBatch.Count == _activeRecipe._passiveInputs.Count)
+            {
+                for (int i = 0; i < _activeRecipe._passiveInputs.Count; i++)
+                {
+                    KhemistryISRURecipe.PassiveResourceInput input =
+                        _activeRecipe._passiveInputs[i];
+                    AddPassiveInputSaveNode(passiveNode, input.resourceName, input.amount,
+                        input.period, input.flowMode, _passiveTimers[i],
+                        _passiveConsumedThisBatch[i]);
+                }
+            }
+            if (_loadedPassiveStates.Count > 0)
+            {
+                foreach (PassiveInputSaveState saved in _loadedPassiveStates)
+                {
+                    AddPassiveInputSaveNode(passiveNode, saved.resourceName, saved.amount,
+                        saved.period, saved.flowMode, saved.timer, saved.consumed);
+                }
+            }
+
+            if (passiveNode.nodes.Count > 0 || passiveNode.values.Count > 0)
                 node.AddNode(passiveNode);
+
+            foreach (ConfigNode legacyNode in _pendingLegacyPassiveNodes)
+            {
+                ConfigNode copy = new ConfigNode("ORPHANED_LEGACY_PASSIVE_STATE");
+                legacyNode.CopyTo(copy);
+                node.AddNode(copy);
+            }
+
+            foreach (ConfigNode opaqueRefund in _opaquePassiveRefundNodes)
+            {
+                ConfigNode copy = new ConfigNode("PENDING_PASSIVE_REFUND");
+                opaqueRefund.CopyTo(copy);
+                node.AddNode(copy);
+            }
+            foreach (PassiveRefundSaveState refund in _pendingPassiveRefunds)
+            {
+                if (refund == null || string.IsNullOrEmpty(refund.resourceName)
+                    || double.IsNaN(refund.amount) || double.IsInfinity(refund.amount)
+                    || refund.amount <= 0.0) continue;
+                ConfigNode refundNode = new ConfigNode("PENDING_PASSIVE_REFUND");
+                refundNode.AddValue("name", refund.resourceName);
+                refundNode.AddValue("flowmode", refund.flowMode.ToString());
+                refundNode.AddValue("amount",
+                    refund.amount.ToString("R", CultureInfo.InvariantCulture));
+                node.AddNode(refundNode);
+            }
+
+            // Preserve saved output records that could not be interpreted with the current
+            // configuration. A broken or temporarily missing recipe must not silently erase them.
+            foreach (ConfigNode pendingNode in _pendingMaterialOutputNodes)
+            {
+                ConfigNode copy = new ConfigNode("MATERIAL_OUTPUT_BUFFER");
+                pendingNode.CopyTo(copy);
+                node.AddNode(copy);
             }
 
             foreach (KeyValuePair<KhemistryISRURecipe.ResourceOutputMaterial, double> buffered in _materialOutputAmount)
             {
-                if (buffered.Value <= 0.0) continue;
+                if (double.IsNaN(buffered.Value) || double.IsInfinity(buffered.Value)
+                    || buffered.Value <= 0.0) continue;
                 KhemistryISRURecipe.ResourceOutputMaterial material = buffered.Key;
+                EnsureMaterialOutputRandomState(material);
                 ConfigNode outputNode = new ConfigNode("MATERIAL_OUTPUT_BUFFER");
                 outputNode.AddValue("name", material.name ?? "");
                 outputNode.AddValue("shape", material.shape ?? "");
                 outputNode.AddValue("size", material.size ?? "");
                 outputNode.AddValue("amount", buffered.Value.ToString("R", CultureInfo.InvariantCulture));
                 outputNode.AddValue("outVolume", material.outVolume ?? "0");
+                outputNode.AddValue("randomSeed", _materialOutputRandomSeed[material]
+                    .ToString(CultureInfo.InvariantCulture));
+                outputNode.AddValue("randomSequence", _materialOutputRandomSequence[material]
+                    .ToString(CultureInfo.InvariantCulture));
                 ConfigNode paramsNode = new ConfigNode("PARAMS");
-                foreach (KeyValuePair<string, string> parameter in material.parameters)
+                foreach (KeyValuePair<string, string> parameter in
+                         (material.parameters ?? new Dictionary<string, string>())
+                         .OrderBy(value => value.Key, StringComparer.Ordinal))
                     paramsNode.AddValue(parameter.Key, parameter.Value);
                 outputNode.AddNode(paramsNode);
                 node.AddNode(outputNode);
             }
         }
 
+        private static bool TryReadSavedPassiveDouble(ConfigNode node, string key,
+            bool requirePositive, out double value)
+        {
+            value = 0.0;
+            return node != null
+                && double.TryParse(node.GetValue(key), NumberStyles.Float,
+                    CultureInfo.InvariantCulture, out value)
+                && !double.IsNaN(value) && !double.IsInfinity(value)
+                && (requirePositive ? value > 0.0 : value >= 0.0);
+        }
+
+        private static void AddPassiveInputSaveNode(ConfigNode parent, string resourceName,
+            double amount, double period, ResourceFlowMode flowMode, double timer,
+            double consumed)
+        {
+            if (parent == null || string.IsNullOrEmpty(resourceName)
+                || double.IsNaN(amount) || double.IsInfinity(amount) || amount <= 0.0
+                || double.IsNaN(period) || double.IsInfinity(period) || period <= 0.0
+                || double.IsNaN(timer) || double.IsInfinity(timer) || timer < 0.0
+                || double.IsNaN(consumed) || double.IsInfinity(consumed) || consumed < 0.0)
+                return;
+
+            ConfigNode inputNode = new ConfigNode("INPUT");
+            inputNode.AddValue("name", resourceName);
+            inputNode.AddValue("amount", amount.ToString("R", CultureInfo.InvariantCulture));
+            inputNode.AddValue("period", period.ToString("R", CultureInfo.InvariantCulture));
+            inputNode.AddValue("flowmode", flowMode.ToString());
+            inputNode.AddValue("timer", timer.ToString("R", CultureInfo.InvariantCulture));
+            inputNode.AddValue("consumed", consumed.ToString("R", CultureInfo.InvariantCulture));
+            parent.AddNode(inputNode);
+        }
+
         private static bool OutputMaterialsEquivalent(KhemistryISRURecipe.ResourceOutputMaterial left,
             KhemistryISRURecipe.ResourceOutputMaterial right)
         {
             if (left.name != right.name || left.shape != right.shape || left.size != right.size
-                || left.outVolume != right.outVolume || left.parameters.Count != right.parameters.Count)
+                || left.outVolume != right.outVolume)
                 return false;
+            if (ReferenceEquals(left.parameters, right.parameters)) return true;
+            if (left.parameters == null || right.parameters == null
+                || left.parameters.Count != right.parameters.Count) return false;
             foreach (KeyValuePair<string, string> parameter in left.parameters)
                 if (!right.parameters.TryGetValue(parameter.Key, out string value) || value != parameter.Value)
                     return false;
             return true;
         }
 
+        private bool TryGetBufferedMaterialKey(
+            KhemistryISRURecipe.ResourceOutputMaterial candidate,
+            out KhemistryISRURecipe.ResourceOutputMaterial key)
+        {
+            foreach (KhemistryISRURecipe.ResourceOutputMaterial bufferedKey in
+                     _materialOutputAmount.Keys)
+            {
+                if (!OutputMaterialsEquivalent(bufferedKey, candidate)) continue;
+                key = bufferedKey;
+                return true;
+            }
+            key = default(KhemistryISRURecipe.ResourceOutputMaterial);
+            return false;
+        }
+
+        private static KhemistryISRURecipe.ResourceOutputMaterial CloneMaterialOutputKey(
+            KhemistryISRURecipe.ResourceOutputMaterial source)
+        {
+            source.parameters = source.parameters == null
+                ? new Dictionary<string, string>()
+                : new Dictionary<string, string>(source.parameters);
+            return source;
+        }
+
+        private static int CreateMaterialOutputRandomSeed()
+            => UnityEngine.Random.Range(1, int.MaxValue);
+
+        private void EnsureMaterialOutputRandomState(
+            KhemistryISRURecipe.ResourceOutputMaterial material)
+        {
+            if (!_materialOutputRandomSeed.ContainsKey(material))
+                _materialOutputRandomSeed[material] = CreateMaterialOutputRandomSeed();
+            if (!_materialOutputRandomSequence.ContainsKey(material))
+                _materialOutputRandomSequence[material] = 0L;
+        }
+
+        private static System.Random CreateMaterialOutputRandom(int seed, long sequence)
+        {
+            unchecked
+            {
+                int mixed = seed;
+                mixed = (mixed * 397) ^ (int)sequence;
+                mixed = (mixed * 397) ^ (int)(sequence >> 32);
+                return new System.Random(mixed & int.MaxValue);
+            }
+        }
+
         private void RestoreMaterialOutputBuffer()
         {
             _materialOutputAmount.Clear();
+            _materialOutputRandomSeed.Clear();
+            _materialOutputRandomSequence.Clear();
+            List<ConfigNode> unrestored = new List<ConfigNode>();
             foreach (ConfigNode outputNode in _pendingMaterialOutputNodes)
             {
                 if (!double.TryParse(outputNode.GetValue("amount"), NumberStyles.Float,
                         CultureInfo.InvariantCulture, out double amount)
                     || double.IsNaN(amount) || double.IsInfinity(amount) || amount <= 0.0)
+                {
+                    unrestored.Add(outputNode);
                     continue;
+                }
 
                 Dictionary<string, string> parameters = outputNode.HasNode("PARAMS")
                     ? KShared.NodeToDictionary(outputNode.GetNode("PARAMS"))
@@ -511,16 +1052,63 @@ namespace Khemistry
                     break;
                 }
 
-                if (!matched && string.IsNullOrEmpty(restored.name)) continue;
-                if (_materialOutputAmount.ContainsKey(restored)) _materialOutputAmount[restored] += amount;
-                else _materialOutputAmount.Add(restored, amount);
+                if (!matched)
+                {
+                    // Keep output from a removed, renamed, or temporarily invalid recipe as
+                    // opaque save data. Replaying it without a current matching definition
+                    // could manufacture a material with an obsolete shape/volume contract.
+                    unrestored.Add(outputNode);
+                    continue;
+                }
+
+                bool hasSeed = outputNode.HasValue("randomSeed");
+                bool hasSequence = outputNode.HasValue("randomSequence");
+                int randomSeed = 0;
+                long randomSequence = 0L;
+                if (hasSeed != hasSequence
+                    || (hasSeed && (!int.TryParse(outputNode.GetValue("randomSeed"),
+                            NumberStyles.Integer, CultureInfo.InvariantCulture,
+                            out randomSeed)
+                        || !long.TryParse(outputNode.GetValue("randomSequence"),
+                            NumberStyles.Integer, CultureInfo.InvariantCulture,
+                            out randomSequence)
+                        || randomSequence < 0L)))
+                {
+                    unrestored.Add(outputNode);
+                    continue;
+                }
+                if (!hasSeed)
+                {
+                    // Legacy buffers did not preserve realized randomness. Assign the stream
+                    // once during migration; all subsequent failed attempts and reloads are stable.
+                    randomSeed = CreateMaterialOutputRandomSeed();
+                    randomSequence = 0L;
+                }
+
+                // Distinct saved records retain distinct streams. This matters for malformed or
+                // hand-edited saves containing duplicate logical templates: combining their
+                // streams would change already-promised randomized units.
+                if (_materialOutputAmount.Keys.Any(key =>
+                        OutputMaterialsEquivalent(key, restored)))
+                    restored = CloneMaterialOutputKey(restored);
+                _materialOutputAmount[restored] = amount;
+                _materialOutputRandomSeed[restored] = randomSeed;
+                _materialOutputRandomSequence[restored] = randomSequence;
             }
             _pendingMaterialOutputNodes.Clear();
+            _pendingMaterialOutputNodes.AddRange(unrestored);
         }
 
         public override void OnStart(StartState state)
         {
             base.OnStart(state);
+
+            // This must precede recipe/config initialization: PartModule.Load restores both
+            // persistent KSPFields and custom PASSIVE_INPUT_STATE/MATERIAL_OUTPUT_BUFFER nodes
+            // which the remainder of OnStart then resolves against the current recipes.
+            KhemistryKerbalSuitScenario suitScenario = KhemistryKerbalSuitScenario.Instance;
+            if (suitScenario != null && suitScenario.IsReady)
+                suitScenario.TryRestoreEVAISRUState(this);
 
             _fatalConfigError = false;
             // Peek moduleType early (before LoadConfigFromPartInfo runs its full parse) so the
@@ -571,6 +1159,14 @@ namespace Khemistry
                 return;
             }
 
+            if (float.IsNaN(chargePercent) || float.IsInfinity(chargePercent)) chargePercent = 0f;
+            chargePercent = Mathf.Clamp(chargePercent, 0f, 100f);
+            if (!Enum.IsDefined(typeof(KShared.ChargablePartState), this.state))
+                this.state = KShared.ChargablePartState.Off;
+            if (chargingRequired && this.state == KShared.ChargablePartState.On
+                && chargePercent < 100f)
+                this.state = KShared.ChargablePartState.Off;
+
             RestoreMaterialOutputBuffer();
 
             Fields["statusDisplay"].guiActiveUnfocused = true;
@@ -605,10 +1201,14 @@ namespace Khemistry
                     _runtimeData.planet, _runtimeData.biome);
                 if (currentBiome != null)
                 {
-                    _maxInteractionDistance = _configMaxInteractionDistance
-                        * (float)currentBiome.maxInteractionDistanceMultiplier;
-                    _maxDisplayDistance = _configMaxDisplayDistance
-                        * (float)currentBiome.maxDisplayDistanceMultiplier;
+                    double interaction = _configMaxInteractionDistance
+                        * currentBiome.maxInteractionDistanceMultiplier;
+                    double display = _configMaxDisplayDistance
+                        * currentBiome.maxDisplayDistanceMultiplier;
+                    _maxInteractionDistance = interaction >= float.MaxValue
+                        ? float.MaxValue : (float)interaction;
+                    _maxDisplayDistance = display >= float.MaxValue
+                        ? float.MaxValue : (float)display;
                 }
             }
             ApplyInteractionRanges();
@@ -640,6 +1240,21 @@ namespace Khemistry
             public ResourceFlowMode flowMode;
         }
 
+        private static bool WasFullyTransferred(double requested, double actual)
+        {
+            if (double.IsNaN(requested) || double.IsInfinity(requested) || requested < 0.0
+                || double.IsNaN(actual) || double.IsInfinity(actual) || actual < 0.0)
+                return false;
+
+            if (requested == 0.0) return actual == 0.0;
+            if (actual == 0.0) return false;
+
+            // Scale the tolerance to the request. An absolute floor made every positive
+            // transfer at or below that floor look complete even when KSP moved nothing.
+            double tolerance = requested * 1e-9;
+            return actual >= requested - tolerance;
+        }
+
         private sealed class MaterialRemovalRecord
         {
             public KhemistryMaterialStorage storage;
@@ -647,19 +1262,28 @@ namespace Khemistry
             public List<KhemistryMaterialInstance> pieces;
         }
 
-        private bool ConsumeVesselResources(List<string> names, List<float> amounts,
+        private bool ConsumeVesselResources(IList<string> names, IList<double> amounts,
             List<ResourceFlowMode> flowModes, double dt, out List<ResourceDraw> draws)
         {
             draws = new List<ResourceDraw>();
-            if (names.Count == 0 || amounts.Count == 0) return true;
+            if (names == null || amounts == null || flowModes == null
+                || double.IsNaN(dt) || double.IsInfinity(dt) || dt < 0.0)
+                return false;
             if (names.Count != amounts.Count || names.Count != flowModes.Count) return false;
+            if (names.Count == 0) return true;
 
             bool allSatisfied = true;
 
             for (int i = 0; i < names.Count; i++)
             {
-                float rate = amounts[i];
-                if (rate <= 0f) continue;
+                double rate = amounts[i];
+                if (double.IsNaN(rate) || double.IsInfinity(rate) || rate < 0.0
+                    || string.IsNullOrWhiteSpace(names[i]))
+                {
+                    allSatisfied = false;
+                    continue;
+                }
+                if (rate == 0.0 || dt == 0.0) continue;
 
                 var def = PartResourceLibrary.Instance.GetDefinition(names[i]);
                 if (def == null)
@@ -671,11 +1295,16 @@ namespace Khemistry
                 }
 
                 double needed = rate * dt;
+                if (double.IsNaN(needed) || double.IsInfinity(needed) || needed <= 0.0)
+                {
+                    allSatisfied = false;
+                    continue;
+                }
                 double got = RequestResourceRouted(names[i], needed, flowModes[i]);
-                if (got > 0.0)
+                if (!double.IsNaN(got) && !double.IsInfinity(got) && got > 0.0)
                     draws.Add(new ResourceDraw { name = names[i], amount = got, flowMode = flowModes[i] });
 
-                if (got < needed * 0.999)
+                if (!WasFullyTransferred(needed, got))
                     allSatisfied = false;
             }
 
@@ -689,7 +1318,7 @@ namespace Khemistry
             return true;
         }
 
-        private bool ConsumeVesselResources(List<string> names, List<float> amounts, double dt)
+        private bool ConsumeVesselResources(IList<string> names, IList<double> amounts, double dt)
         {
             List<ResourceFlowMode> modes = Enumerable.Repeat(ResourceFlowMode.STAGE_PRIORITY_FLOW, names.Count).ToList();
             return ConsumeVesselResources(names, amounts, modes, dt, out _);
@@ -722,8 +1351,13 @@ namespace Khemistry
             List<KhemistryMaterialStorage> storages = vessel.parts
                 .SelectMany(vesselPart => vesselPart.Modules.OfType<KhemistryMaterialStorage>())
                 .ToList();
-            int available = storages.Sum(storage => storage.GetMatchingMaterialAmount(
-                material.name, material.shape, material.size, material.parameters));
+            long available = 0;
+            foreach (KhemistryMaterialStorage storage in storages)
+            {
+                available += storage.GetMatchingMaterialAmount(
+                    material.name, material.shape, material.size, material.parameters);
+                if (available >= amount) break;
+            }
             if (available < amount) return false;
 
             int remaining = amount;
@@ -750,8 +1384,12 @@ namespace Khemistry
             {
                 foreach (KhemistryMaterialInstance piece in record.pieces)
                 {
-                    if (record.suitHost != null) record.suitHost.TryAddMaterialToSuitCell(piece);
-                    else record.storage?.AddMaterial(piece);
+                    bool restored = record.suitHost != null
+                        ? record.suitHost.RestoreRemovedMaterialToSuitCell(piece)
+                        : record.storage?.RestoreRemovedMaterial(piece) == true;
+                    if (!restored)
+                        KShared.LogError("Could not restore a material removed by a rolled-back batch.",
+                            "KhemistryISRU/RefundMaterialRemovals");
                 }
             }
         }
@@ -776,6 +1414,7 @@ namespace Khemistry
         public void HandleCharging(double dt)
         {
             if (!chargingRequired) return;
+            if (double.IsNaN(dt) || double.IsInfinity(dt) || dt <= 0.0) return;
 
             KhemistryISRUBiomeConfig biomeConfig = _activeRecipe != null && _runtimeData != null
                 ? _activeRecipe.GetBiomeConfig(_runtimeData.planet, _runtimeData.biome)
@@ -783,6 +1422,17 @@ namespace Khemistry
             double decayMultiplier = biomeConfig?.chargeDecayMultiplier ?? 1.0;
             double rateMultiplier = biomeConfig?.chargeRateMultiplier ?? 1.0;
             double consumptionMultiplier = biomeConfig?.chargeConsumptionMultiplier ?? 1.0;
+            if (double.IsNaN(decayMultiplier) || double.IsInfinity(decayMultiplier)
+                || decayMultiplier < 0.0
+                || double.IsNaN(rateMultiplier) || double.IsInfinity(rateMultiplier)
+                || rateMultiplier < 0.0
+                || double.IsNaN(consumptionMultiplier)
+                || double.IsInfinity(consumptionMultiplier)
+                || consumptionMultiplier < 0.0)
+            {
+                statusDisplay = "ERROR: invalid charging multiplier";
+                return;
+            }
 
             if (state == KShared.ChargablePartState.Off)
             {
@@ -806,15 +1456,37 @@ namespace Khemistry
                 return;
             }
 
-            List<float> scaledChargeAmounts = _chargeAmounts
-                .Select(amount => (float)(amount * consumptionMultiplier))
+            double effectiveChargeRate = chargeRate * rateMultiplier;
+            if (double.IsNaN(effectiveChargeRate) || double.IsInfinity(effectiveChargeRate)
+                || effectiveChargeRate <= 0.0)
+            {
+                // In particular, a biome charge-rate multiplier of zero must not consume
+                // resources while producing no charge.
+                statusDisplay = "Charging unavailable here";
+                return;
+            }
+
+            double secondsToFullCharge = (100.0 - chargePercent) / effectiveChargeRate;
+            double chargingDt = Math.Min(dt, secondsToFullCharge);
+            if (double.IsNaN(chargingDt) || double.IsInfinity(chargingDt)
+                || chargingDt <= 0.0)
+                return;
+
+            List<double> scaledChargeAmounts = _chargeAmounts
+                .Select(amount => (double)amount * consumptionMultiplier)
                 .ToList();
-            bool satisfied = ConsumeVesselResources(_chargeNames, scaledChargeAmounts, dt);
+            bool satisfied = ConsumeVesselResources(_chargeNames, scaledChargeAmounts,
+                chargingDt);
             if (satisfied)
             {
-                chargePercent += chargeRate * (float)(dt * rateMultiplier);
-                if (chargePercent > 100f)
+                chargePercent += (float)(effectiveChargeRate * chargingDt);
+                if (chargePercent >= 100f - 1e-5f)
+                {
                     chargePercent = 100f;
+                    state = KShared.ChargablePartState.On;
+                    KShared.Log("Converter fully charged, now ON.",
+                        "KhemistryISRU/HandleCharging");
+                }
             }
             else
             {
@@ -836,8 +1508,10 @@ namespace Khemistry
             _runtimeData.Update(vessel);
 
             double dt = TimeWarp.fixedDeltaTime;
+            if (double.IsNaN(dt) || double.IsInfinity(dt) || dt <= 0.0) return;
             HandleCharging(dt);
             UpdateUI();
+            ProcessPendingPassiveRefunds();
             TryTransferMaterialOutputBuffer();
             UpdateEventVisibility();
 
@@ -849,8 +1523,7 @@ namespace Khemistry
                 return;
             }
 
-            RunBatchCycle(dt);
-            SetActiveAnimationPlaying(true);
+            SetActiveAnimationPlaying(RunBatchCycle(dt));
         }
 
         /// <summary>
@@ -880,8 +1553,12 @@ namespace Khemistry
             }
 
             // Apply multipliers
-            _maxInteractionDistance = _configMaxInteractionDistance * (float)biomeConfig.maxInteractionDistanceMultiplier;
-            _maxDisplayDistance = _configMaxDisplayDistance * (float)biomeConfig.maxDisplayDistanceMultiplier;
+            double interactionDistance = _configMaxInteractionDistance * biomeConfig.maxInteractionDistanceMultiplier;
+            double displayDistance = _configMaxDisplayDistance * biomeConfig.maxDisplayDistanceMultiplier;
+            _maxInteractionDistance = interactionDistance >= float.MaxValue
+                ? float.MaxValue : (float)interactionDistance;
+            _maxDisplayDistance = displayDistance >= float.MaxValue
+                ? float.MaxValue : (float)displayDistance;
             ApplyInteractionRanges();
 
             return false;
@@ -892,7 +1569,7 @@ namespace Khemistry
         /// location and, if found and operable, advances batch progress; consumes the full
         /// batch of inputs and produces the full batch of outputs once recipeTime is reached.
         /// </summary>
-        protected void RunBatchCycle(double dt)
+        protected bool RunBatchCycle(double dt)
         {
             // Reflects pre-tick progress for every early-return branch below (converter is
             // "on" but may be paused this tick); recomputed again once progress actually advances.
@@ -904,58 +1581,58 @@ namespace Khemistry
                 statusDisplay = "ERROR, please report this to the dev with the KSP.log.";
                 KShared.LogError($"Biome config is null for recipe \"{_activeRecipe._name}\" on planet \"{_runtimeData.planet}\" in biome \"{_runtimeData.biome}\"!",
                     "KhemistryISRU/RunBatchCycle");
-                return;
+                return false;
             }
 
             if (CheckBiomeConfig(biomeConfig))
-                return;
+                return false;
 
             if (biomeConfig.disabled)
             {
                 statusDisplay = "Disabled in this biome";
-                return;
+                return false;
             }
 
             if (biomeConfig.situationOperating.Count > 0 && !biomeConfig.situationOperating.Contains(_runtimeData.sitCon))
             {
                 statusDisplay = "Wrong situation (" + _runtimeData.sitCon + ")";
-                return;
+                return false;
             }
 
             if (!IsAtRequiredDeposit(biomeConfig))
             {
                 statusDisplay = "Not at a required deposit";
-                return;
+                return false;
             }
 
             if (_runtimeData.alt < biomeConfig.minOperatingAltitude || _runtimeData.alt > biomeConfig.maxOperatingAltitude)
             {
                 statusDisplay = "Out of operating altitude range";
-                return;
+                return false;
             }
 
             if (_runtimeData.g < biomeConfig.minOperatingG || _runtimeData.g > biomeConfig.maxOperatingG)
             {
                 statusDisplay = "Out of operating G range";
-                return;
+                return false;
             }
 
             if (_runtimeData.temperature < biomeConfig.minOperatingTemperature || _runtimeData.temperature > biomeConfig.maxOperatingTemperature)
             {
                 statusDisplay = "Out of operating temperature range";
-                return;
+                return false;
             }
 
             if (_runtimeData.pressure < biomeConfig.minOperatingPressure || _runtimeData.pressure > biomeConfig.maxOperatingPressure)
             {
                 statusDisplay = "Out of operating pressure range";
-                return;
+                return false;
             }
 
             if (!CountWorkers(out uint engineers, out uint pilots, out uint scientists))
             {
                 statusDisplay = "No workers nearby";
-                return;
+                return false;
             }
 
             double reqEngineers = _activeRecipe._workersEngineers * biomeConfig.workersEngineersMultiplier;
@@ -965,38 +1642,95 @@ namespace Khemistry
             if (engineers < reqEngineers || pilots < reqPilots || scientists < reqScientists)
             {
                 statusDisplay = "Insufficient workers";
-                return;
+                return false;
             }
-
-            if (!ProcessPassiveInputs(biomeConfig, dt))
-            {
-                progressDisplay = FormatProgress(batchProgress, _activeRecipe._recipeTime);
-                return;
-            }
-
-            batchProgress += dt * biomeConfig.speedMul;
 
             double effectiveRecipeTime = _activeRecipe._recipeTime;
-            progressDisplay = FormatProgress(batchProgress, effectiveRecipeTime);
-
-            if (batchProgress < effectiveRecipeTime)
+            double speed = biomeConfig.speedMul;
+            if (double.IsNaN(dt) || double.IsInfinity(dt) || dt <= 0.0
+                || double.IsNaN(speed) || double.IsInfinity(speed) || speed <= 0.0
+                || double.IsNaN(effectiveRecipeTime) || double.IsInfinity(effectiveRecipeTime)
+                || effectiveRecipeTime <= 0.0)
             {
-                statusDisplay = string.Format("Running ({0:F0}%)", 100.0 * batchProgress / Math.Max(effectiveRecipeTime, 1e-6));
-                return;
+                statusDisplay = "ERROR: invalid recipe timing, see log";
+                KShared.LogError("Converter \"" + ConverterName
+                    + "\": batch timing contains a non-finite or non-positive value.",
+                    "KhemistryISRU/RunBatchCycle");
+                return false;
             }
 
-            if (!TryRunBatch(biomeConfig))
+            if (double.IsNaN(batchProgress) || double.IsInfinity(batchProgress) || batchProgress < 0.0)
+                batchProgress = 0.0;
+            if (batchProgress > effectiveRecipeTime) batchProgress = effectiveRecipeTime;
+
+            const int maxBatchesPerTick = 1000;
+            int completedBatches = 0;
+            bool performedWork = false;
+            double remainingDt = dt;
+
+            // Consume only the slice of wall-clock time needed to reach a batch boundary.
+            // This prevents high time warp from charging passive inputs beyond a blocked batch,
+            // and permits multiple complete batches in one physics update.
+            while ((remainingDt > 0.0
+                    || batchProgress >= effectiveRecipeTime)
+                   && completedBatches < maxBatchesPerTick)
             {
-                statusDisplay = "Insufficient resources / no output space";
-                return;
+                if (batchProgress >= effectiveRecipeTime)
+                {
+                    batchProgress = effectiveRecipeTime;
+                    if (!TryRunBatch(biomeConfig))
+                    {
+                        statusDisplay = "Insufficient resources / no output space";
+                        progressDisplay = FormatProgress(batchProgress, effectiveRecipeTime);
+                        return performedWork;
+                    }
+
+                    batchProgress = 0.0;
+                    ClearPassiveConsumption();
+                    completedBatches++;
+                    performedWork = true;
+                    continue;
+                }
+
+                double secondsToBoundary = (effectiveRecipeTime - batchProgress) / speed;
+                if (double.IsNaN(secondsToBoundary) || double.IsInfinity(secondsToBoundary)
+                    || secondsToBoundary <= 0.0)
+                {
+                    statusDisplay = "ERROR: invalid recipe timing, see log";
+                    return performedWork;
+                }
+
+                double step = Math.Min(remainingDt, secondsToBoundary);
+                bool reachesBoundary = step >= secondsToBoundary;
+                if (!ProcessPassiveInputs(biomeConfig, step))
+                {
+                    progressDisplay = FormatProgress(batchProgress, effectiveRecipeTime);
+                    return performedWork;
+                }
+
+                batchProgress = reachesBoundary
+                    ? effectiveRecipeTime
+                    : batchProgress + step * speed;
+                if (step > 0.0) performedWork = true;
+                if (batchProgress > effectiveRecipeTime) batchProgress = effectiveRecipeTime;
+                remainingDt -= step;
+                if (remainingDt < 0.0) remainingDt = 0.0;
             }
 
-            batchProgress -= effectiveRecipeTime;
-            if (batchProgress < 0.0) batchProgress = 0.0;
-            ClearPassiveConsumption();
             progressDisplay = FormatProgress(batchProgress, effectiveRecipeTime);
-            statusDisplay = "Batch complete";
-            PlayActiveAnimationOnce();
+            if (completedBatches >= maxBatchesPerTick && remainingDt > 0.0)
+            {
+                statusDisplay = "Time-warp batch limit reached";
+                KShared.LogWarning("Converter \"" + ConverterName
+                    + "\" reached the safety limit of 1000 batches in one physics update; excess elapsed time was not processed.",
+                    "KhemistryISRU/RunBatchCycle");
+            }
+            else if (completedBatches > 0)
+                statusDisplay = completedBatches == 1 ? "Batch complete" : completedBatches + " batches complete";
+            else
+                statusDisplay = string.Format("Running ({0:F0}%)",
+                    100.0 * batchProgress / effectiveRecipeTime);
+            return performedWork;
         }
 
         /// <summary>
@@ -1013,44 +1747,113 @@ namespace Khemistry
         protected bool ProcessPassiveInputs(KhemistryISRUBiomeConfig biomeConfig, double dt)
         {
             if (_activeRecipe._passiveInputs.Count == 0) return true;
+            if (double.IsNaN(dt) || double.IsInfinity(dt) || dt < 0.0) return false;
+
+            List<double> timersBefore = new List<double>(_passiveTimers);
+            List<double> consumedBefore = new List<double>(_passiveConsumedThisBatch);
 
             for (int i = 0; i < _activeRecipe._passiveInputs.Count; i++)
             {
                 KhemistryISRURecipe.PassiveResourceInput pinp = _activeRecipe._passiveInputs[i];
                 double timer = (i < _passiveTimers.Count) ? _passiveTimers[i] : 0.0;
+                if (double.IsNaN(timer) || double.IsInfinity(timer) || timer < 0.0) timer = 0.0;
                 timer += dt;
                 double effectivePeriod = pinp.period * biomeConfig.passivePeriodMultiplier;
-                if (effectivePeriod <= 0.0) effectivePeriod = pinp.period;
-
-                while (timer >= effectivePeriod)
+                double perOccurrence = pinp.amount * biomeConfig.inputMultiplier
+                    * biomeConfig.passiveMultiplier;
+                if (double.IsNaN(timer) || double.IsInfinity(timer)
+                    || double.IsNaN(effectivePeriod) || double.IsInfinity(effectivePeriod)
+                    || effectivePeriod <= 0.0
+                    || double.IsNaN(perOccurrence) || double.IsInfinity(perOccurrence)
+                    || perOccurrence < 0.0)
                 {
-                    timer -= effectivePeriod;
-                    double needed = pinp.amount * biomeConfig.inputMultiplier * biomeConfig.passiveMultiplier;
-                    if (needed <= 0.0) continue;
-
-                    double got = RequestResourceRouted(pinp.resourceName, needed, pinp.flowMode);
-
-                    if (got < needed * 0.999)
-                    {
-                        // Passive consumption is all-or-nothing per tick — refund any partial draw.
-                        if (got > 0.0) RequestResourceRouted(pinp.resourceName, -got, pinp.flowMode);
-
-                        if (pinp.ignorePowerfail)
-                            continue;  // "nothing happens" — resource just isn't consumed this tick
-
-                        if (i < _passiveTimers.Count) _passiveTimers[i] = timer;
-
-                        if (pinp.powerfail == KhemistryISRURecipe.PowerfailResult.Pause)
-                            statusDisplay = "Paused: out of " + pinp.resourceName;
-
-                        TriggerPowerfail(part, pinp.powerfail, pinp.powerfailExplosionRadius, pinp.powerfailExplosionTemperature);
-                        return false;
-                    }
-
-                    if (i < _passiveConsumedThisBatch.Count) _passiveConsumedThisBatch[i] += needed;
+                    KShared.LogError("Converter \"" + ConverterName
+                        + "\": passive-input timing or amount became invalid.",
+                        "KhemistryISRU/ProcessPassiveInputs");
+                    RollBackPassiveInputStep(timersBefore, consumedBefore);
+                    return false;
                 }
 
-                if (i < _passiveTimers.Count) _passiveTimers[i] = timer;
+                double dueOccurrences = Math.Floor(timer / effectivePeriod);
+                if (dueOccurrences < 1.0 || perOccurrence == 0.0)
+                {
+                    if (perOccurrence == 0.0 && dueOccurrences >= 1.0)
+                        timer -= dueOccurrences * effectivePeriod;
+                    if (i < _passiveTimers.Count) _passiveTimers[i] = Math.Max(0.0, timer);
+                    continue;
+                }
+
+                double totalNeeded = dueOccurrences * perOccurrence;
+                if (double.IsNaN(totalNeeded) || double.IsInfinity(totalNeeded))
+                {
+                    KShared.LogError("Converter \"" + ConverterName
+                        + "\": passive-input consumption overflowed.",
+                        "KhemistryISRU/ProcessPassiveInputs");
+                    RollBackPassiveInputStep(timersBefore, consumedBefore);
+                    return false;
+                }
+
+                double alreadyConsumed = i < _passiveConsumedThisBatch.Count
+                    ? _passiveConsumedThisBatch[i] : 0.0;
+                if (double.IsNaN(alreadyConsumed) || double.IsInfinity(alreadyConsumed)
+                    || alreadyConsumed < 0.0
+                    || double.IsInfinity(alreadyConsumed + totalNeeded))
+                {
+                    KShared.LogError("Converter \"" + ConverterName
+                        + "\": passive-input consumption accounting overflowed.",
+                        "KhemistryISRU/ProcessPassiveInputs");
+                    RollBackPassiveInputStep(timersBefore, consumedBefore);
+                    return false;
+                }
+
+                // A single routed request avoids an unbounded loop at high time warp. If KSP
+                // returns a partial draw, retain only whole configured occurrences and refund
+                // the fractional remainder.
+                double got = RequestResourceRouted(pinp.resourceName, totalNeeded, pinp.flowMode);
+                if (double.IsNaN(got) || double.IsInfinity(got) || got < 0.0) got = 0.0;
+                double satisfiedOccurrences = Math.Min(dueOccurrences,
+                    Math.Floor((got + perOccurrence * 1e-9) / perOccurrence));
+                double kept = satisfiedOccurrences * perOccurrence;
+                double partial = got - kept;
+                if (partial > perOccurrence * 1e-9)
+                    RequestResourceRouted(pinp.resourceName, -partial, pinp.flowMode);
+
+                if (kept > 0.0 && i < _passiveConsumedThisBatch.Count)
+                    _passiveConsumedThisBatch[i] += kept;
+                timer -= satisfiedOccurrences * effectivePeriod;
+
+                if (satisfiedOccurrences < dueOccurrences)
+                {
+                    if (pinp.ignorePowerfail)
+                    {
+                        // Missing ignored occurrences are skipped, matching the configured
+                        // "nothing happens" behavior without issuing thousands of requests.
+                        timer -= (dueOccurrences - satisfiedOccurrences) * effectivePeriod;
+                    }
+                    else
+                    {
+                        if (pinp.powerfail == KhemistryISRURecipe.PowerfailResult.Pause)
+                        {
+                            RollBackPassiveInputStep(timersBefore, consumedBefore);
+                            TriggerPowerfail(part, pinp.powerfail,
+                                pinp.powerfailExplosionRadius,
+                                pinp.powerfailExplosionTemperature);
+                            statusDisplay = "Paused: out of " + pinp.resourceName;
+                            return false;
+                        }
+
+                        // Consume the failed occurrence's timer just as the old per-period loop
+                        // did; any later due occurrences remain queued for a future update.
+                        timer -= effectivePeriod;
+                        if (i < _passiveTimers.Count) _passiveTimers[i] = Math.Max(0.0, timer);
+
+                        TriggerPowerfail(part, pinp.powerfail, pinp.powerfailExplosionRadius,
+                            pinp.powerfailExplosionTemperature);
+                        return false;
+                    }
+                }
+
+                if (i < _passiveTimers.Count) _passiveTimers[i] = Math.Max(0.0, timer);
             }
 
             return true;
@@ -1105,7 +1908,7 @@ namespace Khemistry
                         amount = added,
                         flowMode = ResourceFlowMode.STAGE_PRIORITY_FLOW
                     });
-                if (added < output.amount * 0.999)
+                if (!WasFullyTransferred(output.amount, added))
                 {
                     enoughSpace = false;
                     break;
@@ -1131,7 +1934,7 @@ namespace Khemistry
                         amount = added,
                         flowMode = ResourceFlowMode.STAGE_PRIORITY_FLOW
                     });
-                if (added < output.amount * 0.999)
+                if (!WasFullyTransferred(output.amount, added))
                 {
                     RollBackProducedResources(committed);
                     return false;
@@ -1143,7 +1946,7 @@ namespace Khemistry
             foreach (PreparedResourceOutput output in outputs.Where(value => value.dumpExcess))
             {
                 double added = Math.Abs(RequestResourceRouted(output.name, -output.amount));
-                if (added >= output.amount * 0.999)
+                if (WasFullyTransferred(output.amount, added))
                 {
                     committed.Add(new ResourceDraw
                     {
@@ -1162,16 +1965,58 @@ namespace Khemistry
 
         private static int ScaleDiscreteMaterialAmount(int amount, double multiplier)
         {
-            if (amount <= 0 || multiplier <= 0.0) return 0;
+            if (amount <= 0 || double.IsNaN(multiplier) || double.IsInfinity(multiplier)
+                || multiplier <= 0.0) return 0;
             double scaled = amount * multiplier;
+            if (double.IsNaN(scaled) || scaled <= 0.0) return 0;
             if (scaled >= int.MaxValue) return int.MaxValue;
             int result = (int)Math.Round(scaled, MidpointRounding.AwayFromZero);
             return Math.Max(1, result);
         }
 
+        private bool CanBufferMaterialOutputs(KhemistryISRUBiomeConfig biomeConfig)
+        {
+            for (int i = 0; i < _activeRecipe._outputMaterials.Count; i++)
+            {
+                KhemistryISRURecipe.ResourceOutputMaterial material =
+                    _activeRecipe._outputMaterials[i];
+                double amount = material.amount * biomeConfig.outputMultiplier;
+                if (double.IsNaN(amount) || double.IsInfinity(amount) || amount < 0.0)
+                    return false;
+
+                double projected = 0.0;
+                foreach (KeyValuePair<KhemistryISRURecipe.ResourceOutputMaterial, double>
+                         buffered in _materialOutputAmount)
+                {
+                    if (!OutputMaterialsEquivalent(buffered.Key, material)) continue;
+                    projected += buffered.Value;
+                    if (double.IsNaN(projected) || double.IsInfinity(projected)) return false;
+                }
+                for (int previous = 0; previous <= i; previous++)
+                {
+                    KhemistryISRURecipe.ResourceOutputMaterial other =
+                        _activeRecipe._outputMaterials[previous];
+                    if (!OutputMaterialsEquivalent(other, material)) continue;
+                    double otherAmount = other.amount * biomeConfig.outputMultiplier;
+                    if (double.IsNaN(otherAmount) || double.IsInfinity(otherAmount)
+                        || otherAmount < 0.0) return false;
+                    projected += otherAmount;
+                    if (double.IsNaN(projected) || double.IsInfinity(projected)) return false;
+                }
+            }
+            return true;
+        }
+
         protected bool TryRunBatch(KhemistryISRUBiomeConfig biomeConfig)
         {
             List<PreparedResourceOutput> outputs = PrepareResourceOutputs(biomeConfig);
+            if (!CanBufferMaterialOutputs(biomeConfig))
+            {
+                KShared.LogError("Converter \"" + ConverterName
+                    + "\": material output buffer would overflow; batch was not run.",
+                    "KhemistryISRU/TryRunBatch");
+                return false;
+            }
 
             List<MaterialRemovalRecord> materialTransaction = new List<MaterialRemovalRecord>();
             foreach (KhemistryISRURecipe.ResourceInputMaterial material in _activeRecipe._inputMaterials)
@@ -1185,13 +2030,13 @@ namespace Khemistry
             }
 
             List<string> names = new List<string>();
-            List<float> amounts = new List<float>();
+            List<double> amounts = new List<double>();
             List<ResourceFlowMode> flowModes = new List<ResourceFlowMode>();
 
             foreach (var inp in _activeRecipe._inputs)
             {
                 names.Add(inp.resourceName);
-                amounts.Add((float)(inp.amount * biomeConfig.inputMultiplier));
+                amounts.Add(inp.amount * biomeConfig.inputMultiplier);
                 flowModes.Add(inp.flowMode);
             }
             if (!ConsumeVesselResources(names, amounts, flowModes, 1.0, out List<ResourceDraw> resourceDraws))
@@ -1217,9 +2062,15 @@ namespace Khemistry
             foreach (var mat in _activeRecipe._outputMaterials)
             {
                 double amount = mat.amount * biomeConfig.outputMultiplier;
-                if (amount <= 0.0) continue;
-                if (!_materialOutputAmount.ContainsKey(mat)) _materialOutputAmount.Add(mat, 0.0);
-                _materialOutputAmount[mat] += amount;
+                if (double.IsNaN(amount) || double.IsInfinity(amount) || amount <= 0.0) continue;
+                KhemistryISRURecipe.ResourceOutputMaterial key;
+                if (!TryGetBufferedMaterialKey(mat, out key))
+                {
+                    key = mat;
+                    _materialOutputAmount.Add(key, 0.0);
+                }
+                EnsureMaterialOutputRandomState(key);
+                _materialOutputAmount[key] += amount;
             }
 
             return true;
@@ -1275,7 +2126,7 @@ namespace Khemistry
         /// between a and b (inclusive on both ends), rounded to n decimal places. Negative n is
         /// an error and is treated as 0. Non-randf values are returned unchanged.
         /// </summary>
-        protected static string ResolveRandf(string value)
+        protected static string ResolveRandf(string value, System.Random random)
         {
             if (string.IsNullOrEmpty(value)) return value;
 
@@ -1283,7 +2134,9 @@ namespace Khemistry
             if (!match.Success) return value;
 
             if (!double.TryParse(match.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double a) ||
-                !double.TryParse(match.Groups[2].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double b))
+                !double.TryParse(match.Groups[2].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double b)
+                || double.IsNaN(a) || double.IsInfinity(a)
+                || double.IsNaN(b) || double.IsInfinity(b))
             {
                 KShared.LogError(
                     "randf(...) expression \"" + value + "\" has non-numeric bounds — leaving value as-is.",
@@ -1291,18 +2144,34 @@ namespace Khemistry
                 return value;
             }
 
-            int n = int.Parse(match.Groups[3].Value, CultureInfo.InvariantCulture);
-            if (n < 0)
+            if (!int.TryParse(match.Groups[3].Value, NumberStyles.Integer,
+                    CultureInfo.InvariantCulture, out int n))
             {
                 KShared.LogError(
-                    "randf(...) expression \"" + value + "\" has a negative decimal-place count — treating as 0.",
+                    "randf(...) expression \"" + value + "\" has an invalid decimal-place count — leaving value as-is.",
                     "KhemistryISRU/ResolveRandf");
-                n = 0;
+                return value;
+            }
+            if (n < 0 || n > 15)
+            {
+                int clamped = Math.Max(0, Math.Min(15, n));
+                KShared.LogError(
+                    "randf(...) expression \"" + value + "\" has a decimal-place count outside 0–15 — treating as "
+                    + clamped + ".", "KhemistryISRU/ResolveRandf");
+                n = clamped;
             }
 
             double lo = Math.Min(a, b);
             double hi = Math.Max(a, b);
-            double roll = lo + UnityEngine.Random.value * (hi - lo);
+            double t = random == null ? UnityEngine.Random.value : random.NextDouble();
+            double roll = lo * (1.0 - t) + hi * t;
+            if (double.IsNaN(roll) || double.IsInfinity(roll))
+            {
+                KShared.LogError(
+                    "randf(...) expression \"" + value + "\" overflowed — leaving value as-is.",
+                    "KhemistryISRU/ResolveRandf");
+                return value;
+            }
             double rounded = Math.Round(roll, n, MidpointRounding.AwayFromZero);
 
             return rounded.ToString("F" + n, CultureInfo.InvariantCulture);
@@ -1318,10 +2187,22 @@ namespace Khemistry
             if (_materialOutputAmount.Count == 0) return false;
 
             bool transferredAny = false;
+            int transferredThisUpdate = 0;
+            const int maxTransfersPerUpdate = 1000;
             foreach (var matOutput in _materialOutputAmount.Keys.ToList())
             {
                 double buffered = _materialOutputAmount[matOutput];
-                if (buffered < 1.0 - 1e-9) continue;
+                if (double.IsNaN(buffered) || double.IsInfinity(buffered) || buffered < 0.0)
+                {
+                    KShared.LogError("Converter \"" + ConverterName
+                        + "\": discarded an invalid material-output buffer value.",
+                        "KhemistryISRU/TryTransferMaterialOutputBuffer");
+                    _materialOutputAmount.Remove(matOutput);
+                    _materialOutputRandomSeed.Remove(matOutput);
+                    _materialOutputRandomSequence.Remove(matOutput);
+                    continue;
+                }
+                if (buffered < 1.0) continue;
 
                 KhemistryMaterial material = KShared.Instance?.materialList.FirstOrDefault(m => m.name == matOutput.name);
                 if (material == null)
@@ -1333,12 +2214,19 @@ namespace Khemistry
                     continue;
                 }
 
-                while (buffered >= 1.0 - 1e-9)
+                while (buffered >= 1.0 && transferredThisUpdate < maxTransfersPerUpdate)
                 {
-                    string resolvedSize = ResolveRandf(matOutput.size);
+                    EnsureMaterialOutputRandomState(matOutput);
+                    int randomSeed = _materialOutputRandomSeed[matOutput];
+                    long randomSequence = _materialOutputRandomSequence[matOutput];
+                    System.Random random = CreateMaterialOutputRandom(randomSeed,
+                        randomSequence);
+                    string resolvedSize = ResolveRandf(matOutput.size, random);
                     Dictionary<string, string> resolvedParameters = new Dictionary<string, string>();
-                    foreach (var kv in matOutput.parameters)
-                        resolvedParameters[kv.Key] = ResolveRandf(kv.Value);
+                    foreach (KeyValuePair<string, string> kv in
+                             (matOutput.parameters ?? new Dictionary<string, string>())
+                             .OrderBy(value => value.Key, StringComparer.Ordinal))
+                        resolvedParameters[kv.Key] = ResolveRandf(kv.Value, random);
 
                     if (!KShared.TryEvaluateOutVolumeExpression(matOutput.outVolume, resolvedSize, resolvedParameters,
                             "KhemistryISRU/TryTransferMaterialOutputBuffer", out double perUnitVolume))
@@ -1382,10 +2270,27 @@ namespace Khemistry
 
                     if (!placed) break;
                     buffered -= 1.0;
-                    if (buffered < 0.0 && buffered > -1e-9) buffered = 0.0;
-                    _materialOutputAmount[matOutput] = buffered;
+                    if (randomSequence == long.MaxValue)
+                    {
+                        _materialOutputRandomSeed[matOutput] =
+                            CreateMaterialOutputRandomSeed();
+                        _materialOutputRandomSequence[matOutput] = 0L;
+                    }
+                    else
+                        _materialOutputRandomSequence[matOutput] = randomSequence + 1L;
+                    if (buffered == 0.0)
+                    {
+                        _materialOutputAmount.Remove(matOutput);
+                        _materialOutputRandomSeed.Remove(matOutput);
+                        _materialOutputRandomSequence.Remove(matOutput);
+                    }
+                    else
+                        _materialOutputAmount[matOutput] = buffered;
                     transferredAny = true;
+                    transferredThisUpdate++;
                 }
+
+                if (transferredThisUpdate >= maxTransfersPerUpdate) break;
             }
 
             return transferredAny;

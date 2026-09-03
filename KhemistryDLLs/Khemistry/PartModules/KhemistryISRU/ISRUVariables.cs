@@ -137,12 +137,53 @@ namespace Khemistry
         // batchProgress was reset to 0 — needed so STOP can refund exactly what was taken
         // during the in-progress batch, while VOID/MAINT discard it instead.
         protected readonly List<double> _passiveConsumedThisBatch = new List<double>();
-        protected readonly List<double> _loadedPassiveTimers = new List<double>();
-        protected readonly List<double> _loadedPassiveConsumed = new List<double>();
+
+        // Named save records survive recipe input reordering.
+        protected sealed class PassiveInputSaveState
+        {
+            public string resourceName;
+            public double amount;
+            public double period;
+            public ResourceFlowMode flowMode;
+            public double timer;
+            public double consumed;
+        }
+
+        protected readonly List<PassiveInputSaveState> _loadedPassiveStates =
+            new List<PassiveInputSaveState>();
+        protected readonly List<ConfigNode> _opaquePassiveInputNodes = new List<ConfigNode>();
+
+        // Resource that could not be returned immediately when a saved recipe/input changed.
+        // Keeping this debt separate prevents it from being attached to a different recipe on
+        // the next load.
+        protected sealed class PassiveRefundSaveState
+        {
+            public string resourceName;
+            public ResourceFlowMode flowMode;
+            public double amount;
+        }
+
+        protected readonly List<PassiveRefundSaveState> _pendingPassiveRefunds =
+            new List<PassiveRefundSaveState>();
+        protected readonly List<ConfigNode> _opaquePassiveRefundNodes = new List<ConfigNode>();
+
+        // Exact positional records from old saves. They contain no resource identity or recipe
+        // fingerprint, so they are quarantined opaquely rather than guessed against a possibly
+        // reordered or otherwise changed recipe definition.
+        protected readonly List<ConfigNode> _pendingLegacyPassiveNodes = new List<ConfigNode>();
 
         protected readonly Dictionary<KhemistryISRURecipe.ResourceOutputMaterial, double> _materialOutputAmount =
             new Dictionary<KhemistryISRURecipe.ResourceOutputMaterial, double>();
+        protected readonly Dictionary<KhemistryISRURecipe.ResourceOutputMaterial, int> _materialOutputRandomSeed =
+            new Dictionary<KhemistryISRURecipe.ResourceOutputMaterial, int>();
+        protected readonly Dictionary<KhemistryISRURecipe.ResourceOutputMaterial, long> _materialOutputRandomSequence =
+            new Dictionary<KhemistryISRURecipe.ResourceOutputMaterial, long>();
         protected readonly List<ConfigNode> _pendingMaterialOutputNodes = new List<ConfigNode>();
+
+        // Used only by the EVA boarding-transfer bridge. A normal vessel save is
+        // authoritative and must not be overwritten by an older boarding snapshot.
+        private bool _loadedAuthoritativePersistentState = false;
+        private int _completedOnLoadCount = 0;
 
         private static readonly System.Text.RegularExpressions.Regex _randfPattern =
            new System.Text.RegularExpressions.Regex(

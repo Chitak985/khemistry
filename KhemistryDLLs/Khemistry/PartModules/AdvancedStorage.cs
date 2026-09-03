@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 /* Example config node
 MODULE
@@ -90,6 +91,17 @@ namespace Khemistry
         [KSPField(isPersistant = true)]
         public string activeResource = "";
 
+        // Universal-time checkpoint used to catch up the per-second storage effects
+        // after a vessel has been unloaded or the scene has changed. A negative value
+        // identifies a legacy/new save that has no checkpoint yet.
+        [KSPField(isPersistant = true)]
+        public double lastUpdateUniversalTime = -1.0;
+
+        // Preserve the sub-tick boiloff interval as well. Without this, repeatedly
+        // loading a vessel can indefinitely postpone a consequence with a small rate.
+        [KSPField(isPersistant = true)]
+        public double filledUnpoweredElapsed = 0.0;
+
         [KSPField(isPersistant = false, guiActive = true, guiActiveEditor = true,
                   guiName = "Contents", groupName = "khemistryadvstorage",
                   groupDisplayName = "Khemistry Container", groupStartCollapsed = false)]
@@ -130,12 +142,66 @@ namespace Khemistry
         private ConsequenceConfig _passiveUnsatisfiedResult;
         private ConsequenceConfig _filledUnpoweredResult;
 
-        private readonly Dictionary<string, double> _frozenAmounts = new Dictionary<string, double>();
+        private readonly Dictionary<string, bool> _savedFlowStates = new Dictionary<string, bool>();
+        private bool _flowBlocked;
+        private bool _overCapacityLogged;
+        private bool _multiConflictLogged;
 
         private bool _passiveUnsatisfiedFired = false;
-        private double _filledUnpoweredAccum = 0.0;
+
+        // Persist elapsed catch-up work separately from the universal-time checkpoint. A
+        // vessel can be saved again after OnStart but before its first FixedUpdate; keeping
+        // this queue only in memory would lose the entire unloaded interval in that case.
+        [KSPField(isPersistant = true)]
+        public double pendingCatchUpSeconds = 0.0;
+        private bool _universalTimeWarningLogged = false;
 
         private bool _fatalConfigError = false;
+
+        private const string SavedFlowStateNodeName = "KHEMISTRY_ORIGINAL_FLOW_STATE";
+        private const double FilledUnpoweredTickSeconds = 0.1;
+
+        // This is only a corrupt-save/clock safety bound. It is deliberately far
+        // beyond a practical campaign duration, while keeping every rate*time
+        // calculation finite even if a save contains an extreme timestamp.
+        private const double MaximumElapsedSeconds = 1.0e12;
+
+        public override void OnLoad(ConfigNode node)
+        {
+            base.OnLoad(node);
+
+            _savedFlowStates.Clear();
+            _flowBlocked = false;
+            if (node == null) return;
+
+            foreach (ConfigNode savedState in node.GetNodes(SavedFlowStateNodeName))
+            {
+                string resourceName = savedState.GetValue("name")?.Trim();
+                if (string.IsNullOrEmpty(resourceName)
+                    || !bool.TryParse(savedState.GetValue("flowState"), out bool flowState))
+                    continue;
+
+                _savedFlowStates[resourceName] = flowState;
+            }
+        }
+
+        public override void OnSave(ConfigNode node)
+        {
+            base.OnSave(node);
+            if (node == null) return;
+
+            // flowState itself is saved by KSP. Keep the player's pre-blocking value
+            // alongside it so a container saved while Off can restore that value when
+            // it is turned back on after loading.
+            while (node.HasNode(SavedFlowStateNodeName))
+                node.RemoveNode(SavedFlowStateNodeName);
+            foreach (KeyValuePair<string, bool> savedState in _savedFlowStates)
+            {
+                ConfigNode stateNode = node.AddNode(SavedFlowStateNodeName);
+                stateNode.AddValue("name", savedState.Key);
+                stateNode.AddValue("flowState", savedState.Value);
+            }
+        }
 
         [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Enable Charging",
                   groupName = "khemistryadvstorage")]
@@ -192,13 +258,12 @@ namespace Khemistry
                 if (def != null)
                 {
                     PartResource pr = part.Resources.Get(def.id);
-                    if (pr != null && pr.amount >= 1.0)
+                    if (pr != null && pr.amount > 1e-9)
                     {
                         ScreenMessages.PostScreenMessage(new ScreenMessage(
-                            "Container must be nearly empty to switch resource. (less than 1 unit)", 5f, ScreenMessageStyle.UPPER_CENTER));
+                            "Container must be empty before switching resource.", 5f, ScreenMessageStyle.UPPER_CENTER));
                         return;
                     }
-                    if (pr != null) pr.amount = 0.0;
                 }
             }
 
@@ -220,10 +285,24 @@ namespace Khemistry
 
             shared.ShowSelector("Select active resource", new List<string>(_supportedResources), label =>
             {
+                if (_fatalConfigError || part == null) return;
+                if (!_supportedResources.Contains(label)) return;
+                if (label == activeResource) return;
+
+                // The selector is asynchronous: the tank may have been filled while it
+                // was open. Recheck here so changing the selection cannot discard the
+                // newly-added contents when inactive tanks are cleared.
+                if (!CanSwitchActiveResource(label))
+                {
+                    ScreenMessages.PostScreenMessage(new ScreenMessage(
+                        "Container must be empty before switching resource.", 5f, ScreenMessageStyle.UPPER_CENTER));
+                    return;
+                }
+
                 activeResource = label;
                 KShared.Log("Active resource set to " + activeResource,
                     "KhemistryAdvancedStorage/SelectResource");
-                ZeroNonActiveResources();
+                EnforceCapacity();
             });
         }
 
@@ -236,15 +315,27 @@ namespace Khemistry
 
             if (_fatalConfigError)
             {
+                RestoreSavedFlowStates();
                 foreach (BaseEvent e in Events) e.active = false;
                 contentsDisplay = "ERROR: see log";
                 return;
             }
 
+            RestoreStaleSavedFlowStates();
             EnsureResourcesExistOnPart();
-            SnapshotFrozenAmounts();
+            EnforceCapacity();
+            SanitizePersistentState();
+            if (HighLogic.LoadedSceneIsFlight)
+                PrepareUniversalTimeCatchUp();
+            else
+            {
+                // Editor craft must not inherit the age of the current save when
+                // launched later; their clock begins on the first flight load.
+                lastUpdateUniversalTime = -1.0;
+                pendingCatchUpSeconds = 0.0;
+            }
+            UpdateTransferBlocking();
             _passiveUnsatisfiedFired = false;
-            _filledUnpoweredAccum = 0.0;
             UpdateUI();
         }
 
@@ -254,13 +345,29 @@ namespace Khemistry
             if (vessel == null || part == null) return;
             if (_fatalConfigError) return;
 
-            double dt = TimeWarp.fixedDeltaTime;
+            // Process saved/off-rails time separately so preservation, decay, and
+            // unpowered consequences catch up, while active charging remains an
+            // operation performed only while the vessel is actually loaded.
+            double catchUpDt = pendingCatchUpSeconds;
+            if (catchUpDt > 0.0)
+            {
+                ProcessElapsedTime(catchUpDt, allowActiveCharging: false);
+                pendingCatchUpSeconds = 0.0;
+            }
 
-            HandleCharging(dt);
-            HandlePassiveConsumption(dt);
-            HandleTransferBlocking();
-            HandleFilledUnpowered(dt);
+            double dt = GetLiveElapsedTime();
+            if (dt > 0.0)
+                ProcessElapsedTime(dt, allowActiveCharging: true);
+            else
+            {
+                EnforceCapacity();
+                UpdateTransferBlocking();
+                UpdateUI();
+                return;
+            }
+
             EnforceCapacity();
+            UpdateTransferBlocking();
             UpdateUI();
         }
 
@@ -280,11 +387,8 @@ namespace Khemistry
                 return;
             }
 
-            ConfigNode moduleNode = null;
-            foreach (ConfigNode n in part.partInfo.partConfig.GetNodes("MODULE"))
-            {
-                if (n.GetValue("name") == "KhemistryAdvancedStorage") { moduleNode = n; break; }
-            }
+            ConfigNode moduleNode = KShared.FindModuleConfigNode(this,
+                "KhemistryAdvancedStorage");
 
             if (moduleNode == null)
             {
@@ -303,8 +407,37 @@ namespace Khemistry
                 _fatalConfigError = true;
                 return;
             }
+            bool invalidSupportedResource = false;
+            HashSet<string> seenSupportedResources = new HashSet<string>(StringComparer.Ordinal);
             foreach (string n in moduleNode.GetNode("SUPPORTED_RESOURCES").GetValues("name"))
-                _supportedResources.Add(n.Trim());
+            {
+                string resourceName = n?.Trim();
+                if (string.IsNullOrEmpty(resourceName))
+                {
+                    invalidSupportedResource = true;
+                    KShared.LogError("SUPPORTED_RESOURCES contains an empty resource name.",
+                        "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
+                    continue;
+                }
+
+                if (!seenSupportedResources.Add(resourceName))
+                {
+                    KShared.LogWarning("Ignoring duplicate supported resource \"" + resourceName + "\".",
+                        "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
+                    continue;
+                }
+
+                if (PartResourceLibrary.Instance == null
+                    || PartResourceLibrary.Instance.GetDefinition(resourceName) == null)
+                {
+                    invalidSupportedResource = true;
+                    KShared.LogError("Unknown resource \"" + resourceName + "\" in SUPPORTED_RESOURCES.",
+                        "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
+                    continue;
+                }
+
+                _supportedResources.Add(resourceName);
+            }
             if (_supportedResources.Count == 0)
             {
                 KShared.LogError(
@@ -313,50 +446,147 @@ namespace Khemistry
                 _fatalConfigError = true;
                 return;
             }
+            if (invalidSupportedResource)
+                KShared.LogWarning("Invalid SUPPORTED_RESOURCES entries were ignored.",
+                    "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
 
-            storageType = moduleNode.GetValue("storageType") ?? moduleNode.GetValue("type") ?? "single";
+            storageType = (moduleNode.GetValue("storageType") ?? moduleNode.GetValue("type") ?? "single").Trim();
 
-            maximumResources = KShared.GetFloatValueFromCFG(moduleNode, "maximumResources", maximumResources);
-            maxInputRate = KShared.GetFloatValueFromCFG(moduleNode, "maxInputRate", maxInputRate);
-            maxOutputRate = KShared.GetFloatValueFromCFG(moduleNode, "maxOutputRate", maxOutputRate);
+            if (!TryReadOptionalFloat(moduleNode, "maximumResources", ref maximumResources)
+                || !TryReadOptionalFloat(moduleNode, "maxInputRate", ref maxInputRate)
+                || !TryReadOptionalFloat(moduleNode, "maxOutputRate", ref maxOutputRate)
+                || !TryReadOptionalFloat(moduleNode, "chargeRate", ref chargeRate)
+                || !TryReadOptionalFloat(moduleNode, "chargeDecayRate", ref chargeDecayRate)
+                || !TryReadOptionalBool(moduleNode, "chargingRequired", ref chargingRequired)
+                || !TryReadOptionalBool(moduleNode, "passiveConsumption", ref passiveConsumption))
+            {
+                KShared.LogError("Advanced storage has a malformed numeric or Boolean setting.",
+                    "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
+                _fatalConfigError = true;
+                return;
+            }
 
-            chargeRate = KShared.GetFloatValueFromCFG(moduleNode, "chargeRate", chargeRate);
-            chargeDecayRate = KShared.GetFloatValueFromCFG(moduleNode, "chargeDecayRate", chargeDecayRate);
+            if (float.IsNaN(maximumResources) || float.IsInfinity(maximumResources) || maximumResources <= 0f
+                || float.IsNaN(chargeRate) || float.IsInfinity(chargeRate) || chargeRate < 0f
+                || float.IsNaN(chargeDecayRate) || float.IsInfinity(chargeDecayRate) || chargeDecayRate < 0f)
+            {
+                KShared.LogError("Advanced storage has invalid capacity or charge-rate settings.",
+                    "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
+                _fatalConfigError = true;
+                return;
+            }
+            if (float.IsNaN(maxInputRate) || float.IsInfinity(maxInputRate)
+                || float.IsNaN(maxOutputRate) || float.IsInfinity(maxOutputRate))
+            {
+                KShared.LogError("Advanced storage has invalid transfer-rate settings.",
+                    "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
+                _fatalConfigError = true;
+                return;
+            }
+            if (maxInputRate >= 0f || maxOutputRate >= 0f)
+                KShared.LogWarning("maxInputRate/maxOutputRate are not supported by KSP's stock tank transfer API and will not be enforced.",
+                    "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
 
-            if (bool.TryParse(moduleNode.GetValue("chargingRequired"), out bool tmpB)) chargingRequired = tmpB;
-            if (bool.TryParse(moduleNode.GetValue("passiveConsumption"), out tmpB)) passiveConsumption = tmpB;
+            if (chargingRequired && chargeRate <= 0f)
+            {
+                KShared.LogError("chargingRequired=true requires a finite positive chargeRate.",
+                    "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
+                _fatalConfigError = true;
+                return;
+            }
 
-            _passiveUnsatisfiedResult = ParseConsequence(
-                moduleNode.GetValue("passiveUnsatisfiedResult"), allowBoiloff: false,
-                "passiveUnsatisfiedResult", "off");
-
-            _filledUnpoweredResult = ParseConsequence(
-                moduleNode.GetValue("filledUnpoweredResult"), allowBoiloff: true,
-                "filledUnpoweredResult", "off");
+            if (!TryParseConsequence(moduleNode.GetValue("passiveUnsatisfiedResult"),
+                    allowBoiloff: false, "passiveUnsatisfiedResult", "off",
+                    out _passiveUnsatisfiedResult)
+                || !TryParseConsequence(moduleNode.GetValue("filledUnpoweredResult"),
+                    allowBoiloff: true, "filledUnpoweredResult", "off",
+                    out _filledUnpoweredResult))
+            {
+                _fatalConfigError = true;
+                return;
+            }
 
             _passiveNames.Clear();
             _passiveAmounts.Clear();
             if (passiveConsumption)
             {
+                bool invalidPassiveConfig = false;
                 if (moduleNode.HasNode("PASSIVE_CON_NAMES"))
                     foreach (string n in moduleNode.GetNode("PASSIVE_CON_NAMES").GetValues("name"))
-                        _passiveNames.Add(n.Trim());
+                    {
+                        string resourceName = n?.Trim();
+                        if (string.IsNullOrEmpty(resourceName))
+                        {
+                            invalidPassiveConfig = true;
+                            continue;
+                        }
+                        if (PartResourceLibrary.Instance == null
+                            || PartResourceLibrary.Instance.GetDefinition(resourceName) == null)
+                        {
+                            invalidPassiveConfig = true;
+                            KShared.LogError("Unknown passive-consumption resource \"" + resourceName + "\".",
+                                "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
+                            continue;
+                        }
+                        _passiveNames.Add(resourceName);
+                    }
                 if (moduleNode.HasNode("PASSIVE_CON_AMOUNTS"))
                     foreach (string a in moduleNode.GetNode("PASSIVE_CON_AMOUNTS").GetValues("amount"))
-                        if (float.TryParse(a, out float tmp))
+                        if (float.TryParse(a, NumberStyles.Float, CultureInfo.InvariantCulture, out float tmp)
+                            && !float.IsNaN(tmp) && !float.IsInfinity(tmp) && tmp > 0f)
                             _passiveAmounts.Add(tmp);
-                if (_passiveNames.Count != _passiveAmounts.Count)
-                    KShared.LogError("PASSIVE_CON_NAMES and PASSIVE_CON_AMOUNTS length mismatch.",
+                        else
+                            invalidPassiveConfig = true;
+                if (invalidPassiveConfig || _passiveNames.Count == 0
+                    || _passiveNames.Count != _passiveAmounts.Count)
+                {
+                    KShared.LogError("PASSIVE_CON_NAMES and PASSIVE_CON_AMOUNTS must contain equal numbers of known, non-empty resource names and finite positive amounts.",
                         "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
+                    _fatalConfigError = true;
+                    return;
+                }
             }
 
             _chargeNames.Clear();
             _chargeAmounts.Clear();
             if (chargingRequired)
+            {
                 _chargeNames = KShared.GetChargingFromCFG(moduleNode, out _chargeAmounts);
+                if (_chargeNames.Count == 0 || _chargeNames.Count != _chargeAmounts.Count)
+                {
+                    KShared.LogError("Charging is required but no valid charging resource list was provided.",
+                        "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
+                    _fatalConfigError = true;
+                    return;
+                }
 
+                foreach (string resourceName in _chargeNames)
+                {
+                    if (PartResourceLibrary.Instance != null
+                        && PartResourceLibrary.Instance.GetDefinition(resourceName) != null)
+                        continue;
+
+                    KShared.LogError("Unknown charging resource \"" + resourceName + "\".",
+                        "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
+                    _fatalConfigError = true;
+                    return;
+                }
+            }
+
+            if (storageType != "single" && storageType != "multi" && storageType != "multiShared")
+            {
+                KShared.LogError("Unknown storageType \"" + storageType + "\".",
+                    "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
+                _fatalConfigError = true;
+                return;
+            }
+
+            activeResource = activeResource?.Trim() ?? "";
             if ((storageType == "single" || storageType == "multi") && string.IsNullOrEmpty(activeResource))
                 if (_supportedResources.Count > 0) activeResource = _supportedResources[0];
+            if ((storageType == "single" || storageType == "multi")
+                && !_supportedResources.Contains(activeResource))
+                activeResource = _supportedResources[0];
 
             if (storageType == "single" && _supportedResources.Count > 1)
             {
@@ -380,34 +610,54 @@ namespace Khemistry
         /// Parses "off", "void", "destroy,10", "boiloff,1.5" into a ConsequenceConfig.
         /// Falls back to the specified default if the raw value is null/invalid.
         /// </summary>
-        private ConsequenceConfig ParseConsequence(string raw, bool allowBoiloff, string fieldName, string fallback)
+        private bool TryParseConsequence(string raw, bool allowBoiloff, string fieldName,
+            string fallback, out ConsequenceConfig result)
         {
-            string src = string.IsNullOrEmpty(raw) ? fallback : raw.Trim().Trim('"').Trim().ToLower();
+            string src = string.IsNullOrEmpty(raw) ? fallback : raw.Trim().Trim('"').Trim().ToLowerInvariant();
 
-            if (src == "off") return new ConsequenceConfig { type = ConsequenceType.Off };
-            if (src == "void") return new ConsequenceConfig { type = ConsequenceType.Void };
+            if (src == "off")
+            {
+                result = new ConsequenceConfig { type = ConsequenceType.Off };
+                return true;
+            }
+            if (src == "void")
+            {
+                result = new ConsequenceConfig { type = ConsequenceType.Void };
+                return true;
+            }
 
             if (src.StartsWith("destroy,"))
             {
-                if (float.TryParse(src.Substring(8), out float v))
-                    return new ConsequenceConfig { type = ConsequenceType.Destroy, value = v };
-                KShared.LogError("Could not parse destroy power in " + fieldName + "=\"" + raw + "\". Defaulting to off.",
+                if (float.TryParse(src.Substring(8), NumberStyles.Float, CultureInfo.InvariantCulture, out float v)
+                    && !float.IsNaN(v) && !float.IsInfinity(v) && v >= 0f)
+                {
+                    result = new ConsequenceConfig { type = ConsequenceType.Destroy, value = v };
+                    return true;
+                }
+                KShared.LogError("Could not parse destroy power in " + fieldName + "=\"" + raw + "\".",
                     "KhemistryAdvancedStorage/ParseConsequence");
-                return new ConsequenceConfig { type = ConsequenceType.Off };
+                result = default(ConsequenceConfig);
+                return false;
             }
 
             if (allowBoiloff && src.StartsWith("boiloff,"))
             {
-                if (float.TryParse(src.Substring(8), out float v))
-                    return new ConsequenceConfig { type = ConsequenceType.Boiloff, value = v };
-                KShared.LogError("Could not parse boiloff rate in " + fieldName + "=\"" + raw + "\". Defaulting to off.",
+                if (float.TryParse(src.Substring(8), NumberStyles.Float, CultureInfo.InvariantCulture, out float v)
+                    && !float.IsNaN(v) && !float.IsInfinity(v) && v >= 0f)
+                {
+                    result = new ConsequenceConfig { type = ConsequenceType.Boiloff, value = v };
+                    return true;
+                }
+                KShared.LogError("Could not parse boiloff rate in " + fieldName + "=\"" + raw + "\".",
                     "KhemistryAdvancedStorage/ParseConsequence");
-                return new ConsequenceConfig { type = ConsequenceType.Off };
+                result = default(ConsequenceConfig);
+                return false;
             }
 
-            KShared.LogError("Unknown consequence value " + fieldName + "=\"" + raw + "\". Defaulting to off.",
+            KShared.LogError("Unknown consequence value " + fieldName + "=\"" + raw + "\".",
                 "KhemistryAdvancedStorage/ParseConsequence");
-            return new ConsequenceConfig { type = ConsequenceType.Off };
+            result = default(ConsequenceConfig);
+            return false;
         }
 
         private void EnsureResourcesExistOnPart()
@@ -433,36 +683,264 @@ namespace Khemistry
                 }
                 else
                 {
-                    existing.maxAmount = maximumResources;
-                    if (existing.amount < 0.0) existing.amount = 0.0;
+                    if (!IsFinite(existing.amount) || existing.amount < 0.0)
+                    {
+                        KShared.LogWarning("Resetting invalid stored amount for resource \"" + resName + "\".",
+                            "KhemistryAdvancedStorage/EnsureResourcesExistOnPart");
+                        existing.amount = 0.0;
+                    }
+                    existing.maxAmount = Math.Max(existing.amount, maximumResources);
                 }
             }
 
-            if (storageType == "multi")
-                ZeroNonActiveResources();
         }
 
-        private void ZeroNonActiveResources()
+        private void ReconcileMultiResourceState()
         {
+            if (storageType != "multi" || part == null) return;
+
+            List<PartResource> filled = new List<PartResource>();
             foreach (PartResource pr in part.Resources)
             {
-                if (!_supportedResources.Contains(pr.resourceName))
-                    continue;
-                if (!string.IsNullOrEmpty(activeResource) && pr.resourceName != activeResource)
-                    pr.amount = 0.0;
+                if (_supportedResources.Contains(pr.resourceName) && pr.amount > 1e-9)
+                    filled.Add(pr);
             }
+
+            if (filled.Count == 1 && filled[0].resourceName != activeResource)
+            {
+                KShared.LogWarning("Recovered multi-resource storage selection from its saved contents: "
+                    + filled[0].resourceName + ".", "KhemistryAdvancedStorage/ReconcileMultiResourceState");
+                activeResource = filled[0].resourceName;
+            }
+
+            if (filled.Count > 1)
+            {
+                if (!_multiConflictLogged)
+                {
+                    KShared.LogWarning("Multi-resource storage contains several resources; preserving them and blocking additional non-active input until they are drained.",
+                        "KhemistryAdvancedStorage/ReconcileMultiResourceState");
+                    _multiConflictLogged = true;
+                }
+            }
+            else _multiConflictLogged = false;
+        }
+
+        private bool CanSwitchActiveResource(string targetResource)
+        {
+            if (targetResource == activeResource) return true;
+
+            foreach (PartResource pr in part.Resources)
+                if (_supportedResources.Contains(pr.resourceName) && pr.amount > 1e-9)
+                    return false;
+
+            return true;
+        }
+
+        private void SanitizePersistentState()
+        {
+            if (!IsFinite(chargePercent))
+            {
+                KShared.LogWarning("Saved chargePercent was not finite; resetting it to zero.",
+                    "KhemistryAdvancedStorage/SanitizePersistentState");
+                chargePercent = 0f;
+            }
+            else
+            {
+                chargePercent = Math.Max(0f, Math.Min(100f, chargePercent));
+            }
+
+            if (!Enum.IsDefined(typeof(KShared.ChargablePartState), state))
+            {
+                KShared.LogWarning("Saved storage state was invalid; resetting it to Off.",
+                    "KhemistryAdvancedStorage/SanitizePersistentState");
+                state = KShared.ChargablePartState.Off;
+            }
+
+            if (!chargingRequired && state == KShared.ChargablePartState.Charging)
+            {
+                KShared.LogWarning("Saved storage state was Charging although charging is disabled; resetting it to Off.",
+                    "KhemistryAdvancedStorage/SanitizePersistentState");
+                state = KShared.ChargablePartState.Off;
+            }
+            else if (chargingRequired && state == KShared.ChargablePartState.On && chargePercent < 100f)
+            {
+                KShared.LogWarning("Saved charged storage was On without a full charge; resetting it to Off.",
+                    "KhemistryAdvancedStorage/SanitizePersistentState");
+                state = KShared.ChargablePartState.Off;
+            }
+
+            if (!IsFinite(filledUnpoweredElapsed) || filledUnpoweredElapsed < 0.0)
+            {
+                KShared.LogWarning("Saved filled-unpowered elapsed time was invalid; resetting it.",
+                    "KhemistryAdvancedStorage/SanitizePersistentState");
+                filledUnpoweredElapsed = 0.0;
+            }
+            else if (filledUnpoweredElapsed > MaximumElapsedSeconds)
+            {
+                KShared.LogWarning("Saved filled-unpowered elapsed time was excessive; clamping it.",
+                    "KhemistryAdvancedStorage/SanitizePersistentState");
+                filledUnpoweredElapsed = MaximumElapsedSeconds;
+            }
+        }
+
+        private void ProcessElapsedTime(double dt, bool allowActiveCharging)
+        {
+            dt = BoundElapsedTime(dt, "elapsed storage update");
+            if (dt <= 0.0) return;
+
+            double poweredDt = dt;
+            bool wasCharging = allowActiveCharging && chargingRequired
+                && state == KShared.ChargablePartState.Charging;
+            double timeToFullCharge = wasCharging && chargeRate > 0f
+                ? Math.Max(0.0, (100.0 - chargePercent) / chargeRate)
+                : 0.0;
+
+            if (allowActiveCharging)
+                HandleCharging(dt);
+            else
+                HandleOfflineChargeDecay(dt);
+
+            if (wasCharging && state == KShared.ChargablePartState.On)
+            {
+                double unpoweredDt = Math.Min(dt, timeToFullCharge);
+                poweredDt = Math.Max(0.0, dt - Math.Min(dt, timeToFullCharge));
+
+                // Charging storage is not yet preserving its contents. Account for the
+                // pre-full portion explicitly even though HandleCharging has now changed
+                // the current state to On.
+                HandleFilledUnpowered(unpoweredDt, treatAsUnpowered: true);
+
+                if (state != KShared.ChargablePartState.On)
+                {
+                    // A filled-unpowered consequence changed the state at the transition.
+                    // The nominal post-charge portion is consequently unpowered as well.
+                    HandleFilledUnpowered(poweredDt);
+                    return;
+                }
+            }
+
+            bool wasPoweredBeforePassiveUpdate =
+                state == KShared.ChargablePartState.On;
+            HandlePassiveConsumption(poweredDt);
+
+            // A passive failure is evaluated over this interval and turns the
+            // container off at its end. Filled-unpowered time therefore starts with
+            // the following interval instead of being charged retroactively.
+            if (!wasPoweredBeforePassiveUpdate
+                || state == KShared.ChargablePartState.On)
+                HandleFilledUnpowered(dt);
+        }
+
+        private void HandleOfflineChargeDecay(double dt)
+        {
+            // Active charging is intentionally suspended while unloaded. A container that
+            // was left in Charging therefore cannot maintain its charge either, and decays
+            // just like an Off container until it is loaded again.
+            if (!chargingRequired || state == KShared.ChargablePartState.On
+                || chargeDecayRate <= 0f)
+                return;
+
+            chargePercent = (float)Math.Max(0.0, chargePercent - chargeDecayRate * dt);
+        }
+
+        private void PrepareUniversalTimeCatchUp()
+        {
+            pendingCatchUpSeconds = BoundElapsedTime(pendingCatchUpSeconds,
+                "saved pending catch-up interval");
+            if (!TryGetUniversalTime(out double now))
+            {
+                lastUpdateUniversalTime = -1.0;
+                return;
+            }
+
+            if (IsFinite(lastUpdateUniversalTime) && lastUpdateUniversalTime >= 0.0)
+            {
+                double elapsed = now - lastUpdateUniversalTime;
+                if (elapsed >= 0.0)
+                    pendingCatchUpSeconds = BoundElapsedTime(
+                        pendingCatchUpSeconds + BoundElapsedTime(elapsed,
+                            "saved universal-time interval"),
+                        "combined pending catch-up interval");
+                else
+                    KShared.LogWarning("Saved storage timestamp was in the future; resetting its clock without catch-up.",
+                        "KhemistryAdvancedStorage/PrepareUniversalTimeCatchUp");
+            }
+            else if (lastUpdateUniversalTime != -1.0)
+            {
+                KShared.LogWarning("Saved storage timestamp was invalid; resetting its clock without catch-up.",
+                    "KhemistryAdvancedStorage/PrepareUniversalTimeCatchUp");
+            }
+
+            lastUpdateUniversalTime = now;
+        }
+
+        private double GetLiveElapsedTime()
+        {
+            if (TryGetUniversalTime(out double now))
+            {
+                double elapsed = 0.0;
+                if (IsFinite(lastUpdateUniversalTime) && lastUpdateUniversalTime >= 0.0)
+                {
+                    elapsed = now - lastUpdateUniversalTime;
+                    if (elapsed < 0.0)
+                    {
+                        KShared.LogWarning("Universal time moved backwards; resetting the storage clock.",
+                            "KhemistryAdvancedStorage/GetLiveElapsedTime");
+                        elapsed = 0.0;
+                    }
+                }
+
+                lastUpdateUniversalTime = now;
+                return BoundElapsedTime(elapsed, "live universal-time interval");
+            }
+
+            // Planetarium time should be available in flight, but the physics delta
+            // is a safe fallback that preserves the old loaded-vessel behavior. Drop
+            // the old checkpoint so elapsed fallback time is not counted again if
+            // universal time recovers on a later tick.
+            lastUpdateUniversalTime = -1.0;
+            return BoundElapsedTime(TimeWarp.fixedDeltaTime, "physics-time fallback");
+        }
+
+        private bool TryGetUniversalTime(out double universalTime)
+        {
+            universalTime = Planetarium.GetUniversalTime();
+            if (IsFinite(universalTime) && universalTime >= 0.0)
+            {
+                _universalTimeWarningLogged = false;
+                return true;
+            }
+
+            if (!_universalTimeWarningLogged)
+            {
+                KShared.LogWarning("Universal time was unavailable; using loaded physics time until it recovers.",
+                    "KhemistryAdvancedStorage/TryGetUniversalTime");
+                _universalTimeWarningLogged = true;
+            }
+            universalTime = 0.0;
+            return false;
+        }
+
+        private static double BoundElapsedTime(double elapsed, string source)
+        {
+            if (!IsFinite(elapsed) || elapsed <= 0.0) return 0.0;
+            if (elapsed <= MaximumElapsedSeconds) return elapsed;
+
+            KShared.LogWarning(source + " exceeded the safety limit and was clamped.",
+                "KhemistryAdvancedStorage/BoundElapsedTime");
+            return MaximumElapsedSeconds;
         }
 
         private void HandleCharging(double dt)
         {
             if (!chargingRequired) return;
+            if (!IsFinite(dt) || dt <= 0.0) return;
 
             if (state == KShared.ChargablePartState.Off)
             {
                 if (chargeDecayRate > 0f)
                 {
-                    chargePercent -= chargeDecayRate * (float)dt;
-                    if (chargePercent < 0f) chargePercent = 0f;
+                    chargePercent = (float)Math.Max(0.0, chargePercent - chargeDecayRate * dt);
                 }
                 return;
             }
@@ -478,18 +956,25 @@ namespace Khemistry
                 return;
             }
 
-            bool satisfied = ConsumeVesselResources(_chargeNames, _chargeAmounts, dt);
+            double chargingDt = Math.Min(dt, (100.0 - chargePercent) / chargeRate);
+            bool satisfied = ConsumeVesselResources(_chargeNames, _chargeAmounts, chargingDt);
             if (satisfied)
             {
-                chargePercent += chargeRate * (float)dt;
-                if (chargePercent > 100f) chargePercent = 100f;
+                chargePercent = (float)Math.Min(100.0, chargePercent + chargeRate * chargingDt);
+                if (chargePercent >= 100f)
+                {
+                    chargePercent = 100f;
+                    state = KShared.ChargablePartState.On;
+                    _passiveUnsatisfiedFired = false;
+                    KShared.Log("Container fully charged, now ON.",
+                        "KhemistryAdvancedStorage/HandleCharging");
+                }
             }
             else
             {
                 if (chargeDecayRate > 0f)
                 {
-                    chargePercent -= chargeDecayRate * (float)dt;
-                    if (chargePercent < 0f) chargePercent = 0f;
+                    chargePercent = (float)Math.Max(0.0, chargePercent - chargeDecayRate * dt);
                 }
             }
         }
@@ -497,52 +982,84 @@ namespace Khemistry
         private void HandlePassiveConsumption(double dt)
         {
             if (!passiveConsumption) return;
-
-            if (state == KShared.ChargablePartState.On)
+            if (!IsFinite(dt) || dt <= 0.0) return;
+            if (state != KShared.ChargablePartState.On)
             {
-                bool satisfied = ConsumeVesselResources(_passiveNames, _passiveAmounts, dt);
-                if (satisfied)
-                {
-                    _passiveUnsatisfiedFired = false;
-                    return;
-                }
+                _passiveUnsatisfiedFired = false;
+                return;
             }
 
-            if (!HasAnyStoredResources()) return;
+            // Preservation resources are only required while there is something in
+            // the container to preserve. Empty containers neither draw power nor fire
+            // the unsatisfied consequence.
+            if (!HasAnyStoredResources())
+            {
+                _passiveUnsatisfiedFired = false;
+                return;
+            }
+
+            bool satisfied = ConsumeVesselResources(_passiveNames, _passiveAmounts, dt);
+            if (satisfied)
+            {
+                _passiveUnsatisfiedFired = false;
+                return;
+            }
 
             if (!_passiveUnsatisfiedFired)
             {
                 _passiveUnsatisfiedFired = true;
                 ApplyConsequence(_passiveUnsatisfiedResult, "passiveUnsatisfiedResult");
+                if (state == KShared.ChargablePartState.On)
+                    state = KShared.ChargablePartState.Off;
             }
         }
 
-        private void HandleFilledUnpowered(double dt)
+        private void HandleFilledUnpowered(double dt, bool treatAsUnpowered = false)
         {
-            if (state == KShared.ChargablePartState.On) return;
-
-            if (!HasAnyStoredResources()) return;
-
-            _filledUnpoweredAccum += dt;
-
-            while (_filledUnpoweredAccum >= 0.1)
+            if (!treatAsUnpowered && state == KShared.ChargablePartState.On)
             {
-                _filledUnpoweredAccum -= 0.1;
-                ApplyConsequence(_filledUnpoweredResult, "filledUnpoweredResult", tickDt: 0.1);
+                filledUnpoweredElapsed = 0.0;
+                return;
             }
+
+            if (!HasAnyStoredResources())
+            {
+                filledUnpoweredElapsed = 0.0;
+                return;
+            }
+
+            if (!IsFinite(dt) || dt <= 0.0) return;
+
+            filledUnpoweredElapsed += dt;
+            if (!IsFinite(filledUnpoweredElapsed))
+            {
+                KShared.LogError("Filled-unpowered timer overflowed; resetting it.",
+                    "KhemistryAdvancedStorage/HandleFilledUnpowered");
+                filledUnpoweredElapsed = 0.0;
+                return;
+            }
+
+            if (filledUnpoweredElapsed < FilledUnpoweredTickSeconds) return;
+
+            // Apply all elapsed time at once. A per-0.1-second loop can otherwise
+            // execute millions of iterations after a large physics-warp step.
+            double elapsed = filledUnpoweredElapsed;
+            filledUnpoweredElapsed = 0.0;
+            ApplyConsequence(_filledUnpoweredResult, "filledUnpoweredResult", tickDt: elapsed);
         }
 
         // ── Consequence execution ──────────────────────────────────────────────────
 
         /// <summary>
-        /// Executes a consequence. tickDt is only used by Boiloff (the value in config is per second;
-        /// we receive a 0.1 s tick so we apply value * 0.1 per call).
+        /// Executes a consequence. tickDt is only used by Boiloff; the configured value
+        /// is a per-second rate and tickDt is the elapsed interval being processed.
         /// </summary>
         private void ApplyConsequence(ConsequenceConfig cfg, string source, double tickDt = 0.0)
         {
             switch (cfg.type)
             {
                 case ConsequenceType.Off:
+                    state = KShared.ChargablePartState.Off;
                     break;
 
                 case ConsequenceType.Void:
@@ -563,7 +1080,7 @@ namespace Khemistry
                     break;
 
                 case ConsequenceType.Boiloff:
-                    ApplyBoiloff(cfg.value * (float)tickDt, source);
+                    ApplyBoiloff(cfg.value * tickDt, source);
                     break;
             }
         }
@@ -575,8 +1092,10 @@ namespace Khemistry
         ///   single / multi   — only the active resource has any amount, so it drains alone.
         ///   multiShared      — all resources drain proportionally to their current fill.
         /// </summary>
-        private void ApplyBoiloff(float amountPerTick, string source)
+        private void ApplyBoiloff(double amountPerTick, string source)
         {
+            if (!IsFinite(amountPerTick) || amountPerTick <= 0.0) return;
+
             List<PartResource> filled = new List<PartResource>();
             double total = 0.0;
             foreach (PartResource pr in part.Resources)
@@ -592,7 +1111,6 @@ namespace Khemistry
             {
                 double share = (pr.amount / total) * toDrain;
                 pr.amount = Math.Max(0.0, pr.amount - share);
-                _frozenAmounts[pr.resourceName] = pr.amount;
             }
 
             KShared.Log(
@@ -609,8 +1127,26 @@ namespace Khemistry
         /// </summary>
         private bool ConsumeVesselResources(List<string> names, List<float> amounts, double dt)
         {
-            if (names.Count == 0 || amounts.Count == 0) return true;
+            if (names == null || amounts == null) return false;
             if (names.Count != amounts.Count) return false;
+            if (names.Count == 0) return true;
+            if (!IsFinite(dt) || dt <= 0.0) return false;
+
+            // Validate the complete request before pulling anything so malformed
+            // runtime state cannot cause a partial transaction.
+            for (int i = 0; i < names.Count; i++)
+            {
+                if (string.IsNullOrWhiteSpace(names[i])
+                    || !IsFinite(amounts[i]) || amounts[i] <= 0f
+                    || PartResourceLibrary.Instance == null
+                    || PartResourceLibrary.Instance.GetDefinition(names[i]) == null
+                    || !IsFinite(amounts[i] * dt))
+                {
+                    KShared.LogError("Invalid resource-consumption request.",
+                        "KhemistryAdvancedStorage/ConsumeVesselResources");
+                    return false;
+                }
+            }
 
             List<double> pulled = new List<double>(names.Count);
             bool allSatisfied = true;
@@ -618,7 +1154,6 @@ namespace Khemistry
             for (int i = 0; i < names.Count; i++)
             {
                 float rate = amounts[i];
-                if (rate <= 0f) { pulled.Add(0.0); continue; }
 
                 PartResourceDefinition def = PartResourceLibrary.Instance.GetDefinition(names[i]);
                 if (def == null)
@@ -634,14 +1169,14 @@ namespace Khemistry
                 double got = part.RequestResource(names[i], needed);
                 pulled.Add(got);
 
-                if (got < needed * 0.999)
+                if (!WasFullyTransferred(needed, got))
                     allSatisfied = false;
             }
 
             if (!allSatisfied)
             {
                 for (int i = 0; i < names.Count; i++)
-                    if (pulled[i] > 0.0)
+                    if (IsFinite(pulled[i]) && pulled[i] > 0.0)
                         part.RequestResource(names[i], -pulled[i]);
                 return false;
             }
@@ -660,42 +1195,67 @@ namespace Khemistry
             return false;
         }
 
-        private void SnapshotFrozenAmounts()
-        {
-            _frozenAmounts.Clear();
-            foreach (PartResource pr in part.Resources)
-            {
-                if (!_supportedResources.Contains(pr.resourceName)) continue;
-                _frozenAmounts[pr.resourceName] = pr.amount;
-            }
-        }
-
-        private void HandleTransferBlocking()
+        private void UpdateTransferBlocking()
         {
             bool shouldFreeze =
                 (chargingRequired && state != KShared.ChargablePartState.On) ||
                 (!chargingRequired && state == KShared.ChargablePartState.Off);
 
-            foreach (PartResource pr in part.Resources)
+            if (shouldFreeze)
             {
-                if (!_supportedResources.Contains(pr.resourceName)) continue;
-
-                if (!shouldFreeze)
-                    _frozenAmounts[pr.resourceName] = pr.amount;
-                else
+                foreach (PartResource pr in part.Resources)
                 {
-                    if (_frozenAmounts.TryGetValue(pr.resourceName, out double frozen))
-                        pr.amount = frozen;
-                    else
-                        _frozenAmounts[pr.resourceName] = pr.amount;
+                    if (!_supportedResources.Contains(pr.resourceName)) continue;
+                    if (!_savedFlowStates.ContainsKey(pr.resourceName))
+                        _savedFlowStates[pr.resourceName] = pr.flowState;
+                    pr.flowState = false;
                 }
+            }
+            else if (_flowBlocked || _savedFlowStates.Count > 0)
+            {
+                RestoreSavedFlowStates();
+            }
+            _flowBlocked = shouldFreeze;
+        }
+
+        private void RestoreSavedFlowStates()
+        {
+            if (part != null)
+                foreach (PartResource pr in part.Resources)
+                    if (_savedFlowStates.TryGetValue(pr.resourceName, out bool flowState))
+                        pr.flowState = flowState;
+
+            _savedFlowStates.Clear();
+            _flowBlocked = false;
+        }
+
+        private void RestoreStaleSavedFlowStates()
+        {
+            foreach (string resourceName in new List<string>(_savedFlowStates.Keys))
+            {
+                if (_supportedResources.Contains(resourceName)) continue;
+                if (part != null)
+                    foreach (PartResource resource in part.Resources)
+                        if (resource.resourceName == resourceName)
+                        {
+                            resource.flowState = _savedFlowStates[resourceName];
+                            break;
+                        }
+                _savedFlowStates.Remove(resourceName);
             }
         }
 
         private void EnforceCapacity()
         {
             foreach (PartResource pr in part.Resources)
-                if (pr.amount < 0.0) pr.amount = 0.0;
+            {
+                if (!_supportedResources.Contains(pr.resourceName)) continue;
+                if (IsFinite(pr.amount) && pr.amount >= 0.0) continue;
+
+                KShared.LogWarning("Resetting invalid stored amount for resource \"" + pr.resourceName + "\".",
+                    "KhemistryAdvancedStorage/EnforceCapacity");
+                pr.amount = 0.0;
+            }
 
             if (storageType == "multiShared")
             {
@@ -708,29 +1268,90 @@ namespace Khemistry
                     total += pr.amount;
                 }
 
-                if (total > maximumResources && total > 0.0)
+                if (total > maximumResources + 1e-9)
                 {
-                    double scale = maximumResources / total;
-                    foreach (PartResource pr in list)
-                        pr.amount *= scale;
+                    // Do not silently delete resources if several stock transfers overfill
+                    // separate tanks in the same physics tick. Preserve the excess and expose
+                    // no further free capacity until the player drains it.
+                    if (!_overCapacityLogged)
+                    {
+                        KShared.LogWarning("Shared-capacity storage was overfilled by stock resource flow; preserving the excess.",
+                            "KhemistryAdvancedStorage/EnforceCapacity");
+                        _overCapacityLogged = true;
+                    }
                 }
+                else _overCapacityLogged = false;
 
-                foreach (PartResource pr in list)
-                    pr.maxAmount = maximumResources;
+                double freeCapacity = Math.Max(0.0, maximumResources - total);
+                // The sum of all tank headroom must equal the one shared free-capacity pool.
+                // Giving every tank the full headroom lets simultaneous stock transfers exceed
+                // the container capacity before the next physics update.
+                double unallocated = freeCapacity;
+                for (int i = 0; i < list.Count; i++)
+                {
+                    int tanksRemaining = list.Count - i;
+                    double allocation = tanksRemaining == 1
+                        ? unallocated : unallocated / tanksRemaining;
+                    list[i].maxAmount = Math.Max(list[i].amount,
+                        list[i].amount + allocation);
+                    unallocated = Math.Max(0.0, unallocated - allocation);
+                }
             }
             else
             {
+                ReconcileMultiResourceState();
+                bool overCapacity = false;
                 foreach (PartResource pr in part.Resources)
                 {
                     if (!_supportedResources.Contains(pr.resourceName)) continue;
-                    pr.amount = Math.Min(pr.amount, maximumResources);
                     pr.amount = Math.Max(pr.amount, 0.0);
-                    pr.maxAmount = maximumResources;
+                    if (pr.amount > maximumResources + 1e-9)
+                        overCapacity = true;
+                    pr.maxAmount = storageType == "multi" && pr.resourceName != activeResource
+                        ? pr.amount
+                        : Math.Max(pr.amount, maximumResources);
                 }
 
-                if (storageType == "multi")
-                    ZeroNonActiveResources();
+                if (overCapacity && !_overCapacityLogged)
+                    KShared.LogWarning("Storage was overfilled by stock resource flow; preserving the excess until it is drained.",
+                        "KhemistryAdvancedStorage/EnforceCapacity");
+                _overCapacityLogged = overCapacity;
             }
+        }
+
+        private static bool WasFullyTransferred(double requested, double actual)
+        {
+            if (!IsFinite(requested) || requested < 0.0 || !IsFinite(actual) || actual < 0.0)
+                return false;
+            return actual >= requested - Math.Max(1e-9, requested * 1e-9);
+        }
+
+        private static bool IsFinite(double value)
+        {
+            return !double.IsNaN(value) && !double.IsInfinity(value);
+        }
+
+        private static bool TryReadOptionalFloat(ConfigNode node, string key,
+            ref float destination)
+        {
+            if (node == null) return false;
+            if (!node.HasValue(key)) return true;
+            if (!float.TryParse(node.GetValue(key), NumberStyles.Float,
+                    CultureInfo.InvariantCulture, out float parsed)
+                || float.IsNaN(parsed) || float.IsInfinity(parsed))
+                return false;
+            destination = parsed;
+            return true;
+        }
+
+        private static bool TryReadOptionalBool(ConfigNode node, string key,
+            ref bool destination)
+        {
+            if (node == null) return false;
+            if (!node.HasValue(key)) return true;
+            if (!bool.TryParse(node.GetValue(key), out bool parsed)) return false;
+            destination = parsed;
+            return true;
         }
 
         private void UpdateUI()

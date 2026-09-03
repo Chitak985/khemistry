@@ -12,6 +12,8 @@ namespace Khemistry
     /// </summary>
     public class KhemistryMaterial
     {
+        public bool IsValid { get; private set; }
+
         /// <summary>Name of the material, must be unique.</summary>
         public string name = "LOADFAIL";
         
@@ -39,8 +41,10 @@ namespace Khemistry
         /// </summary>
         public KhemistryMaterial(ConfigNode configNode)
         {
+            bool configurationError = false;
+
             // Check if the config node is valid
-            if (configNode.name != "KHEMISTRY_MATERIAL")
+            if (configNode == null || configNode.name != "KHEMISTRY_MATERIAL")
             {
                 KShared.LogError("KhemistryMaterial loading failed because the node isn't named KHEMISTRY_MATERIAL!", "KhemistryMaterial/constructor");
                 return;
@@ -52,43 +56,112 @@ namespace Khemistry
             }
 
             // Set material name from the config
-            name = configNode.GetValue("name");
+            name = configNode.GetValue("name")?.Trim();
+            if (string.IsNullOrEmpty(name))
+            {
+                KShared.LogError("KhemistryMaterial loading failed because its name is empty!", "KhemistryMaterial/constructor");
+                return;
+            }
 
             // Set shapes from the config
             foreach (string shape in configNode.GetNode("SHAPES").GetValues("name"))
-                shapes.Add(shape);
+            {
+                string trimmedShape = shape?.Trim();
+                if (!string.IsNullOrEmpty(trimmedShape) && !shapes.Contains(trimmedShape))
+                    shapes.Add(trimmedShape);
+            }
+            if (shapes.Count == 0)
+            {
+                KShared.LogError("Material \"" + name + "\" has no valid shapes.", "KhemistryMaterial/constructor");
+                return;
+            }
 
             // Set parameters (if there are any) from the config
             if (configNode.HasNode("PARAMS"))
-                foreach (string key in configNode.GetNode("PARAMS").values.DistinctNames())
-                    parameters.Add(key, configNode.GetNode("PARAMS").GetValue(key));
+            {
+                HashSet<string> parameterNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (ConfigNode.Value parameter in configNode.GetNode("PARAMS").values)
+                {
+                    string key = parameter.name?.Trim();
+                    if (string.IsNullOrEmpty(key)
+                        || !System.Text.RegularExpressions.Regex.IsMatch(key,
+                            @"^[A-Za-z_][A-Za-z0-9_]*$"))
+                    {
+                        KShared.LogError("Material \"" + name
+                            + "\" has an invalid parameter name \"" + (key ?? "") + "\".",
+                            "KhemistryMaterial/constructor");
+                        configurationError = true;
+                        continue;
+                    }
+                    if (IsReservedParameterName(key) || !parameterNames.Add(key))
+                    {
+                        KShared.LogError("Material \"" + name
+                            + "\" has a reserved or case-insensitively duplicated parameter name \""
+                            + key + "\".", "KhemistryMaterial/constructor");
+                        configurationError = true;
+                        continue;
+                    }
+                    parameters.Add(key, parameter.value);
+                }
+
+                foreach (string parameterName in parameters.Keys)
+                    if (parameterNames.Contains(parameterName + "O"))
+                    {
+                        KShared.LogError("Material \"" + name + "\" parameters \""
+                            + parameterName + "\" and \"" + parameterName
+                            + "O\" collide in contaminated-merge expressions.",
+                            "KhemistryMaterial/constructor");
+                        configurationError = true;
+                    }
+            }
 
             // Set parameter merge expressions (if there are any) from the config.
             if (configNode.HasNode("PARAM_MERGING"))
             {
                 ConfigNode mergingNode = configNode.GetNode("PARAM_MERGING");
-                foreach (string key in mergingNode.values.DistinctNames())
+                HashSet<string> mergerNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (ConfigNode.Value merger in mergingNode.values)
                 {
-                    if (!parameters.ContainsKey(key))
+                    string configuredKey = merger.name?.Trim();
+                    string key = parameters.Keys.FirstOrDefault(parameterName =>
+                        string.Equals(parameterName, configuredKey, StringComparison.OrdinalIgnoreCase));
+                    if (key == null)
                     {
                         KShared.LogError(
                             "Material \"" + name + "\" has a PARAM_MERGING equation for unknown parameter \""
-                            + key + "\"; the equation was ignored.",
+                            + configuredKey + "\".",
                             "KhemistryMaterial/constructor");
+                        configurationError = true;
+                        continue;
+                    }
+                    if (!mergerNames.Add(key))
+                    {
+                        KShared.LogError("Material \"" + name
+                            + "\" has duplicate PARAM_MERGING equations for parameter \"" + key + "\".",
+                            "KhemistryMaterial/constructor");
+                        configurationError = true;
                         continue;
                     }
                     if (IsDerivedParameter(key))
                     {
                         KShared.LogError(
                             "Material \"" + name + "\" has a PARAM_MERGING equation for derived parameter \""
-                            + key + "\"; derived parameters are recalculated after a merge, so the equation was ignored.",
+                            + key + "\"; derived parameters are recalculated after a merge.",
                             "KhemistryMaterial/constructor");
+                        configurationError = true;
                         continue;
                     }
 
-                    string expression = mergingNode.GetValue(key);
+                    string expression = merger.value;
                     if (!string.IsNullOrWhiteSpace(expression))
                         parameterMergers[key] = expression.Trim();
+                    else
+                    {
+                        KShared.LogError("Material \"" + name
+                            + "\" has an empty PARAM_MERGING equation for parameter \"" + key + "\".",
+                            "KhemistryMaterial/constructor");
+                        configurationError = true;
+                    }
                 }
             }
 
@@ -96,6 +169,54 @@ namespace Khemistry
             foreach (string param in parameters.Keys)
                 if (!IsDerivedParameter(param) && !parameterMergers.ContainsKey(param))
                     parameterMergers.Add(param, $"(({param}*amount)+({param}O*amountO))/(amount+amountO)");
+
+            Dictionary<string, string> syntaxVariables = BuildExpressionValidationVariables(parameters.Keys);
+            foreach (string parameterName in parameters.Keys)
+            {
+                string expression = IsDerivedParameter(parameterName)
+                    ? GetDerivationExpression(parameterName)
+                    : parameterMergers[parameterName];
+                if (KMathExpr.TryEvaluate(expression, out _, out string expressionError,
+                        syntaxVariables))
+                    continue;
+
+                KShared.LogError("Material \"" + name + "\": expression for parameter \""
+                    + parameterName + "\" is invalid: " + expressionError,
+                    "KhemistryMaterial/constructor");
+                configurationError = true;
+            }
+
+            IsValid = !configurationError;
+        }
+
+        private static bool IsReservedParameterName(string parameterName)
+        {
+            return string.Equals(parameterName, "PI", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(parameterName, "Pow", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(parameterName, "size", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(parameterName, "amount", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(parameterName, "volume", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(parameterName, "amountO", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(parameterName, "volumeO", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static Dictionary<string, string> BuildExpressionValidationVariables(
+            IEnumerable<string> parameterNames)
+        {
+            Dictionary<string, string> variables =
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["amount"] = "1",
+                    ["volume"] = "1",
+                    ["amountO"] = "1",
+                    ["volumeO"] = "1"
+                };
+            foreach (string parameterName in parameterNames)
+            {
+                variables[parameterName] = "1";
+                variables[parameterName + "O"] = "1";
+            }
+            return variables;
         }
 
         public bool IsDerivedParameter(string parameterName)
@@ -136,10 +257,11 @@ namespace Khemistry
         /// </summary>
         public void UpdateParams(string location="KhemistryMaterialInstance/constructor(matInst)")
         {
-            if (TryCalculateDerivedParameters(parameters, amount,
-                    out Dictionary<string, string> updated, out string error))
+            bool complete = TryCalculateDerivedParameters(parameters, amount,
+                out Dictionary<string, string> updated, out string error);
+            ReplaceParameters(updated);
+            if (complete)
             {
-                ReplaceParameters(updated);
                 _lastDerivedParameterError = null;
             }
             else if (!string.Equals(_lastDerivedParameterError, error, StringComparison.Ordinal))
@@ -153,7 +275,7 @@ namespace Khemistry
         /// Total volume of the material instance.
         /// This is just the base volume multiplied by material amount.
         /// </summary>
-        public float TotalVolume => volume * amount;
+        public double TotalVolume => (double)volume * amount;
 
         /// <summary>
         /// Create a material instance using parameters.
@@ -285,6 +407,14 @@ namespace Khemistry
                 error = string.Join("; ", pending.Select(parameterName =>
                     parameterName + ": " + (latestErrors.TryGetValue(parameterName, out string value)
                         ? value : "unresolved dependency")));
+
+                // A derived helper can be temporarily undefined for an otherwise valid
+                // material (for example, resistivity = 1 / conductivity at conductivity 0).
+                // Keep its configured DER expression as an explicit unresolved sentinel while
+                // retaining every helper that could be calculated. This makes the material
+                // storable/restorable and lets unrelated merge equations continue to work.
+                foreach (string parameterName in pending)
+                    updated[parameterName] = material.parameters[parameterName];
                 return false;
             }
 
@@ -298,8 +428,10 @@ namespace Khemistry
         /// <returns>Was the operation successful or not.</returns>
         public bool DeriveAllParameters()
         {
-            if (!TryCalculateDerivedParameters(parameters, amount,
-                    out Dictionary<string, string> updated, out string error))
+            bool complete = TryCalculateDerivedParameters(parameters, amount,
+                out Dictionary<string, string> updated, out string error);
+            ReplaceParameters(updated);
+            if (!complete)
             {
                 if (!string.Equals(_lastDerivedParameterError, error, StringComparison.Ordinal))
                 {
@@ -310,7 +442,6 @@ namespace Khemistry
                 return false;
             }
 
-            ReplaceParameters(updated);
             _lastDerivedParameterError = null;
             return true;
         }
@@ -321,13 +452,21 @@ namespace Khemistry
             if (!double.TryParse(left, NumberStyles.Float, CultureInfo.InvariantCulture, out double leftNumber)
                 || !double.TryParse(right, NumberStyles.Float, CultureInfo.InvariantCulture, out double rightNumber))
                 return false;
-            if (leftNumber.Equals(rightNumber)) return true;
             if (double.IsNaN(leftNumber) || double.IsNaN(rightNumber)
                 || double.IsInfinity(leftNumber) || double.IsInfinity(rightNumber))
                 return false;
+            return leftNumber.Equals(rightNumber);
+        }
 
-            double scale = Math.Max(1.0, Math.Max(Math.Abs(leftNumber), Math.Abs(rightNumber)));
-            return Math.Abs(leftNumber - rightNumber) <= scale * 1e-12;
+        private static bool VolumesEqual(float left, float right)
+        {
+            if (float.IsNaN(left) || float.IsNaN(right)
+                || float.IsInfinity(left) || float.IsInfinity(right))
+                return false;
+            // Merging only adds unit counts and keeps this per-unit volume. Any tolerance here
+            // would silently create or destroy total cubic metres, so only exact finite values
+            // are representation-compatible.
+            return left.Equals(right);
         }
 
         /// <summary>
@@ -344,22 +483,16 @@ namespace Khemistry
 
             if (shape == other.shape
                 && size == other.size
-                && Math.Abs(volume - other.volume) <= 1e-7f
+                && VolumesEqual(volume, other.volume)
                 && material.name == other.material.name
                 && parameters.Count == other.parameters.Count)
             {
-                if (!TryCalculateDerivedParameters(parameters, amount,
-                        out Dictionary<string, string> currentParameters, out _)
-                    || !other.TryCalculateDerivedParameters(other.parameters, other.amount,
-                        out Dictionary<string, string> otherParameters, out _))
-                    return false;
-
                 foreach (string key in material.parameters.Keys)
                 {
-                    if (!currentParameters.ContainsKey(key) || !otherParameters.ContainsKey(key))
+                    if (!parameters.ContainsKey(key) || !other.parameters.ContainsKey(key))
                         return false;
                     if (material.IsDerivedParameter(key)) continue;
-                    if (!ParameterValuesEqual(otherParameters[key], currentParameters[key]))
+                    if (!ParameterValuesEqual(other.parameters[key], parameters[key]))
                         return false;
                 }
                 return true;
@@ -377,16 +510,20 @@ namespace Khemistry
             if (CanMerge(other))
             {
                 int mergedAmount = amount + other.amount;
-                if (!TryCalculateDerivedParameters(parameters, mergedAmount,
-                        out Dictionary<string, string> mergedParameters, out string error))
-                {
-                    KShared.LogError("Could not update derived parameters after merging: " + error,
-                        "KhemistryMaterialInstance/Merge");
-                    return false;
-                }
+                bool complete = TryCalculateDerivedParameters(parameters, mergedAmount,
+                    out Dictionary<string, string> mergedParameters, out string error);
 
                 ReplaceParameters(mergedParameters);
                 amount = mergedAmount;
+                if (!complete && !string.Equals(_lastDerivedParameterError, error,
+                        StringComparison.Ordinal))
+                {
+                    KShared.LogError("Not all derived parameters could be updated after merging: "
+                        + error, "KhemistryMaterialInstance/Merge");
+                    _lastDerivedParameterError = error;
+                }
+                else if (complete)
+                    _lastDerivedParameterError = null;
                 return true;
             }
             return false;
@@ -406,7 +543,7 @@ namespace Khemistry
                 return false;
 
             if (shape != other.shape || size != other.size
-                || Math.Abs(volume - other.volume) > 1e-7f
+                || !VolumesEqual(volume, other.volume)
                 || material.name != other.material.name
                 || parameters.Count != material.parameters.Count
                 || other.parameters.Count != material.parameters.Count)
@@ -449,12 +586,10 @@ namespace Khemistry
         {
             if (!CanContaminatedMerge(other)) return false;
 
-            if (!TryCalculateDerivedParameters(parameters, amount,
-                    out Dictionary<string, string> currentSnapshot, out string currentDerivationError))
-                return FailContaminatedMerge("Could not derive the receiving material: " + currentDerivationError);
-            if (!other.TryCalculateDerivedParameters(other.parameters, other.amount,
-                    out Dictionary<string, string> otherSnapshot, out string otherDerivationError))
-                return FailContaminatedMerge("Could not derive the incoming material: " + otherDerivationError);
+            TryCalculateDerivedParameters(parameters, amount,
+                out Dictionary<string, string> currentSnapshot, out _);
+            other.TryCalculateDerivedParameters(other.parameters, other.amount,
+                out Dictionary<string, string> otherSnapshot, out _);
 
             Dictionary<string, string> otherVariables = other.BuildVariableList(otherSnapshot, other.amount)
                 .ToDictionary(pair => pair.Key + "O", pair => pair.Value);
@@ -492,12 +627,21 @@ namespace Khemistry
                 mergedParameters[parameterName] = mergedValue.ToString("R", CultureInfo.InvariantCulture);
             }
 
-            if (!TryCalculateDerivedParameters(mergedParameters, mergedAmount,
-                    out Dictionary<string, string> finalParameters, out string derivationError))
-                return FailContaminatedMerge("Could not derive the merged material: " + derivationError);
+            bool derivationComplete = TryCalculateDerivedParameters(mergedParameters,
+                mergedAmount, out Dictionary<string, string> finalParameters,
+                out string derivationError);
 
             ReplaceParameters(finalParameters);
             amount = mergedAmount;
+            if (!derivationComplete && !string.Equals(_lastDerivedParameterError,
+                    derivationError, StringComparison.Ordinal))
+            {
+                KShared.LogError("Not all derived parameters could be updated after contaminated merging: "
+                    + derivationError, "KhemistryMaterialInstance/ContaminatedMerge");
+                _lastDerivedParameterError = derivationError;
+            }
+            else if (derivationComplete)
+                _lastDerivedParameterError = null;
             _lastContaminatedMergeError = null;
             return true;
         }
@@ -534,6 +678,29 @@ namespace Khemistry
             return node;
         }
 
+        /// <summary>
+        /// Reads only the amount and per-unit volume from serialized material data. This lets a
+        /// container reserve space for an opaque saved material even when its definition is
+        /// temporarily unavailable.
+        /// </summary>
+        public static bool TryGetSerializedTotalVolume(ConfigNode node, out double totalVolume)
+        {
+            totalVolume = 0.0;
+            if (node == null
+                || !float.TryParse(node.GetValue("volume"), NumberStyles.Float,
+                    CultureInfo.InvariantCulture, out float perUnitVolume)
+                || float.IsNaN(perUnitVolume) || float.IsInfinity(perUnitVolume)
+                || perUnitVolume <= 0f
+                || !int.TryParse(node.GetValue("amount"), NumberStyles.Integer,
+                    CultureInfo.InvariantCulture, out int savedAmount)
+                || savedAmount <= 0)
+                return false;
+
+            totalVolume = (double)perUnitVolume * savedAmount;
+            return !double.IsNaN(totalVolume) && !double.IsInfinity(totalVolume)
+                && totalVolume > 0.0;
+        }
+
         /// <summary>Restores an instance from PartModule save data.</summary>
         public static bool TryFromConfigNode(ConfigNode node, out KhemistryMaterialInstance instance,
             string logContext = "KhemistryMaterialInstance/TryFromConfigNode")
@@ -550,8 +717,16 @@ namespace Khemistry
                 return false;
             }
 
+            string shape = node.GetValue("shape");
+            if (string.IsNullOrEmpty(shape) || !definition.shapes.Contains(shape))
+            {
+                KShared.LogError("Saved material \"" + materialName + "\" has invalid shape \""
+                    + (shape ?? "") + "\".", logContext);
+                return false;
+            }
+
             if (!float.TryParse(node.GetValue("volume"), NumberStyles.Float, CultureInfo.InvariantCulture, out float volume)
-                || float.IsNaN(volume) || float.IsInfinity(volume) || volume < 0f)
+                || float.IsNaN(volume) || float.IsInfinity(volume) || volume <= 0f)
             {
                 KShared.LogError("Saved material \"" + materialName + "\" has an invalid per-unit volume.", logContext);
                 return false;
@@ -564,17 +739,43 @@ namespace Khemistry
                 return false;
             }
 
-            Dictionary<string, string> savedParameters = node.HasNode("PARAMS")
-                ? KShared.NodeToDictionary(node.GetNode("PARAMS"))
-                : new Dictionary<string, string>();
+            Dictionary<string, string> savedParameters = new Dictionary<string, string>();
+            if (node.HasNode("PARAMS"))
+            {
+                foreach (ConfigNode.Value savedParameter in node.GetNode("PARAMS").values)
+                {
+                    string key = savedParameter.name?.Trim();
+                    if (string.IsNullOrEmpty(key) || savedParameters.ContainsKey(key)
+                        || !definition.parameters.ContainsKey(key))
+                    {
+                        KShared.LogError("Saved material \"" + materialName
+                            + "\" has an unknown, empty, or duplicated parameter \""
+                            + (key ?? "") + "\"; preserving its save record unchanged.",
+                            logContext);
+                        return false;
+                    }
+                    savedParameters.Add(key, savedParameter.value);
+                }
+            }
+
+            string size = node.GetValue("size")?.Trim();
+            if (string.IsNullOrEmpty(size))
+            {
+                KShared.LogError("Saved material \"" + materialName + "\" has an empty size.",
+                    logContext);
+                return false;
+            }
 
             instance = new KhemistryMaterialInstance(
-                definition, node.GetValue("shape"), node.GetValue("size"), volume, savedParameters)
+                definition, shape, size, volume, savedParameters)
             {
                 amount = amount
             };
             // Derived expressions may use amount, so recalculate after restoring the saved amount.
-            instance.UpdateParams(logContext);
+            if (!instance.DeriveAllParameters())
+                KShared.LogWarning("Saved material \"" + materialName
+                    + "\" has one or more currently undefined derived helpers; it was restored with those helpers unresolved.",
+                    logContext);
             return true;
         }
     }
@@ -595,22 +796,31 @@ namespace Khemistry
 
         public KhemistryAllowedMaterial(ConfigNode node)
         {
-            name = KShared.GetStrValueFromCFG(node, "name", null);
+            name = KShared.GetStrValueFromCFG(node, "name", null)?.Trim();
+            if (node == null) return;
 
             if (node.HasNode("SUPPORTED_SHAPES"))
                 foreach (string s in node.GetNode("SUPPORTED_SHAPES").GetValues("name"))
-                    supportedShapes.Add(s.Trim());
+                {
+                    string trimmed = s?.Trim();
+                    if (!string.IsNullOrEmpty(trimmed) && !supportedShapes.Contains(trimmed))
+                        supportedShapes.Add(trimmed);
+                }
 
             if (node.HasNode("PARAM_REQUIREMENTS"))
             {
                 foreach (ConfigNode.Value v in node.GetNode("PARAM_REQUIREMENTS").values)
                 {
-                    if (!paramRequirements.TryGetValue(v.name, out List<string> comparisons))
+                    string parameterName = v.name?.Trim();
+                    string comparison = v.value?.Trim();
+                    if (string.IsNullOrEmpty(parameterName) || string.IsNullOrEmpty(comparison))
+                        continue;
+                    if (!paramRequirements.TryGetValue(parameterName, out List<string> comparisons))
                     {
                         comparisons = new List<string>();
-                        paramRequirements[v.name] = comparisons;
+                        paramRequirements[parameterName] = comparisons;
                     }
-                    comparisons.Add(v.value);
+                    if (!comparisons.Contains(comparison)) comparisons.Add(comparison);
                 }
             }
         }

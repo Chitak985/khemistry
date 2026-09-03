@@ -39,7 +39,7 @@ namespace Khemistry
         private ApplicationLauncherButton _depositsToolbarButton;
         private Texture2D _depositsButtonTexture;
 
-        // Loaded deposit data (!TODO: will need to be per save file later)
+        // Deposit data for the active save (persisted by KhemistryDepositsScenario)
         public List<KhemistryUDeposit> undergroundDeposits = new List<KhemistryUDeposit>();
         public List<KhemistryGDeposit> surfaceDeposits = new List<KhemistryGDeposit>();
 
@@ -53,7 +53,10 @@ namespace Khemistry
         public List<string> celestialBodies = new List<string>();
 
         // Resource dictionary for KhemistryConstructionOverhaul
-        public Dictionary<string, float> ResourceDict = new Dictionary<string, float>();
+        // Construction-resource balances can reach hundreds of millions of units while
+        // transfers may be only a few units. Double precision keeps those small transfers
+        // representable; float precision loses them at that scale.
+        public Dictionary<string, double> ResourceDict = new Dictionary<string, double>();
 
         // KhemistryConstructionOverhaul GUI (public to access from it)
         public List<string> _selectorResources;
