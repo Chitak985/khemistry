@@ -370,5 +370,23 @@ namespace Khemistry
                     p.explode();
             }
         }
+
+        /// <summary>
+        /// Get a random double variable between two numbers.
+        /// If the KShared instance is null, returns the mean value of a and b instead.
+        /// </summary>
+        /// <param name="a">The lowest value.</param>
+        /// <param name="b">The highest value.</param>
+        /// <returns>The resulting random value between <paramref name="a"/> and <paramref name="b"/>.</returns>
+        public static double RandomDouble(double a, double b)
+        {
+            if (Instance != null)
+                return a + Instance.rand.NextDouble() * (b - a);
+            else
+            {
+                LogError("KShared instance in RandomDouble is null, returning mean value instead.", "KShared/RandomDouble");
+                return (a+b)/2;
+            }
+        }
     }
 }

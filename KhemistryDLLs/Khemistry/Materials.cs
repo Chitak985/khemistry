@@ -283,7 +283,7 @@ namespace Khemistry
         public KhemistryMaterialInstance(KhemistryMaterial material, string shape, string size, float volume, Dictionary<string, string> parameters)
         {
             if (material == null)
-                throw new ArgumentNullException(nameof(material));
+                KShared.LogFatalError("Material is null.", "KhemistryMaterialInstance/constructor");
 
             // Assign values
             this.material = material;

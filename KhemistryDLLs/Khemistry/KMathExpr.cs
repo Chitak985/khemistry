@@ -8,9 +8,32 @@ namespace Khemistry
     /// A minimal recursive-descent arithmetic expression evaluator supporting +, -, *, /,
     /// parentheses, unary +/-, the constant PI, and the function Pow(a,b).
     /// Used for parsing mathematic expressions in config values.
+    /// The expressions it supports are in its three constant dictionaries: constants, functions1Arg, and functions2Arg.
     /// </summary>
     public static class KMathExpr
     {
+        /// <summary>The dictionary of supported constants.</summary>
+        static readonly Dictionary<string, double> constants = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "PI", Math.PI },
+            { "E", Math.E }
+        };
+        /// <summary>The dictionary of supported one-argument functions.</summary>
+        static readonly Dictionary<string, Func<double, double>> functions1Arg = new Dictionary<string, Func<double, double>>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "Sqrt", Math.Sqrt },
+            { "Log", Math.Log },
+            { "Log10", Math.Log10 }
+        };
+        /// <summary>The dictionary of supported two-argument functions.</summary>
+        static readonly Dictionary<string, Func<double, double, double>> functions2Arg = new Dictionary<string, Func<double, double, double>>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "Pow", Math.Pow },
+            { "Min", Math.Min },
+            { "Max", Math.Max },
+            { "randf", KShared.RandomDouble }
+        };
+
         /// <summary>A closed range of finite values used for conservative config validation.</summary>
         public struct ValueRange
         {
@@ -109,17 +132,57 @@ namespace Khemistry
             return ParsePrimary(s, ref pos, vars);
         }
 
+        private static bool Parse1ArgFunction(string ident, string s, ref int pos, Dictionary<string, string> vars, string funcName, out double result)
+        {
+            if (string.Equals(ident, funcName, StringComparison.OrdinalIgnoreCase))
+            {
+                SkipWhitespace(s, ref pos);
+                if (pos >= s.Length || s[pos] != '(') KShared.LogFatalError("Expected ( after " + funcName + " function! String: " + s, "KMathExpr/Parse1ArgFunction");
+                pos++;
+                double a = ParseExpr(s, ref pos, vars);
+                SkipWhitespace(s, ref pos);
+                if (pos >= s.Length || s[pos] != ')') KShared.LogFatalError("Expected ) closing the " + funcName + " function! String: " + s, "KMathExpr/Parse1ArgFunction");
+                pos++;
+                result = functions1Arg[funcName](a);
+                return true;
+            }
+            result = 0;
+            return false;
+        }
+
+        private static bool Parse2ArgFunction(string ident, string s, ref int pos, Dictionary<string, string> vars, string funcName, out double result)
+        {
+            if (string.Equals(ident, funcName, StringComparison.OrdinalIgnoreCase))
+            {
+                SkipWhitespace(s, ref pos);
+                if (pos >= s.Length || s[pos] != '(') KShared.LogFatalError("Expected ( after \" + funcName + \" function! String: " + s, "KMathExpr/Parse2ArgFunction");
+                pos++;
+                double a = ParseExpr(s, ref pos, vars);
+                SkipWhitespace(s, ref pos);
+                if (pos >= s.Length || s[pos] != ',') KShared.LogFatalError("Expected , to separate arguments in \" + funcName + \" function! String: " + s, "KMathExpr/Parse2ArgFunction");
+                pos++;
+                double b = ParseExpr(s, ref pos, vars);
+                SkipWhitespace(s, ref pos);
+                if (pos >= s.Length || s[pos] != ')') KShared.LogFatalError("Expected ) closing the \" + funcName + \" function! String: " + s, "KMathExpr/Parse2ArgFunction");
+                pos++;
+                result = functions2Arg[funcName](a, b);
+                return true;
+            }
+            result = 0;
+            return false;
+        }
+
         private static double ParsePrimary(string s, ref int pos, Dictionary<string, string> vars)
         {
             SkipWhitespace(s, ref pos);
-            if (pos >= s.Length) throw new Exception("Unexpected end of expression.");
+            if (pos >= s.Length) KShared.LogFatalError("Unexpected end of expression! String: " + s, "KMathExpr/ParsePrimary");
 
             if (s[pos] == '(')
             {
                 pos++;
                 double val = ParseExpr(s, ref pos, vars);
                 SkipWhitespace(s, ref pos);
-                if (pos >= s.Length || s[pos] != ')') throw new Exception("Expected ')'.");
+                if (pos >= s.Length || s[pos] != ')') KShared.LogFatalError("Expected closing ) paranthesis! String: " + s, "KMathExpr/ParsePrimary");
                 pos++;
                 return val;
             }
@@ -134,7 +197,7 @@ namespace Khemistry
                     if (pos < s.Length && (s[pos] == '+' || s[pos] == '-')) pos++;
                     int exponentStart = pos;
                     while (pos < s.Length && char.IsDigit(s[pos])) pos++;
-                    if (pos == exponentStart) throw new Exception("Expected digits after exponent marker.");
+                    if (pos == exponentStart) KShared.LogFatalError("Expected digits after exponent marker! String: " + s, "KMathExpr/ParsePrimary");
                 }
                 return double.Parse(s.Substring(start, pos - start), CultureInfo.InvariantCulture);
             }
@@ -145,38 +208,33 @@ namespace Khemistry
                 while (pos < s.Length && (char.IsLetterOrDigit(s[pos]) || s[pos] == '_')) pos++;
                 string ident = s.Substring(start, pos - start);
 
-                if (string.Equals(ident, "PI", StringComparison.OrdinalIgnoreCase)) return Math.PI;
+                // Parse constants
+                foreach (string constant in constants.Keys)
+                    if (string.Equals(ident, constant, StringComparison.OrdinalIgnoreCase))
+                        return constants[constant];
 
-                if (string.Equals(ident, "Pow", StringComparison.OrdinalIgnoreCase))
-                {
-                    SkipWhitespace(s, ref pos);
-                    if (pos >= s.Length || s[pos] != '(') throw new Exception("Expected '(' after Pow.");
-                    pos++;
-                    double a = ParseExpr(s, ref pos, vars);
-                    SkipWhitespace(s, ref pos);
-                    if (pos >= s.Length || s[pos] != ',') throw new Exception("Expected ',' in Pow(...).");
-                    pos++;
-                    double b = ParseExpr(s, ref pos, vars);
-                    SkipWhitespace(s, ref pos);
-                    if (pos >= s.Length || s[pos] != ')') throw new Exception("Expected ')' to close Pow(...).");
-                    pos++;
-                    return Math.Pow(a, b);
-                }
+                // Parse 1 argument functions
+                foreach (string function in functions1Arg.Keys)
+                    if (Parse1ArgFunction(ident, s, ref pos, vars, function, out double result)) return result;
 
+                // Parse 2 argument functions
+                foreach (string function in functions2Arg.Keys)
+                    if (Parse2ArgFunction(ident, s, ref pos, vars, function, out double result)) return result;
+
+                // Parse variables
                 if (vars.TryGetValue(ident, out string rawVariableValue))
                 {
                     if (double.TryParse(rawVariableValue, NumberStyles.Float,
                             CultureInfo.InvariantCulture, out double variableValue)
                         && !double.IsNaN(variableValue) && !double.IsInfinity(variableValue))
                         return variableValue;
-                    throw new Exception("Variable \"" + ident + "\" has non-numeric value \""
-                        + rawVariableValue + "\".");
+                    KShared.LogFatalError("Variable " + ident + " has invalid value: " + rawVariableValue, "KMathExpr/ParsePrimary"); return 0;
                 }
 
-                throw new Exception("Unknown identifier \"" + ident + "\".");
+                KShared.LogFatalError("Unknown identifier \"" + ident + "\"! String: " + s, "KMathExpr/ParsePrimary"); return 0;
             }
 
-            throw new Exception("Unexpected character '" + s[pos] + "' at position " + pos + ".");
+            KShared.LogFatalError("Unexpected character '" + s[pos] + "'! String: " + s, "KMathExpr/ParsePrimary"); return 0;
         }
 
         /// <summary>
