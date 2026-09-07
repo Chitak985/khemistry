@@ -57,16 +57,29 @@ namespace Khemistry
 
         /// <summary>
         /// The moduleType loaded from the MODULE node. "normal" (default) behaves as before;
-        /// "kerbalEVA" is EVA-suit-cell-routed ISRU meant to live on a kerbal part; "partEVA" is
-        /// reserved for future use and is not currently implemented.
+        /// "kerbalEVA" is EVA-suit-cell-routed ISRU meant to live on a kerbal part; "partEVA"
+        /// runs while its part is stored in a kerbal inventory.
         /// </summary>
         [KSPField(isPersistant = false)] public string moduleType = "normal";
 
         /// <summary>
+        /// Allows an inventoried partEVA converter to use the kerbal's suit cells in addition
+        /// to storage modules on the inventoried part itself.
+        /// </summary>
+        [KSPField(isPersistant = false)] public bool useSuitCell = false;
+
+        /// <summary>
         /// The KhemistryKerbal this converter routes resources/materials through when
-        /// moduleType == "kerbalEVA". Only set (and required) in that mode.
+        /// moduleType == "kerbalEVA", or while a partEVA inventory snapshot is being run.
         /// </summary>
         protected KhemistryKerbal _kerbalHost = null;
+
+        /// <summary>The held part whose snapshots back the active partEVA run.</summary>
+        protected StoredPart _inventoryStoredPart = null;
+        protected bool _inventorySessionActive = false;
+        private bool _inventoryConfigLoaded = false;
+        private ConfigNode _inventoryPrefabPristineState = null;
+        private string _inventoryOriginalSnapshotText = null;
 
         /// <summary> Does the converter require charging </summary>
         [KSPField(isPersistant = false)]

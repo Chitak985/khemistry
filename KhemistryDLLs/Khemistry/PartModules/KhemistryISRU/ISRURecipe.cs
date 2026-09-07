@@ -1071,8 +1071,10 @@ namespace Khemistry
         private static readonly HashSet<string> _moduleOnlyValueKeys = new HashSet<string>
         {
             "name", "ConverterName", "StartActionName", "StopActionName",
+            "moduleType", "useSuitCell",
             "recipeType", "recipeSubtype", "recipeSubype", "recipeSubsubtype",
-            "recipeMultiplier", "maxInteractionDistance", "workersCrewSamePart"
+            "recipeMultiplier", "maxInteractionDistance", "maxDisplayDistance",
+            "workersCrewSamePart"
         };
         private static readonly HashSet<string> _moduleOnlyNodeKeys = new HashSet<string>
         {

@@ -143,7 +143,7 @@ namespace Khemistry
             string previous = lastBiomePlanet + "/" + lastBiomeName;
             lastBiomePlanet = currentPlanet;
             lastBiomeName = currentBiome;
-            TriggerPowerfail(part, KhemistryISRURecipe.PowerfailResult.Void);
+            TriggerPowerfail(GetPowerfailContextPart(), KhemistryISRURecipe.PowerfailResult.Void);
             KShared.Log("Converter \"" + ConverterName + "\" crossed from biome \""
                 + previous + "\" to \"" + currentPlanet + "/" + currentBiome
                 + "\"; the active batch was voided and the converter was stopped.",
@@ -207,11 +207,13 @@ namespace Khemistry
                 return false;
             }
 
-            if (vessel == null || vessel.mainBody == null) return false;
+            Vessel processingVessel = GetProcessingVessel();
+            if (processingVessel == null || processingVessel.mainBody == null) return false;
 
-            List<string> here = shared.SurfaceDepositsAtPoint((float)vessel.latitude, (float)vessel.longitude, vessel.mainBody.name, 0);
-            here.AddRange(shared.UndergroundDepositsBelowPoint((float)vessel.latitude,
-                (float)vessel.longitude, vessel.mainBody.name));
+            List<string> here = shared.SurfaceDepositsAtPoint((float)processingVessel.latitude,
+                (float)processingVessel.longitude, processingVessel.mainBody.name, 0);
+            here.AddRange(shared.UndergroundDepositsBelowPoint((float)processingVessel.latitude,
+                (float)processingVessel.longitude, processingVessel.mainBody.name));
             return conditions.Any(d => here.Contains(d));
         }
 
@@ -222,6 +224,11 @@ namespace Khemistry
         protected void LoadConfigFromPartInfo()
         {
             ConfigNode moduleNode = KShared.FindModuleConfigNode(part, ConverterName, "KhemistryISRU");
+            LoadConfig(moduleNode);
+        }
+
+        private void LoadConfig(ConfigNode moduleNode)
+        {
             if (moduleNode == null)
             {
                 // Already logged by FindModuleConfigNode — fail loudly instead of NRE-ing through
@@ -234,21 +241,23 @@ namespace Khemistry
             KShared shared = KShared.Instance;
 
             ///// Module type /////
-            moduleType = KShared.GetStrValueFromCFG(moduleNode, "moduleType", "normal");
-
-            if (moduleType == "partEVA")
-            {
-                KShared.LogError(
-                    "Converter \"" + ConverterName + "\": moduleType=partEVA is not implemented yet — falling back to normal.",
-                    "KhemistryISRU/LoadConfigFromPartInfo");
-                moduleType = "normal";
-            }
+            moduleType = IsPartEVAConfig(moduleNode)
+                ? "partEVA"
+                : KShared.GetStrValueFromCFG(moduleNode, "moduleType", "normal");
+            useSuitCell = bool.TryParse(KShared.GetStrValueFromCFG(moduleNode,
+                "useSuitCell", "false"), out bool useSuit) && useSuit;
 
             if (moduleType == "kerbalEVA")
             {
                 // kerbalEVA-specific defaults: a bare converter with no explicit ConverterName
                 // or recipeType is named "Kerbal" and imports the "kerbalEVA" recipeType.
                 ConverterName = KShared.GetStrValueFromCFG(moduleNode, "ConverterName", "Kerbal");
+                StartActionName = KShared.GetStrValueFromCFG(moduleNode, "StartActionName", "Start working");
+                StopActionName = KShared.GetStrValueFromCFG(moduleNode, "StopActionName", "Stop working");
+            }
+            else
+            {
+                ConverterName = KShared.GetStrValueFromCFG(moduleNode, "ConverterName", "Converter");
                 StartActionName = KShared.GetStrValueFromCFG(moduleNode, "StartActionName", "Start working");
                 StopActionName = KShared.GetStrValueFromCFG(moduleNode, "StopActionName", "Stop working");
             }
@@ -310,7 +319,8 @@ namespace Khemistry
                 recipeMultiplier = 1f;
             }
 
-            recipeType = KShared.GetStrValueFromCFG(moduleNode, "recipeType", moduleType == "kerbalEVA" ? "kerbalEVA" : null);
+            recipeType = KShared.GetStrValueFromCFG(moduleNode, "recipeType",
+                IsEVAModuleType() ? moduleType : null);
             recipeSubtype = KShared.GetStrValueFromCFG(moduleNode, "recipeSubtype",
                 KShared.GetStrValueFromCFG(moduleNode, "recipeSubype", null));
             if (!moduleNode.HasValue("recipeSubtype") && moduleNode.HasValue("recipeSubype"))
@@ -426,22 +436,22 @@ namespace Khemistry
                 return;
             }
 
-            if (moduleType == "kerbalEVA")
+            if (IsEVAModuleType())
             {
-                StripKerbalEVAIncompatibleFields(moduleNode);
+                StripEVAIncompatibleFields(moduleNode);
                 // Interaction/display distance are meaningless here — the GUI lives on the
                 // kerbal itself, so it's always "in range" of its own converter.
                 if (moduleNode.HasValue("maxInteractionDistance"))
                     KShared.LogError(
-                        "Converter \"" + ConverterName + "\" (moduleType=kerbalEVA): \"maxInteractionDistance\" is ignored.",
+                        "Converter \"" + ConverterName + "\" (moduleType=" + moduleType + "): \"maxInteractionDistance\" is ignored.",
                         "KhemistryISRU/LoadConfigFromPartInfo");
                 if (moduleNode.HasValue("maxDisplayDistance"))
                     KShared.LogError(
-                        "Converter \"" + ConverterName + "\" (moduleType=kerbalEVA): \"maxDisplayDistance\" is ignored.",
+                        "Converter \"" + ConverterName + "\" (moduleType=" + moduleType + "): \"maxDisplayDistance\" is ignored.",
                         "KhemistryISRU/LoadConfigFromPartInfo");
                 if (moduleNode.HasValue("workersCrewSamePart"))
                     KShared.LogError(
-                        "Converter \"" + ConverterName + "\" (moduleType=kerbalEVA): \"workersCrewSamePart\" is ignored.",
+                        "Converter \"" + ConverterName + "\" (moduleType=" + moduleType + "): \"workersCrewSamePart\" is ignored.",
                         "KhemistryISRU/LoadConfigFromPartInfo");
                 _configMaxInteractionDistance = float.MaxValue;
                 _configMaxDisplayDistance = float.MaxValue;
@@ -472,6 +482,11 @@ namespace Khemistry
             _maxInteractionDistance = _configMaxInteractionDistance;
             _maxDisplayDistance = _configMaxDisplayDistance;
 
+            SelectActiveRecipeFromLoadedState();
+        }
+
+        private void SelectActiveRecipeFromLoadedState()
+        {
             ///// Select active recipe /////
             KhemistryISRURecipe initial = null;
             string savedRecipeName = activeRecipeName;
@@ -1143,7 +1158,20 @@ namespace Khemistry
             // Peek moduleType early (before LoadConfigFromPartInfo runs its full parse) so the
             // kerbal-host / duplicate checks below can bail out before doing anything else.
             ConfigNode precheckNode = KShared.FindModuleConfigNode(part, ConverterName, "KhemistryISRU");
-            moduleType = KShared.GetStrValueFromCFG(precheckNode, "moduleType", "normal");
+            moduleType = IsPartEVAConfig(precheckNode)
+                ? "partEVA"
+                : KShared.GetStrValueFromCFG(precheckNode, "moduleType", "normal");
+
+            if (moduleType == "partEVA")
+            {
+                LoadConfig(precheckNode);
+                DisableAllUI();
+                enabled = false;
+                statusDisplay = _fatalConfigError
+                    ? "ERROR: see log"
+                    : "Available while held by a kerbal";
+                return;
+            }
 
             if (moduleType == "kerbalEVA")
             {
@@ -1369,7 +1397,9 @@ namespace Khemistry
         {
             if (amount <= 0) return true;
 
-            if (moduleType == "kerbalEVA" && _kerbalHost != null)
+            if ((moduleType == "kerbalEVA"
+                    || (moduleType == "partEVA" && useSuitCell))
+                && _kerbalHost != null)
             {
                 if (!_kerbalHost.TryRemoveMaterialFromSuitCell(material.name, material.shape, material.size,
                         material.parameters, amount, out List<KhemistryMaterialInstance> removed))
@@ -1377,6 +1407,8 @@ namespace Khemistry
                 transaction.Add(new MaterialRemovalRecord { suitHost = _kerbalHost, pieces = removed });
                 return true;
             }
+
+            if (moduleType == "partEVA") return false;
 
             List<KhemistryMaterialStorage> storages = vessel.parts
                 .SelectMany(vesselPart => vesselPart.Modules.OfType<KhemistryMaterialStorage>())
@@ -1579,7 +1611,7 @@ namespace Khemistry
                 _runtimeData.temperature < biomeConfig.minTemperature || _runtimeData.temperature > biomeConfig.maxTemperature ||
                 _runtimeData.pressure < biomeConfig.minPressure || _runtimeData.pressure > biomeConfig.maxPressure)
             {
-                TriggerPowerfail(part, KhemistryISRURecipe.PowerfailResult.Explode);
+                TriggerPowerfail(GetPowerfailContextPart(), KhemistryISRURecipe.PowerfailResult.Explode);
                 return true;
             }
 
@@ -1866,7 +1898,7 @@ namespace Khemistry
                         if (pinp.powerfail == KhemistryISRURecipe.PowerfailResult.Pause)
                         {
                             RollBackPassiveInputStep(timersBefore, consumedBefore);
-                            TriggerPowerfail(part, pinp.powerfail,
+                            TriggerPowerfail(GetPowerfailContextPart(), pinp.powerfail,
                                 pinp.powerfailExplosionRadius,
                                 pinp.powerfailExplosionTemperature);
                             statusDisplay = "Paused: out of " + pinp.resourceName;
@@ -1878,7 +1910,7 @@ namespace Khemistry
                         timer -= effectivePeriod;
                         if (i < _passiveTimers.Count) _passiveTimers[i] = Math.Max(0.0, timer);
 
-                        TriggerPowerfail(part, pinp.powerfail, pinp.powerfailExplosionRadius,
+                        TriggerPowerfail(GetPowerfailContextPart(), pinp.powerfail, pinp.powerfailExplosionRadius,
                             pinp.powerfailExplosionTemperature);
                         return false;
                     }
@@ -2233,7 +2265,8 @@ namespace Khemistry
         /// </summary>
         protected bool TryTransferMaterialOutputBuffer()
         {
-            if (vessel == null || part == null) return false;
+            Vessel processingVessel = GetProcessingVessel();
+            if (processingVessel == null || GetPowerfailContextPart() == null) return false;
             if (_materialOutputAmount.Count == 0) return false;
 
             bool transferredAny = false;
@@ -2298,13 +2331,15 @@ namespace Khemistry
                     };
 
                     bool placed = false;
-                    if (moduleType == "kerbalEVA" && _kerbalHost != null)
+                    if ((moduleType == "kerbalEVA"
+                            || (moduleType == "partEVA" && useSuitCell))
+                        && _kerbalHost != null)
                     {
                         placed = _kerbalHost.TryAddMaterialToSuitCell(instance);
                     }
-                    else
+                    else if (moduleType != "partEVA")
                     {
-                        foreach (Part vesselPart in vessel.parts)
+                        foreach (Part vesselPart in processingVessel.parts)
                         {
                             foreach (KhemistryMaterialStorage storageModule in vesselPart.Modules.OfType<KhemistryMaterialStorage>())
                             {

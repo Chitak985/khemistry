@@ -269,8 +269,8 @@ namespace Khemistry
                 || source.HasNode("SUIT_STORED_MATERIAL");
             if (hasSuitPayload)
             {
-                string resources = KhemistryEVACombinedProcessor.Serialize(
-                    KhemistryEVACombinedProcessor.Deserialize(
+                string resources = KhemistryKerbal.SerializeResourceDictionary(
+                    KhemistryKerbal.DeserializeResourceDictionary(
                         source.GetValue("suitCellResourcesData")));
 
                 bool canBeOccupied = true;

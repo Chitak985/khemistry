@@ -90,10 +90,12 @@
     <Compile Include="KShared\KSharedVariables.cs" />
     <Compile Include="Materials.cs" />
     <Compile Include="PartModules\Kerbal.cs" />
+    <Compile Include="PartModules\KerbalPartEVA.cs" />
     <Compile Include="PartModules\KhemistryISRU\ISRUActions.cs" />
     <Compile Include="PartModules\KhemistryISRU\ISRUBiomeConfig.cs" />
     <Compile Include="PartModules\KhemistryISRU\ISRUEvents.cs" />
     <Compile Include="PartModules\KhemistryISRU\ISRUHelpers.cs" />
+    <Compile Include="PartModules\KhemistryISRU\ISRUInventory.cs" />
     <Compile Include="PartModules\KhemistryISRU\ISRUMain.cs" />
     <Compile Include="PartModules\KhemistryISRU\ISRURecipe.cs" />
     <Compile Include="PartModules\KhemistryISRU\ISRUVariables.cs" />

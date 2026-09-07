@@ -21,16 +21,46 @@
         /// <summary>
         /// Requests (positive amount) or produces (negative amount) a resource from wherever
         /// this converter actually draws from: the vessel resource network normally, or the
-        /// kerbal's fluid suit cell when moduleType == "kerbalEVA". Same amount/return contract
-        /// as <see cref="Part.RequestResource(string, double)"/>.
+        /// kerbal's fluid suit cell when moduleType == "kerbalEVA", or the held part's fluid
+        /// cell plus its kerbal's suit cell for partEVA. Same amount/return contract as
+        /// <see cref="Part.RequestResource(string, double)"/>.
         /// </summary>
         private double RequestResourceRouted(string name, double amount,
             ResourceFlowMode flowMode = ResourceFlowMode.STAGE_PRIORITY_FLOW)
         {
             if (moduleType == "kerbalEVA" && _kerbalHost != null)
                 return _kerbalHost.RequestSuitCellResource(name, amount);
+            if (moduleType == "partEVA" && _inventorySessionActive
+                && _kerbalHost != null && _inventoryStoredPart != null)
+                return _kerbalHost.RequestInventoryProcessorResource(
+                    _inventoryStoredPart, name, amount, useSuitCell);
             return part.RequestResource(name, amount, flowMode);
         }
+
+        internal static bool IsPartEVAConfig(ConfigNode moduleNode)
+        {
+            if (moduleNode == null) return false;
+            string configuredModuleType = moduleNode.GetValue("moduleType")?.Trim();
+            if (string.Equals(configuredModuleType, "partEVA",
+                    System.StringComparison.OrdinalIgnoreCase))
+                return true;
+            foreach (string value in moduleNode.GetValues("recipeType"))
+                if (string.Equals(value?.Trim(), "partEVA",
+                        System.StringComparison.OrdinalIgnoreCase))
+                    return true;
+            return false;
+        }
+
+        private bool IsEVAModuleType()
+            => moduleType == "kerbalEVA" || moduleType == "partEVA";
+
+        private Part GetPowerfailContextPart()
+            => moduleType == "partEVA" && _inventorySessionActive
+                ? _kerbalHost?.part : part;
+
+        private Vessel GetProcessingVessel()
+            => moduleType == "partEVA" && _inventorySessionActive
+                ? _kerbalHost?.vessel : vessel;
 
         private void ApplyInteractionRanges()
         {
@@ -59,20 +89,21 @@
         }
 
         /// <summary>
-        /// For moduleType == "kerbalEVA": strips out worker-count/worker-type/control-rule and
+        /// For EVA module types: strips out worker-count/worker-type/control-rule and
         /// distance-multiplier fields that don't make sense for suit-cell-routed EVA ISRU
         /// (logging a warning per field actually present in the config), and forces any MAINT
         /// powerfailResult to VOID since there's no Engineer to perform EVA self-maintenance.
         /// </summary>
-        private void StripKerbalEVAIncompatibleFields(ConfigNode moduleNode)
+        private void StripEVAIncompatibleFields(ConfigNode moduleNode)
         {
+            string evaType = moduleType == "partEVA" ? "partEVA" : "kerbalEVA";
             void WarnIfPresent(ConfigNode n, string key, string context)
             {
                 if (n != null && n.HasValue(key))
                     KShared.LogError(
-                        "Converter \"" + ConverterName + "\" (moduleType=kerbalEVA): \"" + key
-                        + "\" in " + context + " is ignored for kerbalEVA converters.",
-                        "KhemistryISRU/StripKerbalEVAIncompatibleFields");
+                        "Converter \"" + ConverterName + "\" (moduleType=" + evaType + "): \"" + key
+                        + "\" in " + context + " is ignored for EVA converters.",
+                        "KhemistryISRU/StripEVAIncompatibleFields");
             }
 
             WarnIfPresent(moduleNode, "workersType", "the MODULE node");
@@ -116,9 +147,9 @@
                     if (pinp.powerfail == KhemistryISRURecipe.PowerfailResult.Maint)
                     {
                         KShared.LogError(
-                            "Converter \"" + ConverterName + "\" (moduleType=kerbalEVA): Recipe \"" + recipe._name
+                            "Converter \"" + ConverterName + "\" (moduleType=" + evaType + "): Recipe \"" + recipe._name
                             + "\" has a MAINT powerfailResult, which requires an Engineer and doesn't apply here — treating as VOID.",
-                            "KhemistryISRU/StripKerbalEVAIncompatibleFields");
+                            "KhemistryISRU/StripEVAIncompatibleFields");
                         pinp.powerfail = KhemistryISRURecipe.PowerfailResult.Void;
                         recipe._passiveInputs[i] = pinp;
                     }

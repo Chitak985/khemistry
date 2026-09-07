@@ -9,7 +9,7 @@ namespace Khemistry
     /// <summary>
     /// A <see cref="PartModule"/> applied to kerbals, it handles all EVA-side logic and rendering.
     /// </summary>
-    public class KhemistryKerbal : PartModule
+    public partial class KhemistryKerbal : PartModule
     {
         ///// Occupation System /////
 
@@ -44,7 +44,7 @@ namespace Khemistry
         public void EnableOccupation() => canBeOccupied = true;
 
 
-        // Serialized as "ResA:1.5000|ResB:2.0000" — same format as KhemistryEVACombinedProcessor
+        // Serialized as "ResA:1.5000|ResB:2.0000".
         [KSPField(isPersistant = true)]
         public string suitCellResourcesData = "";
 
@@ -75,8 +75,6 @@ namespace Khemistry
         public KhemistryISRU kerbalEVAISRU = null;
 
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE0044:Add readonly modifier", Justification = "This is clearly used elsewhere in the code and shouldn't be readonly")]
-        private HashSet<string> _evaISRUPartNames = new HashSet<string>();
-
         private ModuleInventoryPart _inventory;
         private KerbalEVA eva;
         private bool _disabledDuplicate;
@@ -85,6 +83,8 @@ namespace Khemistry
         private bool _boardingEventRegistered;
         private bool _suitPersistenceRestoreChecked;
         private bool _loadedAuthoritativeSuitState;
+        private int _inventoryChangeBatchDepth;
+        private bool _inventoryChangePending;
 
         [KSPField(isPersistant = false, guiActive = true, guiActiveEditor = false, guiName = "Held Cells")]
         public string CellContentsDisplay = "No cells available";
@@ -154,15 +154,83 @@ namespace Khemistry
 
         private void NotifyInventoryChanged()
         {
+            if (_inventoryChangeBatchDepth > 0)
+            {
+                _inventoryChangePending = true;
+                return;
+            }
             if (_inventory != null)
                 GameEvents.onModuleInventoryChanged.Fire(_inventory);
         }
 
+        internal void NotifyInventoryProcessorChanged() => NotifyInventoryChanged();
+
+        internal void BeginInventoryProcessorChanges()
+            => _inventoryChangeBatchDepth++;
+
+        internal void EndInventoryProcessorChanges()
+        {
+            if (_inventoryChangeBatchDepth <= 0) return;
+            _inventoryChangeBatchDepth--;
+            if (_inventoryChangeBatchDepth != 0 || !_inventoryChangePending) return;
+            _inventoryChangePending = false;
+            if (_inventory != null)
+                GameEvents.onModuleInventoryChanged.Fire(_inventory);
+        }
+
+        internal static Dictionary<string, double> DeserializeResourceDictionary(string data)
+        {
+            var result = new Dictionary<string, double>(StringComparer.Ordinal);
+            if (string.IsNullOrWhiteSpace(data)) return result;
+            foreach (string entry in data.Split('|'))
+            {
+                int separator = entry.LastIndexOf(':');
+                if (separator <= 0 || separator >= entry.Length - 1) continue;
+                string name = entry.Substring(0, separator).Trim();
+                if (string.IsNullOrEmpty(name)
+                    || !double.TryParse(entry.Substring(separator + 1),
+                        NumberStyles.Float, CultureInfo.InvariantCulture, out double amount)
+                    || !IsFinite(amount) || amount <= 0.0)
+                    continue;
+                result.TryGetValue(name, out double current);
+                double combined = current + amount;
+                if (IsFinite(combined)) result[name] = combined;
+            }
+            return result;
+        }
+
+        internal static string SerializeResourceDictionary(
+            IDictionary<string, double> resources)
+        {
+            if (resources == null) return "";
+            return string.Join("|", resources
+                .Where(value => !string.IsNullOrWhiteSpace(value.Key)
+                    && IsFinite(value.Value) && value.Value > 0.0)
+                .OrderBy(value => value.Key, StringComparer.Ordinal)
+                .Select(value => value.Key.Trim() + ":"
+                    + value.Value.ToString("R", CultureInfo.InvariantCulture))
+                .ToArray());
+        }
+
+        internal static double GetResourceDictionaryTotal(
+            IDictionary<string, double> resources)
+        {
+            if (resources == null) return 0.0;
+            double total = 0.0;
+            foreach (KeyValuePair<string, double> value in resources)
+            {
+                if (!IsFinite(value.Value) || value.Value <= 0.0) continue;
+                total += value.Value;
+                if (!IsFinite(total)) return double.PositiveInfinity;
+            }
+            return total;
+        }
+
         private Dictionary<string, double> GetSuitCellDict()
-    => KhemistryEVACombinedProcessor.Deserialize(suitCellResourcesData);
+            => DeserializeResourceDictionary(suitCellResourcesData);
 
         private void SetSuitCellFromDict(Dictionary<string, double> dict)
-    => suitCellResourcesData = KhemistryEVACombinedProcessor.Serialize(dict);
+            => suitCellResourcesData = SerializeResourceDictionary(dict);
 
         public bool HasFluidSuitCell => _suitCellMaxAmount > 0f;
 
@@ -194,7 +262,7 @@ namespace Khemistry
             else if (amount < 0.0)  // Produce
             {
                 double want = -amount;
-                double total = KhemistryEVACombinedProcessor.GetTotal(dict);
+                double total = GetResourceDictionaryTotal(dict);
                 if (double.IsNaN(total) || double.IsInfinity(total)) return 0.0;
                 double spaceLeft = _suitCellMaxAmount - total;
                 double add = Math.Min(want, Math.Max(0.0, spaceLeft));
@@ -207,6 +275,58 @@ namespace Khemistry
             }
 
             return 0.0;
+        }
+
+        /// <summary>
+        /// Routes a held partEVA converter request through the fluid cell on that same held
+        /// part, then through the suit cell when the converter explicitly enables it.
+        /// </summary>
+        internal double RequestInventoryProcessorResource(StoredPart stored, string name,
+            double amount, bool allowSuitCell)
+        {
+            if (!IsStoredPartCurrent(stored) || string.IsNullOrWhiteSpace(name)
+                || !IsFinite(amount) || amount == 0.0)
+                return 0.0;
+
+            name = name.Trim();
+            bool hasPartCell = GetCellModuleSnapshot(stored) != null;
+            double moved = 0.0;
+
+            if (hasPartCell && amount > 0.0)
+            {
+                double available = ReadResourceAmountValue(stored, name);
+                double take = Math.Min(amount, available);
+                if (take > 0.0
+                    && WriteResourceAmount(stored, name, available - take))
+                    moved += take;
+            }
+            else if (hasPartCell && amount < 0.0
+                && IsResourceAllowedForAddition(stored, name))
+            {
+                double current = ReadResourceAmountValue(stored, name);
+                ProtoPartResourceSnapshot resource = FindCellResource(stored, name);
+                KhemistryFluidCell cell = ReadFluidCellPrefab(stored.partName);
+                double tankSpace = resource == null ? 0.0
+                    : Math.Max(0.0, resource.maxAmount - resource.amount);
+                double totalSpace = cell == null || !IsFinite(cell.ResourceMaxAmount)
+                    || cell.ResourceMaxAmount <= 0f
+                    ? 0.0
+                    : Math.Max(0.0, cell.ResourceMaxAmount - ReadResourceAmount(stored));
+                double add = Math.Min(-amount, Math.Min(tankSpace, totalSpace));
+                if (add > 0.0
+                    && WriteResourceAmount(stored, name, current + add))
+                    moved += add;
+            }
+
+            double remaining = Math.Abs(amount) - moved;
+            if (allowSuitCell && remaining > 0.0)
+            {
+                double suitMoved = RequestSuitCellResource(name,
+                    amount > 0.0 ? remaining : -remaining);
+                if (IsFinite(suitMoved)) moved += Math.Abs(suitMoved);
+            }
+
+            return amount > 0.0 ? moved : -moved;
         }
 
         /// <summary>Current volume used in the material suit cell.</summary>
@@ -346,7 +466,6 @@ namespace Khemistry
         private void LoadConfigFromPartInfo()
         {
             KShared.Log("Called!", "KhemistryKerbal/LoadConfigFromPartInfo");
-            _evaISRUPartNames.Clear();
             _suitCellMaxAmount = 0f;
             _suitCellTransferDistance = 10f;
             _suitCellAllowedResources.Clear();
@@ -389,13 +508,6 @@ namespace Khemistry
                     "KhemistryKerbal/LoadConfigFromPartInfo");
                 return;
             }
-
-            if (moduleNode.HasNode("EVA_ISRU_PARTS"))
-                foreach (string name in moduleNode.GetNode("EVA_ISRU_PARTS").GetValues("name"))
-                {
-                    string trimmed = name?.Trim();
-                    if (!string.IsNullOrEmpty(trimmed)) _evaISRUPartNames.Add(trimmed);
-                }
 
             if (moduleNode.HasNode("SUIT_CELL"))
             {
@@ -468,9 +580,8 @@ namespace Khemistry
                         "KhemistryKerbal/LoadConfigFromPartInfo");
             }
 
-            KShared.Log(
-                string.Format("Loaded {0} EVA ISRU part names, suitCell={1}.",
-                    _evaISRUPartNames.Count, _suitCellMaxAmount > 0f),
+            KShared.Log("Loaded kerbal resource storage; suitCell="
+                + (_suitCellMaxAmount > 0f) + ".",
                 "KhemistryKerbal/LoadConfigFromPartInfo");
         }
 
@@ -518,7 +629,7 @@ namespace Khemistry
 
             ConfigNode snapshot = new ConfigNode("KERBAL_SUIT");
             snapshot.AddValue("suitCellResourcesData",
-                KhemistryEVACombinedProcessor.Serialize(GetSuitCellDict()));
+                SerializeResourceDictionary(GetSuitCellDict()));
             snapshot.AddValue("canBeOccupied", canBeOccupied);
             foreach (ConfigNode pendingNode in _pendingMaterialSuitContents)
             {
@@ -536,8 +647,8 @@ namespace Khemistry
         {
             if (snapshot == null || HasMeaningfulSuitPersistenceState()) return false;
 
-            suitCellResourcesData = KhemistryEVACombinedProcessor.Serialize(
-                KhemistryEVACombinedProcessor.Deserialize(
+            suitCellResourcesData = SerializeResourceDictionary(
+                DeserializeResourceDictionary(
                     snapshot.GetValue("suitCellResourcesData")));
             if (bool.TryParse(snapshot.GetValue("canBeOccupied"), out bool savedPreference))
                 canBeOccupied = savedPreference;
@@ -730,7 +841,7 @@ namespace Khemistry
         private float ReadCellResourceAmount(FluidCellRef cell)
         {
             if (cell.isSuit)
-                return (float)KhemistryEVACombinedProcessor.GetTotal(GetSuitCellDict());
+                return (float)GetResourceDictionaryTotal(GetSuitCellDict());
             return ReadResourceAmount(cell.stored);
         }
 
@@ -766,7 +877,7 @@ namespace Khemistry
                 if (cells[i].isSuit)
                 {
                     var dict = GetSuitCellDict();
-                    double total = KhemistryEVACombinedProcessor.GetTotal(dict);
+                    double total = GetResourceDictionaryTotal(dict);
                     if (dict.Count == 0)
                         parts.Add(string.Format("{0}: Empty (0/{1:F2})", label, _suitCellMaxAmount));
                     else
@@ -796,31 +907,10 @@ namespace Khemistry
             foreach (StoredPart storedCell in GetHeldCellSnapshots())
                 ApplyHeldBatteryDegradation(storedCell);
 
-            foreach (StoredPart stored in GetProcessorSnapshots())
-            {
-                if (!IsStoredPartCurrent(stored)) continue;
-                KhemistryEVACombinedProcessor prefab = GetPrefabProcessor(stored);
-                if (prefab == null || !prefab.IsConfigLoaded) continue;
-
-                bool running = ReadProcessorBool(stored, "isRunning");
-                string converterName = ReadProcessorField(stored, "activeConverterName");
-                if (!running || string.IsNullOrEmpty(converterName)) continue;
-
-                var resources = DeserializeProcessorResources(stored);
-                bool cycled = prefab.RunConversionCycle(resources, converterName, dt);
-                if (!WriteProcessorResources(stored, resources)) continue;
-
-                if (!cycled)
-                {
-                    WriteProcessorField(stored, "isRunning", "False");
-                    KShared.Log(
-                    "Processor converter \"" + converterName + "\" stopped: insufficient inputs or storage space.",
-                        "KhemistryKerbal/FixedUpdate");
-                    ScreenMessages.PostScreenMessage(new ScreenMessage(
-                        "Converter \"" + converterName + "\" stopped: insufficient inputs or storage space.",
-                        5f, ScreenMessageStyle.UPPER_CENTER));
-                }
-            }
+            foreach (HeldPartEVAProcessor processor in GetHeldPartEVAProcessors())
+                if (IsStoredPartCurrent(processor.stored))
+                    processor.prefab.RunInventoryCycle(this, processor.stored,
+                        processor.snapshot, processor.config, dt);
         }
 
         private List<StoredPart> GetHeldCellSnapshots()
@@ -994,6 +1084,14 @@ namespace Khemistry
             => PartLoader.getPartInfoByName(partName)?.partPrefab
                 .FindModuleImplementing<KhemistryFluidCell>()?.TransferDistance ?? 10f;
 
+        private double ReadCellTotalFreeSpace(StoredPart stored)
+        {
+            KhemistryFluidCell cell = ReadFluidCellPrefab(stored?.partName);
+            if (cell == null || !IsFinite(cell.ResourceMaxAmount)
+                || cell.ResourceMaxAmount <= 0f) return 0.0;
+            return Math.Max(0.0, cell.ResourceMaxAmount - ReadResourceAmount(stored));
+        }
+
         private KhemistryFluidCell ReadFluidCellPrefab(string partName)
             => PartLoader.getPartInfoByName(partName)?.partPrefab
                 .FindModuleImplementing<KhemistryFluidCell>();
@@ -1068,6 +1166,14 @@ namespace Khemistry
             if (requestedIncrease > epsilon)
             {
                 if (!IsResourceAllowedForAddition(stored, resourceName)) return false;
+                KhemistryFluidCell cell = ReadFluidCellPrefab(stored.partName);
+                if (cell != null && IsFinite(cell.ResourceMaxAmount)
+                    && cell.ResourceMaxAmount > 0f)
+                {
+                    double totalSpace = Math.Max(0.0,
+                        cell.ResourceMaxAmount - ReadResourceAmount(stored));
+                    if (requestedIncrease > totalSpace + epsilon) return false;
+                }
                 // Never add to the obsolete parallel field. It exists only so an old save's
                 // overflow can be drained without data loss.
                 if (resource == null) return false;
@@ -1148,7 +1254,7 @@ namespace Khemistry
                     if (cells[i].isSuit)
                     {
                         var dict = GetSuitCellDict();
-                        double total = KhemistryEVACombinedProcessor.GetTotal(dict);
+                        double total = GetResourceDictionaryTotal(dict);
                         if (dict.Count == 0)
                             labels.Add(string.Format("{0}: Empty (0/{1:F2})", cellLabel, _suitCellMaxAmount));
                         else
@@ -1315,6 +1421,13 @@ namespace Khemistry
             KhemistryFluidCell prefab = ReadFluidCellPrefab(cell.stored.partName);
             HashSet<string> addable = ReadAddableResources(cell.stored);
             bool restrictResources = prefab != null && prefab.HasSupportedResourceGroups;
+            if (ReadCellTotalFreeSpace(cell.stored) <= 1e-9)
+            {
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "That fluid cell is full.", 5.0f,
+                    ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
 
             var optionParts = new Dictionary<string, Part>();
             var optionResources = new Dictionary<string, string>();
@@ -1355,7 +1468,9 @@ namespace Khemistry
                 ProtoPartResourceSnapshot cellResource = FindCellResource(cell.stored, resourceName);
                 if (!HasUsableAmount(sourceResource) || !CanAcceptResource(cellResource)
                     || !IsResourceAllowedForAddition(cell.stored, resourceName)) return;
-                double liveSpace = Math.Max(0.0, cellResource.maxAmount - cellResource.amount);
+                double liveSpace = Math.Min(
+                    Math.Max(0.0, cellResource.maxAmount - cellResource.amount),
+                    ReadCellTotalFreeSpace(cell.stored));
                 double maxTakeValue = Math.Min(sourceResource.amount, liveSpace);
                 float maxTake = maxTakeValue >= float.MaxValue
                     ? float.MaxValue : (float)maxTakeValue;
@@ -1373,7 +1488,9 @@ namespace Khemistry
                         if (!HasUsableAmount(liveSource) || !CanAcceptResource(liveCell)
                             || !IsResourceAllowedForAddition(cell.stored, resourceName)
                             || float.IsNaN(amount) || float.IsInfinity(amount) || amount <= 0f) return;
-                        double liveCellSpace = Math.Max(0.0, liveCell.maxAmount - liveCell.amount);
+                        double liveCellSpace = Math.Min(
+                            Math.Max(0.0, liveCell.maxAmount - liveCell.amount),
+                            ReadCellTotalFreeSpace(cell.stored));
                         double taken = Math.Min(amount, Math.Min(liveSource.amount, liveCellSpace));
                         if (taken <= 1e-9) return;
                         double currentLogicalAmount = ReadResourceAmountValue(
@@ -1392,7 +1509,7 @@ namespace Khemistry
         {
             KShared.Log("Called!", "KhemistryKerbal/ShowSuitCellPartSelectorForTake");
             var dict = GetSuitCellDict();
-            double currentTotal = KhemistryEVACombinedProcessor.GetTotal(dict);
+            double currentTotal = GetResourceDictionaryTotal(dict);
             double spaceRemaining = _suitCellMaxAmount - currentTotal;
 
             if (spaceRemaining <= 0.0)
@@ -1445,7 +1562,7 @@ namespace Khemistry
                                 _suitCellTransferDistance)) return;
                         var liveDict = GetSuitCellDict();
                         double liveSpace = Math.Max(0.0,
-                            _suitCellMaxAmount - KhemistryEVACombinedProcessor.GetTotal(liveDict));
+                            _suitCellMaxAmount - GetResourceDictionaryTotal(liveDict));
                         var def = PartResourceLibrary.Instance.GetDefinition(resourceName);
                         PartResource liveSource = def == null ? null : sourcePart.Resources.Get(def.id);
                         if (!HasUsableAmount(liveSource) || float.IsNaN(amount)
@@ -1464,360 +1581,6 @@ namespace Khemistry
             });
         }
 
-        private List<StoredPart> GetProcessorSnapshots()
-        {
-            var result = new List<StoredPart>();
-            if (_inventory == null) return result;
-            bool migratedSnapshot = false;
-            for (int i = 0; i < _inventory.storedParts.Count; i++)
-            {
-                StoredPart stored = _inventory.storedParts.At(i);
-                AvailablePart ap = PartLoader.getPartInfoByName(stored.partName);
-                KhemistryEVACombinedProcessor prefab = ap?.partPrefab
-                    .FindModuleImplementing<KhemistryEVACombinedProcessor>();
-                if (prefab == null || stored?.snapshot?.modules == null) continue;
-                if (GetProcessorSnapshot(stored) == null)
-                {
-                    // Some older inventory snapshots predate the module. Seed a normal module
-                    // snapshot from the current prefab before exposing the item as operable.
-                    stored.snapshot.modules.Add(new ProtoPartModuleSnapshot(prefab));
-                    migratedSnapshot = true;
-                }
-                result.Add(stored);
-            }
-            if (migratedSnapshot) NotifyInventoryChanged();
-            return result;
-        }
-
-        private KhemistryEVACombinedProcessor GetPrefabProcessor(StoredPart stored)
-            => PartLoader.getPartInfoByName(stored.partName)?.partPrefab
-                .FindModuleImplementing<KhemistryEVACombinedProcessor>();
-
-        private ProtoPartModuleSnapshot GetProcessorSnapshot(StoredPart stored)
-        {
-            if (stored?.snapshot?.modules == null) return null;
-            foreach (ProtoPartModuleSnapshot snap in stored.snapshot.modules)
-                if (snap.moduleName == "KhemistryEVACombinedProcessor") return snap;
-            return null;
-        }
-
-        private string ReadProcessorField(StoredPart stored, string key)
-            => GetProcessorSnapshot(stored)?.moduleValues.GetValue(key) ?? "";
-
-        private bool WriteProcessorField(StoredPart stored, string key, string value)
-        {
-            if (!IsStoredPartCurrent(stored) || string.IsNullOrEmpty(key)) return false;
-            ProtoPartModuleSnapshot snapshot = GetProcessorSnapshot(stored);
-            if (snapshot?.moduleValues == null) return false;
-            value = value ?? "";
-            if (snapshot.moduleValues.GetValue(key) == value) return true;
-            snapshot.moduleValues.SetValue(key, value, true);
-            NotifyInventoryChanged();
-            return true;
-        }
-
-        private bool ReadProcessorBool(StoredPart stored, string key)
-        {
-            return bool.TryParse(ReadProcessorField(stored, key), out bool result) && result;
-        }
-
-        private Dictionary<string, double> DeserializeProcessorResources(StoredPart stored)
-            => KhemistryEVACombinedProcessor.Deserialize(ReadProcessorField(stored, "storedResourcesData"));
-
-        private bool WriteProcessorResources(StoredPart stored, Dictionary<string, double> resources)
-            => WriteProcessorField(stored, "storedResourcesData",
-                KhemistryEVACombinedProcessor.Serialize(resources));
-
-        [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Use Held Processor",
-                  groupName = "processoreva", groupDisplayName = "Processors", groupStartCollapsed = false,
-                  externalToEVAOnly = true, guiActiveUnfocused = false, unfocusedRange = 10f)]
-        public void EVAUseProcessor()
-        {
-            KShared.Log("Called! (Use Held Processor button)", "KhemistryKerbal/EVAUseProcessor");
-            var shared = KShared.Instance;
-            if (shared == null) return;
-
-            var processors = GetProcessorSnapshots();
-            if (processors.Count == 0)
-            {
-                ScreenMessages.PostScreenMessage(new ScreenMessage(
-                    "No processors in inventory.", 5f, ScreenMessageStyle.UPPER_CENTER));
-                return;
-            }
-
-            if (processors.Count == 1)
-            {
-                ShowProcessorActionMenu(processors[0]);
-                return;
-            }
-
-            var labels = new List<string>();
-            foreach (StoredPart stored in processors)
-            {
-                KhemistryEVACombinedProcessor prefab = GetPrefabProcessor(stored);
-                string name = prefab != null ? stored.partName : stored.partName;
-                bool running = ReadProcessorBool(stored, "isRunning");
-                string conv = ReadProcessorField(stored, "activeConverterName");
-                string suffix = running ? " [" + conv + "]" : " [Stopped]";
-                labels.Add(MakeUniqueLabel(labels, name + suffix));
-            }
-
-            shared.ShowSelector("Select processor", labels, label =>
-            {
-                int idx = labels.IndexOf(label);
-                if (idx >= 0 && IsStoredPartCurrent(processors[idx]))
-                    ShowProcessorActionMenu(processors[idx]);
-            });
-        }
-
-        private void ShowProcessorActionMenu(StoredPart stored)
-        {
-            if (!IsStoredPartCurrent(stored)) return;
-            var shared = KShared.Instance;
-            KhemistryEVACombinedProcessor prefab = GetPrefabProcessor(stored);
-            if (prefab == null || !prefab.IsConfigLoaded) return;
-
-            bool running = ReadProcessorBool(stored, "isRunning");
-            var actions = new List<string>();
-
-            if (prefab.Converters.Count > 0)
-            {
-                if (!running) actions.Add("Start Converter");
-                else actions.Add("Stop Converter");
-            }
-
-            actions.Add("Transfer In (from nearby)");
-
-            var resources = DeserializeProcessorResources(stored);
-            if (KhemistryEVACombinedProcessor.GetTotal(resources) > 0.0)
-                actions.Add("Transfer Out (to nearby)");
-
-            if (actions.Count == 0)
-            {
-                ScreenMessages.PostScreenMessage(new ScreenMessage(
-                    "No actions available.", 5f, ScreenMessageStyle.UPPER_CENTER));
-                return;
-            }
-
-            shared.ShowSelector("Processor: " + stored.partName, actions,
-                action =>
-                {
-                    if (IsStoredPartCurrent(stored))
-                        ExecuteProcessorAction(stored, prefab, action);
-                });
-        }
-
-        private void ExecuteProcessorAction(StoredPart stored,
-            KhemistryEVACombinedProcessor prefab, string action)
-        {
-            var shared = KShared.Instance;
-            if (shared == null || !IsStoredPartCurrent(stored)) return;
-
-            switch (action)
-            {
-                case "Start Converter":
-                    {
-                        if (prefab.Converters.Count == 1)
-                        {
-                            if (!WriteProcessorField(stored, "activeConverterName",
-                                    prefab.Converters[0].name)
-                                || !WriteProcessorField(stored, "isRunning", "True")) return;
-                            ScreenMessages.PostScreenMessage(new ScreenMessage(
-                                "Converter \"" + prefab.Converters[0].name + "\" started.",
-                                4f, ScreenMessageStyle.UPPER_CENTER));
-                        }
-                        else
-                        {
-                            var names = new List<string>();
-                            foreach (var conv in prefab.Converters) names.Add(conv.name);
-                            shared.ShowSelector("Select converter to start", names, name =>
-                            {
-                                if (!IsStoredPartCurrent(stored) || !names.Contains(name)) return;
-                                if (!WriteProcessorField(stored, "activeConverterName", name)
-                                    || !WriteProcessorField(stored, "isRunning", "True")) return;
-                                ScreenMessages.PostScreenMessage(new ScreenMessage(
-                                    "Converter \"" + name + "\" started.", 4f, ScreenMessageStyle.UPPER_CENTER));
-                            });
-                        }
-                        break;
-                    }
-                case "Stop Converter":
-                    if (!WriteProcessorField(stored, "isRunning", "False")) return;
-                    ScreenMessages.PostScreenMessage(new ScreenMessage(
-                        "Converter stopped.", 4f, ScreenMessageStyle.UPPER_CENTER));
-                    break;
-
-                case "Transfer In (from nearby)":
-                    ShowProcessorTransferInMenu(stored, prefab);
-                    break;
-
-                case "Transfer Out (to nearby)":
-                    ShowProcessorTransferOutMenu(stored, prefab);
-                    break;
-            }
-        }
-
-        private void ShowProcessorTransferInMenu(StoredPart stored,
-            KhemistryEVACombinedProcessor prefab)
-        {
-            if (!IsStoredPartCurrent(stored)) return;
-            KShared.Log("Called!", "KhemistryKerbal/ShowProcessorTransferInMenu");
-            var shared = KShared.Instance;
-            var resources = DeserializeProcessorResources(stored);
-            double currentTotal = KhemistryEVACombinedProcessor.GetTotal(resources);
-            double spaceRemaining = prefab.MaxTotalStorage - currentTotal;
-
-            if (spaceRemaining <= 0.0)
-            {
-                ScreenMessages.PostScreenMessage(new ScreenMessage(
-                    "Processor is full.", 5f, ScreenMessageStyle.UPPER_CENTER));
-                return;
-            }
-
-            var options = new Dictionary<string, (Part part, string resourceName)>();
-            foreach (Part p in GetPartsInRange(prefab.TransferDistance))
-                foreach (PartResource pr in p.Resources)
-                {
-                    if (!prefab.SupportedResources.Contains(pr.resourceName)) continue;
-                    if (!HasUsableAmount(pr)) continue;
-                    string label = string.Format("{0} / {1}  ({2}: {3:F1})",
-                        p.vessel.vesselName, p.partInfo.title, pr.resourceName, pr.amount);
-                    AddUniqueOption(options, label, (p, pr.resourceName));
-                }
-
-            if (options.Count == 0)
-            {
-                ScreenMessages.PostScreenMessage(new ScreenMessage(
-                    "No nearby parts have supported resources.", 5f, ScreenMessageStyle.UPPER_CENTER));
-                return;
-            }
-
-            shared.ShowSelector("Take from...", new List<string>(options.Keys), label =>
-            {
-                if (!options.TryGetValue(label, out var selection)
-                    || !IsStoredPartCurrent(stored)) return;
-                var (sourcePart, resourceName) = selection;
-                if (!IsPartCurrentAndInRange(sourcePart, prefab.TransferDistance)) return;
-                var def = PartResourceLibrary.Instance.GetDefinition(resourceName);
-                if (def == null) return;
-                PartResource sourceResource = sourcePart.Resources.Get(def.id);
-                if (!HasUsableAmount(sourceResource)) return;
-
-                var res = DeserializeProcessorResources(stored);
-                double liveSpace = Math.Max(0.0, prefab.MaxTotalStorage
-                    - KhemistryEVACombinedProcessor.GetTotal(res));
-                double taken = Math.Min(sourceResource.amount, liveSpace);
-                if (taken <= 1e-9) return;
-                res.TryGetValue(resourceName, out double existing);
-                res[resourceName] = existing + taken;
-                if (!WriteProcessorResources(stored, res)) return;
-                sourceResource.amount -= taken;
-
-                KShared.Log(
-                    string.Format("Processor received {0:F4} of {1} from {2}.",
-                        taken, resourceName, sourcePart.partInfo.title),
-                    "KhemistryKerbal/ProcessorTransferIn");
-                ScreenMessages.PostScreenMessage(new ScreenMessage(
-                    string.Format("Received {0:F2} of {1}.", taken, resourceName),
-                    5f, ScreenMessageStyle.UPPER_CENTER));
-            });
-        }
-
-        private void ShowProcessorTransferOutMenu(StoredPart stored,
-            KhemistryEVACombinedProcessor prefab)
-        {
-            if (!IsStoredPartCurrent(stored)) return;
-            var shared = KShared.Instance;
-            var resources = DeserializeProcessorResources(stored);
-
-            if (resources.Count == 0)
-            {
-                ScreenMessages.PostScreenMessage(new ScreenMessage(
-                    "Processor is empty.", 5f, ScreenMessageStyle.UPPER_CENTER));
-                return;
-            }
-
-            if (resources.Count == 1)
-            {
-                string only = "";
-                foreach (var kvp in resources) { only = kvp.Key; }
-                ShowProcessorTransferOutTargets(stored, prefab, only);
-                return;
-            }
-
-            var resLabels = new List<string>();
-            var resKeys = new List<string>();
-            foreach (var kvp in resources)
-            {
-                resLabels.Add(string.Format("{0}: {1:F2}", kvp.Key, kvp.Value));
-                resKeys.Add(kvp.Key);
-            }
-
-            shared.ShowSelector("Which resource to send?", resLabels, label =>
-            {
-                int idx = resLabels.IndexOf(label);
-                if (idx >= 0 && IsStoredPartCurrent(stored))
-                    ShowProcessorTransferOutTargets(stored, prefab, resKeys[idx]);
-            });
-        }
-
-        private void ShowProcessorTransferOutTargets(StoredPart stored,
-            KhemistryEVACombinedProcessor prefab, string resourceName)
-        {
-            if (!IsStoredPartCurrent(stored)) return;
-            var shared = KShared.Instance;
-            var options = new Dictionary<string, Part>();
-
-            foreach (Part p in GetPartsInRange(prefab.TransferDistance))
-                foreach (PartResource pr in p.Resources)
-                {
-                    if (pr.resourceName != resourceName) continue;
-                    if (!CanAcceptResource(pr)) continue;
-                    string label = string.Format("{0} / {1}  (space: {2:F1})",
-                        p.vessel.vesselName, p.partInfo.title, pr.maxAmount - pr.amount);
-                    AddUniqueOption(options, label, p);
-                }
-
-            if (options.Count == 0)
-            {
-                ScreenMessages.PostScreenMessage(new ScreenMessage(
-                    "No nearby parts can accept " + resourceName + ".",
-                    5f, ScreenMessageStyle.UPPER_CENTER));
-                return;
-            }
-
-            shared.ShowSelector("Send " + resourceName + " to...",
-                new List<string>(options.Keys), label =>
-                {
-                    if (!options.TryGetValue(label, out Part target)
-                        || !IsStoredPartCurrent(stored)
-                        || !IsPartCurrentAndInRange(target, prefab.TransferDistance)) return;
-                    var def = PartResourceLibrary.Instance.GetDefinition(resourceName);
-                    if (def == null) return;
-                    PartResource targetResource = target.Resources.Get(def.id);
-                    if (!CanAcceptResource(targetResource)) return;
-
-                    var res = DeserializeProcessorResources(stored);
-                    res.TryGetValue(resourceName, out double available);
-                    double space = Math.Max(0.0, targetResource.maxAmount - targetResource.amount);
-                    double pushed = Math.Min(available, space);
-                    if (pushed <= 1e-9) return;
-
-                    double remaining = available - pushed;
-                    if (remaining < 1e-9) res.Remove(resourceName);
-                    else res[resourceName] = remaining;
-                    if (!WriteProcessorResources(stored, res)) return;
-                    targetResource.amount += pushed;
-
-                    KShared.Log(
-                        string.Format("Processor sent {0:F4} of {1} to {2}.",
-                            pushed, resourceName, target.partInfo.title),
-                        "KhemistryKerbal/ProcessorTransferOut");
-                    ScreenMessages.PostScreenMessage(new ScreenMessage(
-                        string.Format("Transferred {0:F2} of {1}.", pushed, resourceName),
-                        5f, ScreenMessageStyle.UPPER_CENTER));
-                });
-        }
         private void ShowSuitCellPartSelectorForSend()
         {
             var dict = GetSuitCellDict();
