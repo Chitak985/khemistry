@@ -20,7 +20,29 @@ namespace Khemistry
         [KSPField(isPersistant = true)]
         public string ResourceName = "";
 
-        public HashSet<string> AllowedResources = new HashSet<string>();
+        private readonly List<HashSet<string>> _supportedResourceGroups
+            = new List<HashSet<string>>();
+
+        // Union of every group, for callers that only need to know whether a
+        // resource belongs to this cell at all.
+        public HashSet<string> SupportedResources = new HashSet<string>();
+
+        public bool HasSupportedResourceGroups => _supportedResourceGroups.Count > 0;
+
+        public HashSet<string> GetAddableResources(IEnumerable<string> storedResources)
+        {
+            var result = new HashSet<string>(StringComparer.Ordinal);
+            if (_supportedResourceGroups.Count == 0) return result;
+
+            var stored = new HashSet<string>(StringComparer.Ordinal);
+            if (storedResources != null)
+                foreach (string name in storedResources)
+                    if (!string.IsNullOrWhiteSpace(name)) stored.Add(name.Trim());
+
+            foreach (HashSet<string> group in _supportedResourceGroups)
+                if (group.IsSupersetOf(stored)) result.UnionWith(group);
+            return result;
+        }
 
         [KSPField(isPersistant = false, guiActive = true, guiActiveEditor = false, guiName = "Contents")]
         public string ContentsDisplay = "Empty";
@@ -28,32 +50,47 @@ namespace Khemistry
         public override void OnLoad(ConfigNode node)
         {
             base.OnLoad(node);
-            AllowedResources.Clear();
+            _supportedResourceGroups.Clear();
+            SupportedResources.Clear();
 
-            if (node.HasNode("ALLOWED_RESOURCES"))
+            ConfigNode[] supportedNodes = node.GetNodes("SUPPORTED_RESOURCES");
+            foreach (ConfigNode supportedNode in supportedNodes)
             {
-                foreach (string name in node.GetNode("ALLOWED_RESOURCES").GetValues("name"))
+                var group = new HashSet<string>(StringComparer.Ordinal);
+                foreach (string name in supportedNode.GetValues("name"))
                 {
                     string trimmed = name?.Trim();
-                    if (!string.IsNullOrEmpty(trimmed)) AllowedResources.Add(trimmed);
+                    if (!string.IsNullOrEmpty(trimmed)) group.Add(trimmed);
                 }
-                KShared.Log(
-                    "Loaded " + AllowedResources.Count + " allowed resources.",
-                    "KhemistryFluidCell/OnLoad");
+                if (group.Count == 0) continue;
+                _supportedResourceGroups.Add(group);
+                SupportedResources.UnionWith(group);
             }
+
+            if (_supportedResourceGroups.Count > 0)
+                KShared.Log(
+                    "Loaded " + SupportedResources.Count + " resources in "
+                    + _supportedResourceGroups.Count + " supported resource groups.",
+                    "KhemistryFluidCell/OnLoad");
         }
 
         public override void OnStart(StartState state)
         {
             base.OnStart(state);
 
-            if (AllowedResources.Count == 0)
+            if (_supportedResourceGroups.Count == 0)
             {
                 KhemistryFluidCell prefab = part.partInfo?.partPrefab
                     ?.FindModuleImplementing<KhemistryFluidCell>();
                 if (prefab != null && prefab != this)
-                    foreach (string resourceName in prefab.AllowedResources)
-                        AllowedResources.Add(resourceName);
+                {
+                    foreach (HashSet<string> prefabGroup in prefab._supportedResourceGroups)
+                    {
+                        var group = new HashSet<string>(prefabGroup, StringComparer.Ordinal);
+                        _supportedResourceGroups.Add(group);
+                        SupportedResources.UnionWith(group);
+                    }
+                }
             }
             ResourceName = ResourceName?.Trim() ?? "";
 
@@ -79,7 +116,7 @@ namespace Khemistry
             // any remainder in the legacy fields so no saved resource is silently discarded.
             if (!string.IsNullOrWhiteSpace(ResourceName) && ResourceAmount > 0f
                 && !float.IsNaN(ResourceAmount) && !float.IsInfinity(ResourceAmount)
-                && (AllowedResources.Count == 0 || AllowedResources.Contains(ResourceName)))
+                && (SupportedResources.Count == 0 || SupportedResources.Contains(ResourceName)))
             {
                 PartResourceDefinition definition = PartResourceLibrary.Instance
                     ?.GetDefinition(ResourceName);
@@ -131,7 +168,7 @@ namespace Khemistry
             var displayed = new List<string>();
             foreach (PartResource resource in part.Resources)
             {
-                if (AllowedResources.Count > 0 && !AllowedResources.Contains(resource.resourceName))
+                if (SupportedResources.Count > 0 && !SupportedResources.Contains(resource.resourceName))
                     continue;
                 if (double.IsNaN(resource.amount) || double.IsInfinity(resource.amount)
                     || double.IsNaN(resource.maxAmount) || double.IsInfinity(resource.maxAmount)
