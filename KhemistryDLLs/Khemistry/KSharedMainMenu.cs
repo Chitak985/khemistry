@@ -11,9 +11,20 @@ namespace Khemistry
     [KSPAddon(KSPAddon.Startup.MainMenu, true)]
     public class KSharedMainMenu : MonoBehaviour
     {
+        /// <summary>
+        /// The private instance set in MainMenu Awake().
+        /// </summary>
         private static KSharedMainMenu _instance;
+        
+        /// <summary>
+        /// The instance set in MainMenu Awake().
+        /// </summary>
         public static KSharedMainMenu Instance => _instance;
 
+        /// <summary>
+        /// The instance of <see cref="KShared"/> to use everywhere.
+        /// This should exist by the time the game loads MainMenu.
+        /// </summary>
         public KShared kinst;
 
         public void Awake()
@@ -29,7 +40,7 @@ namespace Khemistry
             kinst = KShared.Instance;
             if (kinst == null)
             {
-                Debug.LogError("Khemistry (KSharedMainMenu/Awake): KShared.Instance is not available; configuration loading was aborted.");
+                KShared.LogFatalError("No KShared instance and Khemistry is about to have a bad time", "KSharedMainMenu/Awake");
                 return;
             }
 
@@ -40,7 +51,7 @@ namespace Khemistry
             kinst.batchRecipeList.Clear();
             kinst.materialList.Clear();
 
-            // Celestial body list
+            // Set up <see cref="KShared"/>'s celestial body list
             kinst.celestialBodies = FlightGlobals.Bodies.Select(b => b.bodyName).ToList();
 
             GenerateConfiguredDeposits(kinst);
@@ -106,14 +117,18 @@ namespace Khemistry
         /// Rebuilds the procedural deposit set from configuration. This is intentionally
         /// reusable by the per-save scenario so two new saves created during one KSP process
         /// receive independent random locations instead of clones of the main-menu roll.
+        /// Not using the kinst variable as this is a static method and
+        /// is called in DepositPersistence.cs/TryApplyLoadedDeposits.
         /// </summary>
         internal static bool GenerateConfiguredDeposits(KShared shared)
         {
+            // Null check everything
             if (shared == null || shared.rand == null || GameDatabase.Instance == null
                 || PartResourceLibrary.Instance == null || FlightGlobals.Bodies == null
                 || FlightGlobals.Bodies.Count == 0)
                 return false;
 
+            // Clear all of the old deposits
             shared.surfaceDeposits.Clear();
             shared.undergroundDeposits.Clear();
 
@@ -122,18 +137,58 @@ namespace Khemistry
                 string resource = node.GetValue("resource")?.Trim();
                 string type = node.GetValue("type")?.Trim();
                 string body = node.GetValue("body")?.Trim();
-                if (string.IsNullOrEmpty(resource) || string.IsNullOrEmpty(type)
-                    || string.IsNullOrEmpty(body))
+
+                // Resource error checking
+                string resoError = "UNKNOWN ERROR";
+                bool resoErr = true;
+                if (string.IsNullOrEmpty(resource))
+                    resoError = "MISSING"
+                else
                 {
-                    KShared.LogError("A KHEMISTRY_RESOURCE_DEPOSIT is missing resource, type, or body and was not loaded.",
-                        "KSharedMainMenu/GenerateConfiguredDeposits");
-                    continue;
+                    resoError = "Present ("+resource+")";
+                    resoErr = false;
                 }
 
-                if (type != "surface" && type != "surfaceOnly" && type != "underground")
+                // Type error checking
+                string typeError = "UNKNOWN ERROR";
+                bool typeErr = true;
+                if (string.IsNullOrEmpty(resource))
+                    typeError = "MISSING";
+                else if (type != "surface" && type != "surfaceOnly" && type != "underground")
+                    typeError = "INVALID ("+type+")";
+                else
                 {
-                    KShared.LogError("Deposit \"" + resource + "\" has invalid type \"" + type
-                        + "\" and was not loaded.", "KSharedMainMenu/GenerateConfiguredDeposits");
+                    typeError = "Valid ("+type+")";
+                    typeErr = false;
+                }
+                        
+                // Body error checking
+                string bodyError = "UNKNOWN ERROR";
+                bool bodyErr = true;
+                if (string.IsNullOrEmpty(body))
+                    bodyError = "MISSING";
+                else
+                    if (shared.celestialBodies == null)
+                        bodyError = "Cannot validate, celestialBodies is null ("+body")";
+                    else if (shared.celestialBodies.length == 0)
+                        bodyError = "Cannot validate, celestialBodies is empty ("+body")";
+                    else
+                        if (shared.celestialBodies.Contains(body))
+                        {
+                            bodyError = "Valid ("+body+")";
+                            resoErr = false;
+                        }
+                        else
+                            bodyError = "INVALID ("+body+")";
+
+                // Print error message if needed
+                if (resoErr || typeErr || bodyErr)
+                {
+                    KShared.LogError("A KHEMISTRY_RESOURCE_DEPOSIT encountered a value-related error: "
+                        + $"resource: {resoError}, "
+                        + $"type: {typeError}, "
+                        + $"body: {bodyError}",
+                        "KSharedMainMenu/GenerateConfiguredDeposits");
                     continue;
                 }
 
@@ -273,9 +328,15 @@ namespace Khemistry
             return true;
         }
 
+        /// <summary>
+        /// Check if the float is finite, not NaN, and isn't negative.
+        /// </summary>
         private static bool IsFiniteNonNegative(float value)
             => !float.IsNaN(value) && !float.IsInfinity(value) && value >= 0f;
 
+        /// <summary>
+        /// Check if the float is finite, not NaN, and is positive.
+        /// </summary>
         private static bool IsFinitePositive(float value)
             => !float.IsNaN(value) && !float.IsInfinity(value) && value > 0f;
 
