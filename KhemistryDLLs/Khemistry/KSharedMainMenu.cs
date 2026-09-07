@@ -139,19 +139,21 @@ namespace Khemistry
                 string body = node.GetValue("body")?.Trim();
 
                 // Resource error checking
-                string resoError = "UNKNOWN ERROR";
+                string resoError;
                 bool resoErr = true;
+
                 if (string.IsNullOrEmpty(resource))
-                    resoError = "MISSING"
+                    resoError = "MISSING";
                 else
                 {
-                    resoError = "Present ("+resource+")";
+                    resoError = "Present (" + resource + ")";
                     resoErr = false;
                 }
 
                 // Type error checking
-                string typeError = "UNKNOWN ERROR";
+                string typeError;
                 bool typeErr = true;
+
                 if (string.IsNullOrEmpty(resource))
                     typeError = "MISSING";
                 else if (type != "surface" && type != "surfaceOnly" && type != "underground")
@@ -161,25 +163,27 @@ namespace Khemistry
                     typeError = "Valid ("+type+")";
                     typeErr = false;
                 }
-                        
+
+
                 // Body error checking
-                string bodyError = "UNKNOWN ERROR";
+                string bodyError;
                 bool bodyErr = true;
+
                 if (string.IsNullOrEmpty(body))
                     bodyError = "MISSING";
                 else
                     if (shared.celestialBodies == null)
-                        bodyError = "Cannot validate, celestialBodies is null ("+body")";
-                    else if (shared.celestialBodies.length == 0)
-                        bodyError = "Cannot validate, celestialBodies is empty ("+body")";
+                        bodyError = "Cannot validate, celestialBodies is null (" + body + ")";
+                    else if (shared.celestialBodies.Count == 0)
+                        bodyError = "Cannot validate, celestialBodies is empty (" + body + ")";
                     else
                         if (shared.celestialBodies.Contains(body))
                         {
-                            bodyError = "Valid ("+body+")";
+                            bodyError = "Valid (" + body + ")";
                             resoErr = false;
                         }
                         else
-                            bodyError = "INVALID ("+body+")";
+                            bodyError = "INVALID (" + body + ")";
 
                 // Print error message if needed
                 if (resoErr || typeErr || bodyErr)
@@ -259,10 +263,9 @@ namespace Khemistry
                 if (type == "surface")
                 {
                     string resource2 = node.GetValue("resource2")?.Trim();
-                    float surfaceDepth = 0f;
                     float undergroundStart = 0f;
                     bool validDepths = TryReadFloat(node, "depthSurface", 10f,
-                            out surfaceDepth)
+                            out float surfaceDepth)
                         && TryReadFloat(node, "depthUndergroundStart", 100f,
                             out undergroundStart);
                     if (!validDepths || string.IsNullOrEmpty(resource2)

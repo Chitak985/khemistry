@@ -124,6 +124,33 @@ namespace Khemistry
             }
         }
 
+        private bool ResetForBiomeTransition()
+        {
+            if (_runtimeData == null) return false;
+            string currentPlanet = _runtimeData.planet ?? "";
+            string currentBiome = _runtimeData.biome ?? "";
+            if (!hasLastBiome)
+            {
+                hasLastBiome = true;
+                lastBiomePlanet = currentPlanet;
+                lastBiomeName = currentBiome;
+                return false;
+            }
+            if (string.Equals(lastBiomePlanet, currentPlanet, StringComparison.Ordinal)
+                && string.Equals(lastBiomeName, currentBiome, StringComparison.Ordinal))
+                return false;
+
+            string previous = lastBiomePlanet + "/" + lastBiomeName;
+            lastBiomePlanet = currentPlanet;
+            lastBiomeName = currentBiome;
+            TriggerPowerfail(part, KhemistryISRURecipe.PowerfailResult.Void);
+            KShared.Log("Converter \"" + ConverterName + "\" crossed from biome \""
+                + previous + "\" to \"" + currentPlanet + "/" + currentBiome
+                + "\"; the active batch was voided and the converter was stopped.",
+                "KhemistryISRU/ResetForBiomeTransition");
+            return true;
+        }
+
         /// <summary>
         /// Gives back everything withdrawn by passive inputs during the in-progress batch.
         /// </summary>
@@ -657,7 +684,9 @@ namespace Khemistry
             if (node != null && (node.HasValue("isRunning")
                 || node.HasValue("needsMaintenance") || node.HasValue("state")
                 || node.HasValue("chargePercent") || node.HasValue("activeRecipeName")
-                || node.HasValue("batchProgress") || node.HasNode("PASSIVE_INPUT_STATE")
+                || node.HasValue("batchProgress") || node.HasValue("hasLastBiome")
+                || node.HasValue("lastBiomePlanet") || node.HasValue("lastBiomeName")
+                || node.HasNode("PASSIVE_INPUT_STATE")
                 || node.HasNode("PENDING_PASSIVE_REFUND")
                 || node.HasNode("ORPHANED_LEGACY_PASSIVE_STATE")
                 || node.HasNode("MATERIAL_OUTPUT_BUFFER")))
@@ -1185,6 +1214,7 @@ namespace Khemistry
                 this.state = KShared.ChargablePartState.On;
 
             _runtimeData = new KhemistryRuntimeData(vessel);  // vessel could be null
+            ResetForBiomeTransition();
 
             SetupActiveAnimation();
 
@@ -1506,6 +1536,7 @@ namespace Khemistry
             if (_fatalConfigError) return;
 
             _runtimeData.Update(vessel);
+            ResetForBiomeTransition();
 
             double dt = TimeWarp.fixedDeltaTime;
             if (double.IsNaN(dt) || double.IsInfinity(dt) || dt <= 0.0) return;
@@ -1885,6 +1916,18 @@ namespace Khemistry
                     dumpExcess = output.dumpExcess
                 });
             }
+            foreach (KhemistryISRURecipe.ResourceOutput output in biomeConfig.outputs)
+            {
+                double amount = output.amount * _activeRecipe._biomeResourceScale
+                    * biomeConfig.outputMultiplier;
+                if (double.IsNaN(amount) || double.IsInfinity(amount) || amount <= 0.0) continue;
+                outputs.Add(new PreparedResourceOutput
+                {
+                    name = output.resourceName,
+                    amount = amount,
+                    dumpExcess = output.dumpExcess
+                });
+            }
             return outputs;
         }
 
@@ -2037,6 +2080,13 @@ namespace Khemistry
             {
                 names.Add(inp.resourceName);
                 amounts.Add(inp.amount * biomeConfig.inputMultiplier);
+                flowModes.Add(inp.flowMode);
+            }
+            foreach (var inp in biomeConfig.inputs)
+            {
+                names.Add(inp.resourceName);
+                amounts.Add(inp.amount * _activeRecipe._biomeResourceScale
+                    * biomeConfig.inputMultiplier);
                 flowModes.Add(inp.flowMode);
             }
             if (!ConsumeVesselResources(names, amounts, flowModes, 1.0, out List<ResourceDraw> resourceDraws))

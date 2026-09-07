@@ -57,13 +57,21 @@ namespace Khemistry
 
         public List<string> depositConditions = new List<string>();
 
+        public readonly List<KhemistryISRURecipe.ResourceInput> inputs
+            = new List<KhemistryISRURecipe.ResourceInput>();
+        public readonly List<KhemistryISRURecipe.ResourceOutput> outputs
+            = new List<KhemistryISRURecipe.ResourceOutput>();
+        public bool hasResourceConfigurationError = false;
+
         ///// Functions /////
         /// <summary>
         /// Make a biome config from a biome config node in a ISRU recipe.
         /// </summary>
         /// <param name="node">The node BIOME_CONFIG in PLANET_CONFIG in a ISRU module.</param>
         /// <param name="ConverterName">The name of the converter the biome config belongs to.</param>
-        public KhemistryISRUBiomeConfig(ConfigNode node, string ConverterName = "UNKNOWN")
+        /// <param name="recipeName">The recipe name used when reporting invalid biome-local resources.</param>
+        public KhemistryISRUBiomeConfig(ConfigNode node, string ConverterName = "UNKNOWN",
+            string recipeName = "UNKNOWN")
         {
             if (node != null && node.HasValue("name"))
             {
@@ -175,6 +183,25 @@ namespace Khemistry
                 workersScientistsMultiplier = ValidateMultiplier(workersScientistsMultiplier, "workersScientistsMul", true, ConverterName);
                 maxInteractionDistanceMultiplier = ValidateMultiplier(maxInteractionDistanceMultiplier, "maxInteractionDistanceMul", true, ConverterName);
                 maxDisplayDistanceMultiplier = ValidateMultiplier(maxDisplayDistanceMultiplier, "maxDisplayDistanceMul", true, ConverterName);
+
+                string resourceContext = "Recipe \"" + recipeName + "\": BIOME_CONFIG \""
+                    + biomeName + "\"";
+                foreach (ConfigNode inputNode in node.GetNodes("INPUT_RESOURCE"))
+                {
+                    if (KhemistryISRURecipe.TryParseResourceInput(inputNode, resourceContext,
+                            out KhemistryISRURecipe.ResourceInput input))
+                        inputs.Add(input);
+                    else
+                        hasResourceConfigurationError = true;
+                }
+                foreach (ConfigNode outputNode in node.GetNodes("OUTPUT_RESOURCE"))
+                {
+                    if (KhemistryISRURecipe.TryParseResourceOutput(outputNode, resourceContext,
+                            out KhemistryISRURecipe.ResourceOutput output))
+                        outputs.Add(output);
+                    else
+                        hasResourceConfigurationError = true;
+                }
 
                 ValidateRange(ref minOperatingAltitude, ref maxOperatingAltitude,
                     "minOperatingAltitude", "maxOperatingAltitude", ConverterName);

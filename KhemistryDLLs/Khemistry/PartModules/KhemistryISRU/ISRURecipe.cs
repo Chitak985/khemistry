@@ -76,6 +76,7 @@ namespace Khemistry
         public readonly List<ResourceOutput> _outputs = new List<ResourceOutput>();
         public readonly List<ResourceOutputMaterial> _outputMaterials = new List<ResourceOutputMaterial>();
         public double _recipeTime = 0;  // in seconds
+        public double _biomeResourceScale = 1.0;
 
         public uint _workersPilots = 0;
         public uint _workersEngineers = 0;
@@ -236,7 +237,10 @@ namespace Khemistry
 
                         foreach (ConfigNode biomeNode in planetNode.GetNodes("BIOME_CONFIG"))
                         {
-                            KhemistryISRUBiomeConfig biomeConfig = new KhemistryISRUBiomeConfig(biomeNode, ConverterName);
+                            KhemistryISRUBiomeConfig biomeConfig = new KhemistryISRUBiomeConfig(
+                                biomeNode, ConverterName, _name);
+                            if (biomeConfig.hasResourceConfigurationError)
+                                configurationError = true;
                             string biomeKey = string.IsNullOrEmpty(biomeConfig.biomeName)
                                 ? "ALL" : biomeConfig.biomeName;
                             if (biomeDict.ContainsKey(biomeKey))
@@ -258,7 +262,8 @@ namespace Khemistry
                     Dictionary<string, KhemistryISRUBiomeConfig> biomeDict = new Dictionary<string, KhemistryISRUBiomeConfig>();
                     ConfigNode configNode = new ConfigNode("BIOME_CONFIG");
                     configNode.AddValue("name", "ALL");
-                    biomeDict.Add("ALL", new KhemistryISRUBiomeConfig(configNode, ConverterName));
+                    biomeDict.Add("ALL", new KhemistryISRUBiomeConfig(
+                        configNode, ConverterName, _name));
                     _planetConfigs.Add("ALL", biomeDict);
                 }
 
@@ -266,39 +271,11 @@ namespace Khemistry
                 _inputs.Clear();
                 foreach (ConfigNode inputNode in node.GetNodes("INPUT_RESOURCE"))
                 {
-                    string resName = inputNode.GetValue("name")?.Trim();
-                    if (string.IsNullOrEmpty(resName))
-                    {
+                    if (TryParseResourceInput(inputNode, "Recipe \"" + _name + "\"",
+                            out ResourceInput input))
+                        _inputs.Add(input);
+                    else
                         configurationError = true;
-                        KShared.LogNoValueInNode("INPUT_RESOURCE", "name", "Recipe \"" + _name + "\" ",
-                            "KhemistryISRURecipe/constructor");
-                        continue;
-                    }
-
-                    double amount = KShared.GetDoubleValueFromCFG(inputNode, "amount", 0.0);
-                    if (double.IsNaN(amount) || double.IsInfinity(amount) || amount <= 0.0)
-                    {
-                        configurationError = true;
-                        KShared.LogError("Recipe \"" + _name + "\": INPUT_RESOURCE \""
-                            + resName + "\" has an invalid amount and was skipped.",
-                            "KhemistryISRURecipe/constructor");
-                        continue;
-                    }
-
-                    ResourceFlowMode flowMode = ResourceFlowMode.STAGE_PRIORITY_FLOW;
-                    string flowStr = inputNode.GetValue("flowmode");
-                    if (!string.IsNullOrEmpty(flowStr))
-                    {
-                        if (Enum.TryParse(flowStr.Trim(), true, out ResourceFlowMode parsed)
-                            && Enum.IsDefined(typeof(ResourceFlowMode), parsed))
-                            flowMode = parsed;
-                        else
-                            KShared.LogError(
-                                "Recipe \"" + _name + "\": Unknown flowmode \"" + flowStr + "\" for " + resName + ", defaulting to STAGE_PRIORITY_FLOW.",
-                                "KhemistryISRURecipe/constructor");
-                    }
-
-                    _inputs.Add(new ResourceInput { resourceName = resName, amount = amount, flowMode = flowMode });
                 }
 
                 ///// Input materials /////
@@ -483,38 +460,11 @@ namespace Khemistry
                 _outputs.Clear();
                 foreach (ConfigNode outputNode in node.GetNodes("OUTPUT_RESOURCE"))
                 {
-                    string resName = outputNode.GetValue("name")?.Trim();
-                    if (string.IsNullOrEmpty(resName))
-                    {
+                    if (TryParseResourceOutput(outputNode, "Recipe \"" + _name + "\"",
+                            out ResourceOutput output))
+                        _outputs.Add(output);
+                    else
                         configurationError = true;
-                        KShared.LogNoValueInNode("OUTPUT_RESOURCE", "name", "Recipe \"" + _name + "\" ",
-                            "KhemistryISRURecipe/constructor");
-                        continue;
-                    }
-
-                    double amount = KShared.GetDoubleValueFromCFG(outputNode, "amount", 0.0);
-                    if (double.IsNaN(amount) || double.IsInfinity(amount) || amount <= 0.0)
-                    {
-                        configurationError = true;
-                        KShared.LogError("Recipe \"" + _name + "\": OUTPUT_RESOURCE \""
-                            + resName + "\" has an invalid amount and was skipped.",
-                            "KhemistryISRURecipe/constructor");
-                        continue;
-                    }
-                    bool dumpExcess = false;
-                    string dumpExcessRaw = outputNode.GetValue("dumpExcess");
-                    if (!string.IsNullOrEmpty(dumpExcessRaw)
-                        && !bool.TryParse(dumpExcessRaw.Trim(), out dumpExcess))
-                    {
-                        configurationError = true;
-                        KShared.LogError("Recipe \"" + _name + "\": OUTPUT_RESOURCE \""
-                            + resName + "\" has an invalid dumpExcess value \""
-                            + dumpExcessRaw + "\" and was skipped.",
-                            "KhemistryISRURecipe/constructor");
-                        continue;
-                    }
-
-                    _outputs.Add(new ResourceOutput { resourceName = resName, amount = amount, dumpExcess = dumpExcess });
                 }
 
                 ///// Output materials /////
@@ -615,7 +565,10 @@ namespace Khemistry
                     });
                 }
 
-                if (_outputs.Count == 0 && _outputMaterials.Count == 0)
+                bool hasBiomeResourceOutput = _planetConfigs.Values.Any(biomes =>
+                    biomes.Values.Any(config => config.outputs.Count > 0));
+                if (_outputs.Count == 0 && _outputMaterials.Count == 0
+                    && !hasBiomeResourceOutput)
                 {
                     configurationError = true;
                     KShared.LogError(
@@ -662,7 +615,8 @@ namespace Khemistry
                 node.CopyTo(mainNode);
                 IsValid = !configurationError && _recipeTime > 0.0 && !double.IsNaN(_recipeTime)
                     && !double.IsInfinity(_recipeTime)
-                    && (_outputs.Count > 0 || _outputMaterials.Count > 0);
+                    && (_outputs.Count > 0 || _outputMaterials.Count > 0
+                        || hasBiomeResourceOutput);
             }
             catch (Exception ex)
             {
@@ -671,6 +625,92 @@ namespace Khemistry
                     ex.Message, ex.StackTrace),
                 "KhemistryISRURecipe/constructor");
             }
+        }
+
+        internal static bool TryParseResourceInput(ConfigNode inputNode, string context,
+            out ResourceInput input)
+        {
+            input = new ResourceInput();
+            string resourceName = inputNode?.GetValue("name")?.Trim();
+            if (string.IsNullOrEmpty(resourceName))
+            {
+                KShared.LogError(context + ": INPUT_RESOURCE has no name and was skipped.",
+                    "KhemistryISRURecipe/TryParseResourceInput");
+                return false;
+            }
+
+            double amount = KShared.GetDoubleValueFromCFG(inputNode, "amount", 0.0);
+            if (double.IsNaN(amount) || double.IsInfinity(amount) || amount <= 0.0)
+            {
+                KShared.LogError(context + ": INPUT_RESOURCE \"" + resourceName
+                    + "\" has an invalid amount and was skipped.",
+                    "KhemistryISRURecipe/TryParseResourceInput");
+                return false;
+            }
+
+            ResourceFlowMode flowMode = ResourceFlowMode.STAGE_PRIORITY_FLOW;
+            string flowModeValue = inputNode.GetValue("flowmode");
+            if (!string.IsNullOrEmpty(flowModeValue))
+            {
+                if (Enum.TryParse(flowModeValue.Trim(), true, out ResourceFlowMode parsed)
+                    && Enum.IsDefined(typeof(ResourceFlowMode), parsed))
+                    flowMode = parsed;
+                else
+                    KShared.LogError(context + ": Unknown flowmode \"" + flowModeValue
+                        + "\" for " + resourceName
+                        + ", defaulting to STAGE_PRIORITY_FLOW.",
+                        "KhemistryISRURecipe/TryParseResourceInput");
+            }
+
+            input = new ResourceInput
+            {
+                resourceName = resourceName,
+                amount = amount,
+                flowMode = flowMode
+            };
+            return true;
+        }
+
+        internal static bool TryParseResourceOutput(ConfigNode outputNode, string context,
+            out ResourceOutput output)
+        {
+            output = new ResourceOutput();
+            string resourceName = outputNode?.GetValue("name")?.Trim();
+            if (string.IsNullOrEmpty(resourceName))
+            {
+                KShared.LogError(context + ": OUTPUT_RESOURCE has no name and was skipped.",
+                    "KhemistryISRURecipe/TryParseResourceOutput");
+                return false;
+            }
+
+            double amount = KShared.GetDoubleValueFromCFG(outputNode, "amount", 0.0);
+            if (double.IsNaN(amount) || double.IsInfinity(amount) || amount <= 0.0)
+            {
+                KShared.LogError(context + ": OUTPUT_RESOURCE \"" + resourceName
+                    + "\" has an invalid amount and was skipped.",
+                    "KhemistryISRURecipe/TryParseResourceOutput");
+                return false;
+            }
+
+            bool dumpExcess = false;
+            string dumpExcessValue = outputNode.GetValue("dumpExcess");
+            if (!string.IsNullOrEmpty(dumpExcessValue)
+                && !bool.TryParse(dumpExcessValue.Trim(), out dumpExcess))
+            {
+                KShared.LogError(context + ": OUTPUT_RESOURCE \"" + resourceName
+                    + "\" has an invalid dumpExcess value \"" + dumpExcessValue
+                    + "\" and was skipped.",
+                    "KhemistryISRURecipe/TryParseResourceOutput");
+                return false;
+            }
+
+            output = new ResourceOutput
+            {
+                resourceName = resourceName,
+                amount = amount,
+                dumpExcess = dumpExcess
+            };
+            return true;
         }
 
         private static void AddTrimmedDistinct(List<string> destination, IEnumerable<string> values)
@@ -963,6 +1003,7 @@ namespace Khemistry
 
             if (double.IsNaN(multiplier) || double.IsInfinity(multiplier) || multiplier <= 0.0)
                 multiplier = 1.0;
+            copy._biomeResourceScale = _biomeResourceScale * multiplier;
 
             foreach (ResourceInput inp in _inputs)
                 copy._inputs.Add(new ResourceInput { resourceName = inp.resourceName, amount = inp.amount * multiplier, flowMode = inp.flowMode });
