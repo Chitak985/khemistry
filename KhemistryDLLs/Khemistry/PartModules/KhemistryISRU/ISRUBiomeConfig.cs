@@ -11,50 +11,79 @@ namespace Khemistry
     {
         public string biomeName;
 
+        /// <summary>If this biome config is disabled (converter cannot run in this biome)</summary>
         public bool disabled = false;
 
-        public double minOperatingAltitude = double.MinValue;
+        /// <summary>Maximum operational altitude in meters.</summary>
         public double maxOperatingAltitude = double.MaxValue;
-        public double minAltitude = double.MinValue;
+        /// <summary>Minimum operational altitude in meters.</summary>
+        public double minOperatingAltitude = double.MinValue;
+        /// <summary>Maximum survivable altitude in meters.</summary>
         public double maxAltitude = double.MaxValue;
+        /// <summary>Minimum survivable altitude in meters.</summary>
+        public double minAltitude = double.MinValue;
 
-        public double minOperatingG = double.MinValue;
+        /// <summary>Maximum operational G-force.</summary>
         public double maxOperatingG = double.MaxValue;
+        /// <summary>Minimum operational G-force.</summary>
+        public double minOperatingG = double.MinValue;
+        /// <summary>Maximum survivable G-force.</summary>
         public double maxG = double.MaxValue;
+        /// <summary>Minimum survivable G-force.</summary>
         public double minG = double.MinValue;
 
+        /// <summary>Conditions where the recipe can operate in.</summary>
         public List<KShared.SituationCondition> situationOperating = new List<KShared.SituationCondition>();
+        /// <summary>Conditions where the recipe will be destroyed in.</summary>
         public List<KShared.SituationCondition> situationDestructive = new List<KShared.SituationCondition>();
 
-        public double minOperatingTemperature = double.MinValue;
         public double maxOperatingTemperature = double.MaxValue;
-        public double minTemperature = double.MinValue;
+        public double minOperatingTemperature = double.MinValue;
         public double maxTemperature = double.MaxValue;
+        public double minTemperature = double.MinValue;
 
-        public double minOperatingPressure = double.MinValue;
+        /// <summary>Maximum operational pressure in kPa.</summary>
         public double maxOperatingPressure = double.MaxValue;
-        public double minPressure = double.MinValue;
+        /// <summary>Minimum operational pressure in kPa.</summary>
+        public double minOperatingPressure = double.MinValue;
+        /// <summary>Maximum survivable pressure in kPa.</summary>
         public double maxPressure = double.MaxValue;
+        /// <summary>Minimum survivable pressure in kPa.</summary>
+        public double minPressure = double.MinValue;
 
+        /// <summary>How much to multiply passive consumption resource amounts by.</summary>
         public double passiveMultiplier = 1.0;
+        /// <summary>How much to multiply passive consumption's period by.</summary>
         public double passivePeriodMultiplier = 1.0;
 
+        /// <summary>How much to multiply charge rate by.</summary>
         public double chargeRateMultiplier = 1.0;
+        /// <summary>How much to multiply charge decay by.</summary>
         public double chargeDecayMultiplier = 1.0;
+        /// <summary>How much to multiply charging consumption resource amounts by.</summary>
         public double chargeConsumptionMultiplier = 1.0;
 
+        /// <summary>How much to input resource amounts by.</summary>
         public double inputMultiplier = 1.0;
+        /// <summary>How much to output resource amounts by.</summary>
         public double outputMultiplier = 1.0;
 
+        /// <summary>How much to multiply recipe speed by.</summary>
         public double speedMul = 1.0;
 
+        /// <summary>How much to multiply amount of pilot workers by.</summary>
         public double workersPilotsMultiplier = 1.0;
+        /// <summary>How much to multiply amount of engineer workers by.</summary>
         public double workersEngineersMultiplier = 1.0;
+        /// <summary>How much to multiply amount of scientist workers by.</summary>
         public double workersScientistsMultiplier = 1.0;
 
+        /// <summary>How much to multiply max interaction distance by.</summary>
         public double maxInteractionDistanceMultiplier = 1.0;
+        /// <summary>How much to multiply max display distance by.</summary>
         public double maxDisplayDistanceMultiplier = 1.0;
 
+        /// <summary>What deposits the recipe can work in.</summary>
         public List<string> depositConditions = new List<string>();
 
         public readonly List<KhemistryISRURecipe.ResourceInput> inputs
