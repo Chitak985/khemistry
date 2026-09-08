@@ -74,22 +74,17 @@ namespace Khemistry
             if (cell == null || stored?.snapshot == null) return;
 
             bool changed = false;
-            if (GetCellModuleSnapshot(stored) == null)
+            ProtoPartModuleSnapshot snapshot = GetCellModuleSnapshot(stored);
+            if (snapshot == null)
             {
-                stored.snapshot.modules.Add(new ProtoPartModuleSnapshot(cell));
+                snapshot = new ProtoPartModuleSnapshot(cell);
+                stored.snapshot.modules.Add(snapshot);
                 changed = true;
             }
-
-            foreach (PartResource prefabResource in prefabPart.Resources)
+            if (snapshot.moduleValues != null
+                && !snapshot.moduleValues.HasValue("StoredResourcesData"))
             {
-                if (cell.SupportedResources.Count > 0
-                    && !cell.SupportedResources.Contains(prefabResource.resourceName))
-                    continue;
-                bool exists = stored.snapshot.resources.Any(resource =>
-                    resource.resourceName == prefabResource.resourceName);
-                if (exists) continue;
-                stored.snapshot.resources.Add(
-                    new ProtoPartResourceSnapshot(prefabResource));
+                snapshot.moduleValues.AddValue("StoredResourcesData", "");
                 changed = true;
             }
 
@@ -116,23 +111,27 @@ namespace Khemistry
 
             var remaining = DeserializeResourceDictionary(
                 legacy.moduleValues.GetValue("storedResourcesData"));
+            ProtoPartModuleSnapshot cellSnapshot = GetCellModuleSnapshot(stored);
+            KhemistryFluidCell cell = ReadFluidCellPrefab(stored.partName);
+            Dictionary<string, double> cellContents = ReadCellResourceDictionary(stored);
             foreach (KeyValuePair<string, double> value in remaining.ToList())
             {
-                ProtoPartResourceSnapshot resource = FindCellResource(stored, value.Key);
-                if (resource == null || !IsFinite(resource.amount)
-                    || !IsFinite(resource.maxAmount))
+                if (cell == null || cellSnapshot?.moduleValues == null
+                    || !cell.CanAddResource(value.Key, cellContents.Keys))
                     continue;
-                KhemistryFluidCell cell = ReadFluidCellPrefab(stored.partName);
-                double totalSpace = cell == null ? 0.0 : Math.Max(0.0,
-                    cell.ResourceMaxAmount - ReadResourceAmount(stored));
-                double add = Math.Min(value.Value, Math.Min(totalSpace,
-                    Math.Max(0.0, resource.maxAmount - resource.amount)));
+                double totalSpace = Math.Max(0.0, cell.ResourceMaxAmount
+                    - KhemistryFluidCell.GetResourceTotal(cellContents));
+                double add = Math.Min(value.Value, totalSpace);
                 if (add <= 0.0) continue;
-                resource.amount += add;
+                cellContents.TryGetValue(value.Key, out double current);
+                cellContents[value.Key] = current + add;
                 double left = value.Value - add;
                 if (left <= 1e-9) remaining.Remove(value.Key);
                 else remaining[value.Key] = left;
             }
+            if (cellSnapshot?.moduleValues != null)
+                cellSnapshot.moduleValues.SetValue("StoredResourcesData",
+                    KhemistryFluidCell.SerializeResources(cellContents), true);
             legacy.moduleValues.SetValue("storedResourcesData",
                 SerializeResourceDictionary(remaining), true);
 

@@ -50,7 +50,8 @@ namespace Khemistry
 
         private float _suitCellMaxAmount = 0f;
         private float _suitCellTransferDistance = 10f;
-        private readonly HashSet<string> _suitCellAllowedResources = new HashSet<string>();
+        private readonly List<HashSet<string>> _suitCellSupportedResourceGroups
+            = new List<HashSet<string>>();
 
         ///// Material suit cell (behaves like SUIT_CELL, but stores KhemistryMaterialInstance /////
         ///// via KhemistryMaterialStorage-style logic instead of fluid resources)             /////
@@ -120,15 +121,7 @@ namespace Khemistry
         private static bool HasUsableAmount(PartResource resource)
             => resource != null && IsFinite(resource.amount) && resource.amount > 0.0;
 
-        private static bool HasUsableAmount(ProtoPartResourceSnapshot resource)
-            => resource != null && IsFinite(resource.amount) && resource.amount > 0.0;
-
         private static bool CanAcceptResource(PartResource resource)
-            => resource != null && IsFinite(resource.amount) && resource.amount >= 0.0
-                && IsFinite(resource.maxAmount) && resource.maxAmount >= 0.0
-                && resource.amount < resource.maxAmount;
-
-        private static bool CanAcceptResource(ProtoPartResourceSnapshot resource)
             => resource != null && IsFinite(resource.amount) && resource.amount >= 0.0
                 && IsFinite(resource.maxAmount) && resource.maxAmount >= 0.0
                 && resource.amount < resource.maxAmount;
@@ -179,52 +172,36 @@ namespace Khemistry
         }
 
         internal static Dictionary<string, double> DeserializeResourceDictionary(string data)
-        {
-            var result = new Dictionary<string, double>(StringComparer.Ordinal);
-            if (string.IsNullOrWhiteSpace(data)) return result;
-            foreach (string entry in data.Split('|'))
-            {
-                int separator = entry.LastIndexOf(':');
-                if (separator <= 0 || separator >= entry.Length - 1) continue;
-                string name = entry.Substring(0, separator).Trim();
-                if (string.IsNullOrEmpty(name)
-                    || !double.TryParse(entry.Substring(separator + 1),
-                        NumberStyles.Float, CultureInfo.InvariantCulture, out double amount)
-                    || !IsFinite(amount) || amount <= 0.0)
-                    continue;
-                result.TryGetValue(name, out double current);
-                double combined = current + amount;
-                if (IsFinite(combined)) result[name] = combined;
-            }
-            return result;
-        }
+            => KhemistryFluidCell.DeserializeResources(data);
 
         internal static string SerializeResourceDictionary(
             IDictionary<string, double> resources)
-        {
-            if (resources == null) return "";
-            return string.Join("|", resources
-                .Where(value => !string.IsNullOrWhiteSpace(value.Key)
-                    && IsFinite(value.Value) && value.Value > 0.0)
-                .OrderBy(value => value.Key, StringComparer.Ordinal)
-                .Select(value => value.Key.Trim() + ":"
-                    + value.Value.ToString("R", CultureInfo.InvariantCulture))
-                .ToArray());
-        }
+            => KhemistryFluidCell.SerializeResources(resources);
 
         internal static double GetResourceDictionaryTotal(
             IDictionary<string, double> resources)
+            => KhemistryFluidCell.GetResourceTotal(resources);
+
+        private HashSet<string> GetSuitCellAddableResources(
+            IEnumerable<string> storedResources)
         {
-            if (resources == null) return 0.0;
-            double total = 0.0;
-            foreach (KeyValuePair<string, double> value in resources)
-            {
-                if (!IsFinite(value.Value) || value.Value <= 0.0) continue;
-                total += value.Value;
-                if (!IsFinite(total)) return double.PositiveInfinity;
-            }
-            return total;
+            var result = new HashSet<string>(StringComparer.Ordinal);
+            if (_suitCellSupportedResourceGroups.Count == 0) return result;
+            var stored = new HashSet<string>(StringComparer.Ordinal);
+            if (storedResources != null)
+                foreach (string value in storedResources)
+                    if (!string.IsNullOrWhiteSpace(value)) stored.Add(value.Trim());
+            foreach (HashSet<string> group in _suitCellSupportedResourceGroups)
+                if (group.IsSupersetOf(stored)) result.UnionWith(group);
+            return result;
         }
+
+        private bool CanAddToSuitCell(string resourceName,
+            IEnumerable<string> storedResources)
+            => !string.IsNullOrWhiteSpace(resourceName)
+                && (_suitCellSupportedResourceGroups.Count == 0
+                    || GetSuitCellAddableResources(storedResources)
+                        .Contains(resourceName.Trim()));
 
         private Dictionary<string, double> GetSuitCellDict()
             => DeserializeResourceDictionary(suitCellResourcesData);
@@ -238,16 +215,15 @@ namespace Khemistry
         /// Requests (positive amount) or produces (negative amount) a resource directly against
         /// this kerbal's fluid suit cell, for use by a kerbalEVA-mode KhemistryISRU. Same
         /// amount/return contract as Part.RequestResource: returns the amount actually removed
-        /// (consume) or the negative of the amount actually added (produce). Respects
-        /// ALLOWED_RESOURCES and available suit cell capacity.
+        /// (consume) or the negative of the amount actually added (produce). Respects the
+        /// compatible SUPPORTED_RESOURCES groups and available suit cell capacity.
         /// </summary>
         public double RequestSuitCellResource(string name, double amount)
         {
             if (!HasFluidSuitCell || string.IsNullOrWhiteSpace(name)
                 || double.IsNaN(amount) || double.IsInfinity(amount)) return 0.0;
-            if (_suitCellAllowedResources.Count > 0 && !_suitCellAllowedResources.Contains(name)) return 0.0;
-
             var dict = GetSuitCellDict();
+            name = name.Trim();
             dict.TryGetValue(name, out double current);
 
             if (amount > 0.0)  // Consume
@@ -261,6 +237,7 @@ namespace Khemistry
             }
             else if (amount < 0.0)  // Produce
             {
+                if (!CanAddToSuitCell(name, dict.Keys)) return 0.0;
                 double want = -amount;
                 double total = GetResourceDictionaryTotal(dict);
                 if (double.IsNaN(total) || double.IsInfinity(total)) return 0.0;
@@ -304,15 +281,12 @@ namespace Khemistry
                 && IsResourceAllowedForAddition(stored, name))
             {
                 double current = ReadResourceAmountValue(stored, name);
-                ProtoPartResourceSnapshot resource = FindCellResource(stored, name);
                 KhemistryFluidCell cell = ReadFluidCellPrefab(stored.partName);
-                double tankSpace = resource == null ? 0.0
-                    : Math.Max(0.0, resource.maxAmount - resource.amount);
                 double totalSpace = cell == null || !IsFinite(cell.ResourceMaxAmount)
                     || cell.ResourceMaxAmount <= 0f
                     ? 0.0
                     : Math.Max(0.0, cell.ResourceMaxAmount - ReadResourceAmount(stored));
-                double add = Math.Min(-amount, Math.Min(tankSpace, totalSpace));
+                double add = Math.Min(-amount, totalSpace);
                 if (add > 0.0
                     && WriteResourceAmount(stored, name, current + add))
                     moved += add;
@@ -468,7 +442,7 @@ namespace Khemistry
             KShared.Log("Called!", "KhemistryKerbal/LoadConfigFromPartInfo");
             _suitCellMaxAmount = 0f;
             _suitCellTransferDistance = 10f;
-            _suitCellAllowedResources.Clear();
+            _suitCellSupportedResourceGroups.Clear();
             _materialSuitCellVolume = 0f;
             _materialSuitCellTransferDistance = 2f;
             _materialSuitCellAllowed.Clear();
@@ -530,12 +504,17 @@ namespace Khemistry
                         "KhemistryKerbal/LoadConfigFromPartInfo");
                     _suitCellTransferDistance = 10f;
                 }
-                if (suitNode.HasNode("ALLOWED_RESOURCES"))
-                    foreach (string n in suitNode.GetNode("ALLOWED_RESOURCES").GetValues("name"))
+                foreach (ConfigNode supportedNode in suitNode.GetNodes("SUPPORTED_RESOURCES"))
+                {
+                    var group = new HashSet<string>(StringComparer.Ordinal);
+                    foreach (string n in supportedNode.GetValues("name"))
                     {
                         string trimmed = n?.Trim();
-                        if (!string.IsNullOrEmpty(trimmed)) _suitCellAllowedResources.Add(trimmed);
+                        if (!string.IsNullOrEmpty(trimmed)) group.Add(trimmed);
                     }
+                    if (group.Count > 0)
+                        _suitCellSupportedResourceGroups.Add(group);
+                }
             }
 
             if (moduleNode.HasNode("MATERIAL_SUIT_CELL"))
@@ -848,11 +827,7 @@ namespace Khemistry
         private float ReadCellMaxAmount(FluidCellRef cell)
         {
             if (cell.isSuit) return _suitCellMaxAmount;
-            List<string> names = ReadResourceNames(cell.stored);
-            if (names.Count == 0) return ReadMaxAmount(cell.stored);
-            double total = 0.0;
-            foreach (string name in names) total += ReadMaxAmount(cell.stored, name);
-            return total >= float.MaxValue ? float.MaxValue : (float)total;
+            return ReadMaxAmount(cell.stored);
         }
 
         private string DescribeStoredCell(StoredPart stored)
@@ -861,9 +836,11 @@ namespace Khemistry
             if (names.Count == 0) return "Empty";
             var contents = new List<string>();
             foreach (string name in names)
-                contents.Add(string.Format("{0} {1:F1}/{2:F1}", name,
-                    ReadResourceAmountValue(stored, name), ReadMaxAmount(stored, name)));
-            return string.Join(", ", contents.ToArray());
+                contents.Add(string.Format("{0}: {1:F2}", name,
+                    ReadResourceAmountValue(stored, name)));
+            return string.Format("{0} ({1:F2}/{2:F2})",
+                string.Join(", ", contents.ToArray()), ReadResourceAmount(stored),
+                ReadMaxAmount(stored));
         }
 
         private void UpdateFluidCellDisplay()
@@ -928,22 +905,22 @@ namespace Khemistry
 
         private ProtoPartModuleSnapshot GetCellModuleSnapshot(StoredPart stored)
         {
-            if (stored.snapshot == null) return null;
+            if (stored?.snapshot?.modules == null) return null;
             foreach (ProtoPartModuleSnapshot moduleSnap in stored.snapshot.modules)
                 if (moduleSnap.moduleName == "KhemistryFluidCell") return moduleSnap;
             return null;
         }
 
-        private ProtoPartResourceSnapshot FindCellResource(StoredPart stored, string resourceName = null)
+        // Used by modules such as KhemistryDegradingBattery that genuinely operate on a
+        // KSP PartResource. Fluid-cell contents never use this collection.
+        private ProtoPartResourceSnapshot FindStoredPartResource(StoredPart stored,
+            string resourceName)
         {
             if (stored?.snapshot?.resources == null) return null;
-            HashSet<string> supported = ReadSupportedResources(stored.partName);
             foreach (ProtoPartResourceSnapshot resource in stored.snapshot.resources)
             {
                 if (resource == null) continue;
-                if (resourceName != null && resource.resourceName != resourceName) continue;
-                if (supported.Count > 0 && !supported.Contains(resource.resourceName)) continue;
-                return resource;
+                if (resource.resourceName == resourceName) return resource;
             }
             return null;
         }
@@ -964,7 +941,8 @@ namespace Khemistry
             if (prefab == null || snapshot == null || !IsFinite(prefab.DegradeTime)
                 || prefab.DegradeTime <= 0.0) return;
 
-            ProtoPartResourceSnapshot resource = FindCellResource(stored, prefab.ResourceName);
+            ProtoPartResourceSnapshot resource = FindStoredPartResource(stored,
+                prefab.ResourceName);
             if (resource == null || !IsFinite(resource.amount) || resource.amount < 0.0
                 || !IsFinite(resource.maxAmount) || resource.maxAmount < 0.0) return;
 
@@ -1008,6 +986,57 @@ namespace Khemistry
             if (changed) NotifyInventoryChanged();
         }
 
+        private Dictionary<string, double> ReadCellResourceDictionary(StoredPart stored)
+        {
+            ProtoPartModuleSnapshot module = GetCellModuleSnapshot(stored);
+            if (module?.moduleValues == null)
+                return new Dictionary<string, double>(StringComparer.Ordinal);
+
+            string savedData = module.moduleValues.GetValue("StoredResourcesData") ?? "";
+            Dictionary<string, double> resources =
+                KhemistryFluidCell.DeserializeResources(savedData);
+            string normalized = KhemistryFluidCell.SerializeResources(resources);
+            bool changed = normalized != savedData;
+
+            // Migrate the obsolete single-resource module fields into the dictionary. Real
+            // ProtoPartResourceSnapshots are intentionally ignored: they are separate tanks.
+            string legacyName = module.moduleValues.GetValue("ResourceName")?.Trim();
+            if (!string.IsNullOrEmpty(legacyName)
+                && double.TryParse(module.moduleValues.GetValue("ResourceAmount"),
+                    NumberStyles.Float, CultureInfo.InvariantCulture,
+                    out double legacyAmount)
+                && IsFinite(legacyAmount) && legacyAmount > 1e-9)
+            {
+                KhemistryFluidCell prefab = ReadFluidCellPrefab(stored.partName);
+                if (prefab != null && prefab.CanAddResource(legacyName, resources.Keys))
+                {
+                    double free = Math.Max(0.0,
+                        prefab.ResourceMaxAmount
+                        - KhemistryFluidCell.GetResourceTotal(resources));
+                    double moved = Math.Min(legacyAmount, free);
+                    if (moved > 0.0)
+                    {
+                        resources.TryGetValue(legacyName, out double current);
+                        resources[legacyName] = current + moved;
+                        double remainder = legacyAmount - moved;
+                        module.moduleValues.SetValue("ResourceAmount",
+                            remainder.ToString("R", CultureInfo.InvariantCulture), true);
+                        if (remainder <= 1e-9)
+                            module.moduleValues.SetValue("ResourceName", "", true);
+                        normalized = KhemistryFluidCell.SerializeResources(resources);
+                        changed = true;
+                    }
+                }
+            }
+
+            if (changed)
+            {
+                module.moduleValues.SetValue("StoredResourcesData", normalized, true);
+                NotifyInventoryChanged();
+            }
+            return resources;
+        }
+
         private string ReadResourceName(StoredPart stored)
         {
             List<string> names = ReadResourceNames(stored);
@@ -1015,27 +1044,13 @@ namespace Khemistry
         }
 
         private List<string> ReadResourceNames(StoredPart stored)
-        {
-            var result = new List<string>();
-            var seen = new HashSet<string>(StringComparer.Ordinal);
-            if (TryReadLegacyCellResource(stored, out string legacyName, out _)
-                && seen.Add(legacyName)) result.Add(legacyName);
-            if (stored?.snapshot?.resources == null) return result;
-
-            HashSet<string> supported = ReadSupportedResources(stored.partName);
-            foreach (ProtoPartResourceSnapshot resource in stored.snapshot.resources)
-                if (resource != null && IsFinite(resource.amount) && resource.amount > 1e-9
-                    && (supported.Count == 0 || supported.Contains(resource.resourceName))
-                    && seen.Add(resource.resourceName))
-                    result.Add(resource.resourceName);
-            return result;
-        }
+            => ReadCellResourceDictionary(stored).Keys
+                .OrderBy(name => name, StringComparer.Ordinal).ToList();
 
         private float ReadResourceAmount(StoredPart stored)
         {
-            double total = 0.0;
-            foreach (string resourceName in ReadResourceNames(stored))
-                total += ReadResourceAmountValue(stored, resourceName);
+            double total = KhemistryFluidCell.GetResourceTotal(
+                ReadCellResourceDictionary(stored));
             return total >= float.MaxValue ? float.MaxValue : (float)total;
         }
 
@@ -1048,41 +1063,21 @@ namespace Khemistry
         private double ReadResourceAmountValue(StoredPart stored, string resourceName)
         {
             if (string.IsNullOrWhiteSpace(resourceName)) return 0.0;
-            resourceName = resourceName.Trim();
-
-            double total = 0.0;
-            if (TryReadLegacyCellResource(stored, out string legacyName,
-                    out double legacyAmount) && legacyName == resourceName)
-                total += legacyAmount;
-            ProtoPartResourceSnapshot resource = FindCellResource(stored, resourceName);
-            if (HasUsableAmount(resource)) total += resource.amount;
-            return IsFinite(total) && total > 0.0 ? total : 0.0;
+            ReadCellResourceDictionary(stored).TryGetValue(resourceName.Trim(),
+                out double amount);
+            return IsFinite(amount) && amount > 0.0 ? amount : 0.0;
         }
 
         private float ReadMaxAmount(StoredPart stored, string resourceName = null)
         {
-            if (string.IsNullOrEmpty(resourceName)) resourceName = ReadResourceName(stored);
-            ProtoPartResourceSnapshot resource = FindCellResource(stored, resourceName);
-            double capacity = resource != null && IsFinite(resource.maxAmount)
-                && resource.maxAmount > 0.0 ? resource.maxAmount : 0.0;
-            if (TryReadLegacyCellResource(stored, out string legacyName,
-                    out double legacyAmount) && legacyName == resourceName)
-            {
-                // The legacy value is an intentionally preserved overflow remainder. New
-                // resource still goes only into the real PartResource tank, so the reachable
-                // logical maximum is the remainder plus that tank's capacity.
-                capacity += legacyAmount;
-            }
-            if (capacity <= 0.0 && string.IsNullOrEmpty(resourceName))
-                capacity = PartLoader.getPartInfoByName(stored.partName)?.partPrefab
-                    .FindModuleImplementing<KhemistryFluidCell>()?.ResourceMaxAmount ?? 0f;
+            double capacity = ReadFluidCellPrefab(stored?.partName)
+                ?.ResourceMaxAmount ?? 0f;
             if (!IsFinite(capacity) || capacity <= 0.0) return 0f;
             return capacity >= float.MaxValue ? float.MaxValue : (float)capacity;
         }
 
         private float ReadTransferDistance(string partName)
-            => PartLoader.getPartInfoByName(partName)?.partPrefab
-                .FindModuleImplementing<KhemistryFluidCell>()?.TransferDistance ?? 10f;
+            => ReadFluidCellPrefab(partName)?.TransferDistance ?? 10f;
 
         private double ReadCellTotalFreeSpace(StoredPart stored)
         {
@@ -1096,9 +1091,6 @@ namespace Khemistry
             => PartLoader.getPartInfoByName(partName)?.partPrefab
                 .FindModuleImplementing<KhemistryFluidCell>();
 
-        private HashSet<string> ReadSupportedResources(string partName)
-            => ReadFluidCellPrefab(partName)?.SupportedResources ?? new HashSet<string>();
-
         private HashSet<string> ReadAddableResources(StoredPart stored)
         {
             KhemistryFluidCell prefab = ReadFluidCellPrefab(stored?.partName);
@@ -1109,104 +1101,41 @@ namespace Khemistry
         private bool IsResourceAllowedForAddition(StoredPart stored, string resourceName)
         {
             KhemistryFluidCell prefab = ReadFluidCellPrefab(stored?.partName);
-            return prefab == null || !prefab.HasSupportedResourceGroups
-                || prefab.GetAddableResources(ReadResourceNames(stored)).Contains(resourceName);
+            return prefab != null
+                && prefab.CanAddResource(resourceName, ReadResourceNames(stored));
         }
 
-        private bool TryReadLegacyCellResource(StoredPart stored,
-            out string resourceName, out double amount)
-        {
-            resourceName = "";
-            amount = 0.0;
-            ProtoPartModuleSnapshot module = GetCellModuleSnapshot(stored);
-            if (module?.moduleValues == null) return false;
-
-            string savedName = module.moduleValues.GetValue("ResourceName")?.Trim();
-            if (string.IsNullOrEmpty(savedName)
-                || !double.TryParse(module.moduleValues.GetValue("ResourceAmount"),
-                    NumberStyles.Float, CultureInfo.InvariantCulture, out double savedAmount)
-                || !IsFinite(savedAmount) || savedAmount <= 1e-9)
-                return false;
-
-            HashSet<string> supported = ReadSupportedResources(stored.partName);
-            if (supported.Count > 0 && !supported.Contains(savedName)) return false;
-            resourceName = savedName;
-            amount = savedAmount;
-            return true;
-        }
-
-        private bool WriteResourceAmount(StoredPart stored, string resourceName, double amount)
+        private bool WriteResourceAmount(StoredPart stored, string resourceName,
+            double amount)
         {
             if (!IsStoredPartCurrent(stored) || string.IsNullOrWhiteSpace(resourceName)
                 || !IsFinite(amount) || amount < 0.0)
                 return false;
 
-            resourceName = resourceName.Trim();
-            HashSet<string> supported = ReadSupportedResources(stored.partName);
-            if (supported.Count > 0 && !supported.Contains(resourceName)) return false;
-
-            ProtoPartResourceSnapshot resource = FindCellResource(stored, resourceName);
-            if (resource != null && (!IsFinite(resource.amount) || resource.amount < 0.0
-                || !IsFinite(resource.maxAmount) || resource.maxAmount < 0.0))
-                return false;
-
             ProtoPartModuleSnapshot module = GetCellModuleSnapshot(stored);
-            bool hasLegacy = TryReadLegacyCellResource(stored, out string legacyName,
-                out double legacyAmount);
-            bool hasLegacyForResource = hasLegacy && legacyName == resourceName;
+            KhemistryFluidCell prefab = ReadFluidCellPrefab(stored.partName);
+            if (module?.moduleValues == null || prefab == null) return false;
 
-            double canonicalAmount = resource?.amount ?? 0.0;
-            double currentTotal = canonicalAmount + (hasLegacyForResource ? legacyAmount : 0.0);
-            if (!IsFinite(currentTotal)) return false;
-
+            resourceName = resourceName.Trim();
+            Dictionary<string, double> resources = ReadCellResourceDictionary(stored);
+            resources.TryGetValue(resourceName, out double current);
+            double increase = amount - current;
             const double epsilon = 1e-9;
-            double requestedIncrease = amount - currentTotal;
-            double newCanonical = canonicalAmount;
-            double newLegacy = hasLegacyForResource ? legacyAmount : 0.0;
-            if (requestedIncrease > epsilon)
+            if (increase > epsilon)
             {
-                if (!IsResourceAllowedForAddition(stored, resourceName)) return false;
-                KhemistryFluidCell cell = ReadFluidCellPrefab(stored.partName);
-                if (cell != null && IsFinite(cell.ResourceMaxAmount)
-                    && cell.ResourceMaxAmount > 0f)
-                {
-                    double totalSpace = Math.Max(0.0,
-                        cell.ResourceMaxAmount - ReadResourceAmount(stored));
-                    if (requestedIncrease > totalSpace + epsilon) return false;
-                }
-                // Never add to the obsolete parallel field. It exists only so an old save's
-                // overflow can be drained without data loss.
-                if (resource == null) return false;
-                double freeSpace = Math.Max(0.0, resource.maxAmount - canonicalAmount);
-                if (requestedIncrease > freeSpace + epsilon) return false;
-                newCanonical = canonicalAmount + requestedIncrease;
-            }
-            else
-            {
-                double reduction = Math.Max(0.0, currentTotal - amount);
-                double legacyReduction = Math.Min(newLegacy, reduction);
-                newLegacy -= legacyReduction;
-                reduction -= legacyReduction;
-                if (reduction > newCanonical + epsilon) return false;
-                newCanonical = Math.Max(0.0, newCanonical - reduction);
+                if (!prefab.CanAddResource(resourceName, resources.Keys)) return false;
+                double total = KhemistryFluidCell.GetResourceTotal(resources);
+                if (!IsFinite(total)
+                    || increase > Math.Max(0.0,
+                        prefab.ResourceMaxAmount - total) + epsilon)
+                    return false;
             }
 
-            bool changed = false;
-            if (resource != null && Math.Abs(resource.amount - newCanonical) > epsilon)
-            {
-                resource.amount = newCanonical;
-                changed = true;
-            }
-            if (hasLegacyForResource && module?.moduleValues != null
-                && Math.Abs(legacyAmount - newLegacy) > epsilon)
-            {
-                module.moduleValues.SetValue("ResourceAmount",
-                    newLegacy.ToString("R", CultureInfo.InvariantCulture), true);
-                if (newLegacy <= epsilon)
-                    module.moduleValues.SetValue("ResourceName", "", true);
-                changed = true;
-            }
-            if (changed) NotifyInventoryChanged();
+            if (amount <= epsilon) resources.Remove(resourceName);
+            else resources[resourceName] = amount;
+            module.moduleValues.SetValue("StoredResourcesData",
+                KhemistryFluidCell.SerializeResources(resources), true);
+            NotifyInventoryChanged();
             return true;
         }
 
@@ -1437,8 +1366,6 @@ namespace Khemistry
                 {
                     if (!HasUsableAmount(pr)) continue;
                     if (restrictResources && !addable.Contains(pr.resourceName)) continue;
-                    ProtoPartResourceSnapshot cellResource = FindCellResource(cell.stored, pr.resourceName);
-                    if (!CanAcceptResource(cellResource)) continue;
                     string lbl = string.Format("{0} / {1}  ({2}: {3:F1} units)",
                         p.vessel.vesselName, p.partInfo.title, pr.resourceName, pr.amount);
                     string uniqueLabel = AddUniqueOption(optionParts, lbl, p);
@@ -1465,12 +1392,9 @@ namespace Khemistry
                 var def = PartResourceLibrary.Instance.GetDefinition(resourceName);
                 if (def == null) return;
                 PartResource sourceResource = source.Resources.Get(def.id);
-                ProtoPartResourceSnapshot cellResource = FindCellResource(cell.stored, resourceName);
-                if (!HasUsableAmount(sourceResource) || !CanAcceptResource(cellResource)
+                if (!HasUsableAmount(sourceResource)
                     || !IsResourceAllowedForAddition(cell.stored, resourceName)) return;
-                double liveSpace = Math.Min(
-                    Math.Max(0.0, cellResource.maxAmount - cellResource.amount),
-                    ReadCellTotalFreeSpace(cell.stored));
+                double liveSpace = ReadCellTotalFreeSpace(cell.stored);
                 double maxTakeValue = Math.Min(sourceResource.amount, liveSpace);
                 float maxTake = maxTakeValue >= float.MaxValue
                     ? float.MaxValue : (float)maxTakeValue;
@@ -1484,13 +1408,10 @@ namespace Khemistry
                         if (!IsStoredPartCurrent(cell.stored)
                             || !IsPartCurrentAndInRange(source, range)) return;
                         PartResource liveSource = source.Resources.Get(def.id);
-                        ProtoPartResourceSnapshot liveCell = FindCellResource(cell.stored, resourceName);
-                        if (!HasUsableAmount(liveSource) || !CanAcceptResource(liveCell)
+                        if (!HasUsableAmount(liveSource)
                             || !IsResourceAllowedForAddition(cell.stored, resourceName)
                             || float.IsNaN(amount) || float.IsInfinity(amount) || amount <= 0f) return;
-                        double liveCellSpace = Math.Min(
-                            Math.Max(0.0, liveCell.maxAmount - liveCell.amount),
-                            ReadCellTotalFreeSpace(cell.stored));
+                        double liveCellSpace = ReadCellTotalFreeSpace(cell.stored);
                         double taken = Math.Min(amount, Math.Min(liveSource.amount, liveCellSpace));
                         if (taken <= 1e-9) return;
                         double currentLogicalAmount = ReadResourceAmountValue(
@@ -1511,6 +1432,8 @@ namespace Khemistry
             var dict = GetSuitCellDict();
             double currentTotal = GetResourceDictionaryTotal(dict);
             double spaceRemaining = _suitCellMaxAmount - currentTotal;
+            HashSet<string> addable = GetSuitCellAddableResources(dict.Keys);
+            bool restrictResources = _suitCellSupportedResourceGroups.Count > 0;
 
             if (spaceRemaining <= 0.0)
             {
@@ -1525,8 +1448,7 @@ namespace Khemistry
                 foreach (PartResource pr in p.Resources)
                 {
                     if (!HasUsableAmount(pr)) continue;
-                    if (_suitCellAllowedResources.Count > 0
-                        && !_suitCellAllowedResources.Contains(pr.resourceName)) continue;
+                    if (restrictResources && !addable.Contains(pr.resourceName)) continue;
                     string lbl = string.Format("{0} / {1}  ({2}: {3:F2})",
                         p.vessel.vesselName, p.partInfo.title, pr.resourceName, pr.amount);
                     AddUniqueOption(options, lbl, (p, pr));
@@ -1566,7 +1488,8 @@ namespace Khemistry
                         var def = PartResourceLibrary.Instance.GetDefinition(resourceName);
                         PartResource liveSource = def == null ? null : sourcePart.Resources.Get(def.id);
                         if (!HasUsableAmount(liveSource) || float.IsNaN(amount)
-                            || float.IsInfinity(amount) || amount <= 0f) return;
+                            || float.IsInfinity(amount) || amount <= 0f
+                            || !CanAddToSuitCell(resourceName, liveDict.Keys)) return;
                         double taken = Math.Min((double)amount,
                             Math.Min(liveSource.amount, liveSpace));
                         if (taken <= 1e-9) return;

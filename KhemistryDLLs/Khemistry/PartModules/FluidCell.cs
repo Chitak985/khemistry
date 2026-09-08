@@ -1,11 +1,13 @@
-﻿using System.Collections.Generic;
-
 using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
 
 namespace Khemistry
 {
     /// <summary>
-    /// A part that can hold some resources and be carried by a kerbal to transfer resources between vessels.
+    /// A dictionary-backed resource cell that can be carried by a kerbal. Its contents are
+    /// deliberately not PartResources; real KSP resources exist only at transfer endpoints.
     /// </summary>
     public class KhemistryFluidCell : PartModule
     {
@@ -15,6 +17,12 @@ namespace Khemistry
         [KSPField(isPersistant = false)]
         public float TransferDistance = 10.0f;
 
+        // Canonical contents, serialized as "ResourceA:1.5|ResourceB:2".
+        [KSPField(isPersistant = true)]
+        public string StoredResourcesData = "";
+
+        // Obsolete pre-dictionary fields. Keep loading them so existing saves can migrate
+        // without losing contents, but never use them as active storage.
         [KSPField(isPersistant = true)]
         public float ResourceAmount = 0.0f;
         [KSPField(isPersistant = true)]
@@ -23,11 +31,78 @@ namespace Khemistry
         private readonly List<HashSet<string>> _supportedResourceGroups
             = new List<HashSet<string>>();
 
-        // Union of every group, for callers that only need to know whether a
-        // resource belongs to this cell at all.
+        // Union of every group, for callers that only need to know whether a resource
+        // belongs to this cell at all.
         public HashSet<string> SupportedResources = new HashSet<string>();
 
         public bool HasSupportedResourceGroups => _supportedResourceGroups.Count > 0;
+
+        private static bool IsFinite(double value)
+            => !double.IsNaN(value) && !double.IsInfinity(value);
+
+        internal static Dictionary<string, double> DeserializeResources(string data)
+        {
+            var result = new Dictionary<string, double>(StringComparer.Ordinal);
+            if (string.IsNullOrWhiteSpace(data)) return result;
+
+            foreach (string entry in data.Split('|'))
+            {
+                int separator = entry.LastIndexOf(':');
+                if (separator <= 0 || separator >= entry.Length - 1) continue;
+                string name = entry.Substring(0, separator).Trim();
+                if (string.IsNullOrEmpty(name)
+                    || !double.TryParse(entry.Substring(separator + 1),
+                        NumberStyles.Float, CultureInfo.InvariantCulture,
+                        out double amount)
+                    || !IsFinite(amount) || amount <= 0.0)
+                    continue;
+
+                result.TryGetValue(name, out double current);
+                double combined = current + amount;
+                if (IsFinite(combined)) result[name] = combined;
+            }
+            return result;
+        }
+
+        internal static string SerializeResources(
+            IDictionary<string, double> resources)
+        {
+            if (resources == null) return "";
+            return string.Join("|", resources
+                .Where(value => !string.IsNullOrWhiteSpace(value.Key)
+                    && IsFinite(value.Value) && value.Value > 0.0)
+                .OrderBy(value => value.Key, StringComparer.Ordinal)
+                .Select(value => value.Key.Trim() + ":"
+                    + value.Value.ToString("R", CultureInfo.InvariantCulture))
+                .ToArray());
+        }
+
+        internal static double GetResourceTotal(
+            IDictionary<string, double> resources)
+        {
+            if (resources == null) return 0.0;
+            double total = 0.0;
+            foreach (KeyValuePair<string, double> value in resources)
+            {
+                if (!IsFinite(value.Value) || value.Value <= 0.0) continue;
+                total += value.Value;
+                if (!IsFinite(total)) return double.PositiveInfinity;
+            }
+            return total;
+        }
+
+        public Dictionary<string, double> GetStoredResources()
+            => DeserializeResources(StoredResourcesData);
+
+        public double GetStoredAmount(string resourceName)
+        {
+            if (string.IsNullOrWhiteSpace(resourceName)) return 0.0;
+            GetStoredResources().TryGetValue(resourceName.Trim(), out double amount);
+            return amount;
+        }
+
+        public double GetStoredTotal()
+            => GetResourceTotal(GetStoredResources());
 
         public HashSet<string> GetAddableResources(IEnumerable<string> storedResources)
         {
@@ -44,7 +119,54 @@ namespace Khemistry
             return result;
         }
 
-        [KSPField(isPersistant = false, guiActive = true, guiActiveEditor = false, guiName = "Contents")]
+        public bool CanAddResource(string resourceName,
+            IEnumerable<string> storedResources)
+        {
+            if (string.IsNullOrWhiteSpace(resourceName)) return false;
+            return !HasSupportedResourceGroups
+                || GetAddableResources(storedResources).Contains(resourceName.Trim());
+        }
+
+        /// <summary>
+        /// Uses the Part.RequestResource return contract against the private dictionary:
+        /// positive amounts consume and negative amounts produce.
+        /// </summary>
+        public double RequestStoredResource(string resourceName, double amount)
+        {
+            if (string.IsNullOrWhiteSpace(resourceName) || !IsFinite(amount)
+                || amount == 0.0)
+                return 0.0;
+
+            resourceName = resourceName.Trim();
+            Dictionary<string, double> resources = GetStoredResources();
+            resources.TryGetValue(resourceName, out double current);
+
+            if (amount > 0.0)
+            {
+                double removed = Math.Min(amount, current);
+                if (removed <= 0.0) return 0.0;
+                double remaining = current - removed;
+                if (remaining <= 1e-9) resources.Remove(resourceName);
+                else resources[resourceName] = remaining;
+                StoredResourcesData = SerializeResources(resources);
+                return removed;
+            }
+
+            if (!CanAddResource(resourceName, resources.Keys)) return 0.0;
+            double total = GetResourceTotal(resources);
+            if (!IsFinite(total) || !IsFinite(ResourceMaxAmount)
+                || ResourceMaxAmount <= 0f)
+                return 0.0;
+            double added = Math.Min(-amount,
+                Math.Max(0.0, ResourceMaxAmount - total));
+            if (added <= 0.0 || !IsFinite(current + added)) return 0.0;
+            resources[resourceName] = current + added;
+            StoredResourcesData = SerializeResources(resources);
+            return -added;
+        }
+
+        [KSPField(isPersistant = false, guiActive = true,
+            guiActiveEditor = false, guiName = "Contents")]
         public string ContentsDisplay = "Empty";
 
         public override void OnLoad(ConfigNode node)
@@ -53,8 +175,7 @@ namespace Khemistry
             _supportedResourceGroups.Clear();
             SupportedResources.Clear();
 
-            ConfigNode[] supportedNodes = node.GetNodes("SUPPORTED_RESOURCES");
-            foreach (ConfigNode supportedNode in supportedNodes)
+            foreach (ConfigNode supportedNode in node.GetNodes("SUPPORTED_RESOURCES"))
             {
                 var group = new HashSet<string>(StringComparer.Ordinal);
                 foreach (string name in supportedNode.GetValues("name"))
@@ -67,6 +188,8 @@ namespace Khemistry
                 SupportedResources.UnionWith(group);
             }
 
+            StoredResourcesData = SerializeResources(
+                DeserializeResources(StoredResourcesData));
             if (_supportedResourceGroups.Count > 0)
                 KShared.Log(
                     "Loaded " + SupportedResources.Count + " resources in "
@@ -86,13 +209,13 @@ namespace Khemistry
                 {
                     foreach (HashSet<string> prefabGroup in prefab._supportedResourceGroups)
                     {
-                        var group = new HashSet<string>(prefabGroup, StringComparer.Ordinal);
+                        var group = new HashSet<string>(prefabGroup,
+                            StringComparer.Ordinal);
                         _supportedResourceGroups.Add(group);
                         SupportedResources.UnionWith(group);
                     }
                 }
             }
-            ResourceName = ResourceName?.Trim() ?? "";
 
             if (float.IsNaN(ResourceMaxAmount) || float.IsInfinity(ResourceMaxAmount)
                 || ResourceMaxAmount <= 0f)
@@ -111,76 +234,38 @@ namespace Khemistry
                 TransferDistance = 10f;
             }
 
-            // Older versions stored contents in these module fields rather than the real
-            // PartResource tank. Move everything that fits into the canonical tank and keep
-            // any remainder in the legacy fields so no saved resource is silently discarded.
-            if (!string.IsNullOrWhiteSpace(ResourceName) && ResourceAmount > 0f
-                && !float.IsNaN(ResourceAmount) && !float.IsInfinity(ResourceAmount)
-                && (SupportedResources.Count == 0 || SupportedResources.Contains(ResourceName)))
+            // Migrate only the obsolete module fields. PartResources are intentionally not
+            // consulted: a tank on the same part is separate from this cell's contents.
+            ResourceName = ResourceName?.Trim() ?? "";
+            if (!string.IsNullOrEmpty(ResourceName) && ResourceAmount > 0f
+                && !float.IsNaN(ResourceAmount) && !float.IsInfinity(ResourceAmount))
             {
-                PartResourceDefinition definition = PartResourceLibrary.Instance
-                    ?.GetDefinition(ResourceName);
-                PartResource tank = definition == null ? null : part.Resources.Get(definition.id);
-                bool validTank = tank != null && !double.IsNaN(tank.amount)
-                    && !double.IsInfinity(tank.amount) && tank.amount >= 0.0
-                    && !double.IsNaN(tank.maxAmount) && !double.IsInfinity(tank.maxAmount)
-                    && tank.maxAmount >= 0.0;
-                if (validTank)
+                double added = -RequestStoredResource(ResourceName, -ResourceAmount);
+                double remainder = Math.Max(0.0, ResourceAmount - added);
+                ResourceAmount = remainder >= float.MaxValue
+                    ? float.MaxValue : (float)remainder;
+                if (ResourceAmount <= 1e-6f)
                 {
-                    double freeSpace = Math.Max(0.0, tank.maxAmount - tank.amount);
-                    double moved = Math.Min(ResourceAmount, freeSpace);
-                    tank.amount += moved;
-                    double remainder = ResourceAmount - moved;
-                    if (remainder <= 0.0)
-                    {
-                        ResourceAmount = 0f;
-                        ResourceName = "";
-                    }
-                    else
-                    {
-                        ResourceAmount = remainder >= float.MaxValue
-                            ? float.MaxValue : (float)remainder;
-                        KShared.LogWarning("Only part of legacy fluid-cell resource \""
-                            + ResourceName + "\" fit in the canonical tank; preserving the remainder.",
-                            "KhemistryFluidCell/OnStart");
-                    }
+                    ResourceAmount = 0f;
+                    ResourceName = "";
                 }
-                else if (tank == null)
-                {
-                    KShared.LogError("Could not migrate legacy fluid-cell resource \"" + ResourceName
-                        + "\" because this part has no matching PartResource tank; preserving the legacy value.",
+                else
+                    KShared.LogWarning("Only part of legacy fluid-cell resource \""
+                        + ResourceName + "\" fit in the dictionary; preserving the remainder.",
                         "KhemistryFluidCell/OnStart");
-                }
-                else if (!validTank)
-                {
-                    KShared.LogError("Could not migrate legacy fluid-cell resource \"" + ResourceName
-                        + "\" because the canonical tank has invalid amount or capacity values; preserving the legacy value.",
-                        "KhemistryFluidCell/OnStart");
-                }
             }
         }
 
         public override void OnUpdate()
         {
-            // The real PartResource tanks are canonical. Keeping a second amount in this
-            // module caused deployed and inventoried copies of a cell to disagree and could
-            // duplicate resources when the part changed state.
-            var displayed = new List<string>();
-            foreach (PartResource resource in part.Resources)
-            {
-                if (SupportedResources.Count > 0 && !SupportedResources.Contains(resource.resourceName))
-                    continue;
-                if (double.IsNaN(resource.amount) || double.IsInfinity(resource.amount)
-                    || double.IsNaN(resource.maxAmount) || double.IsInfinity(resource.maxAmount)
-                    || resource.amount <= 1e-9 || resource.maxAmount < 0.0) continue;
-                displayed.Add(string.Format("{0}: {1:F2} / {2:F2}", resource.resourceName,
-                    resource.amount, resource.maxAmount));
-            }
-            if (!string.IsNullOrWhiteSpace(ResourceName) && ResourceAmount > 1e-6f
-                && !float.IsNaN(ResourceAmount) && !float.IsInfinity(ResourceAmount))
-                displayed.Add(string.Format("{0}: {1:F2} (preserved legacy remainder)",
-                    ResourceName.Trim(), ResourceAmount));
-            ContentsDisplay = displayed.Count == 0 ? "Empty" : string.Join(", ", displayed.ToArray());
+            Dictionary<string, double> resources = GetStoredResources();
+            var displayed = resources
+                .Select(value => string.Format("{0}: {1:F2}", value.Key, value.Value))
+                .ToList();
+            string contents = displayed.Count == 0
+                ? "Empty" : string.Join(", ", displayed.ToArray());
+            ContentsDisplay = string.Format("{0} ({1:F2} / {2:F2})", contents,
+                GetResourceTotal(resources), ResourceMaxAmount);
         }
     }
 }
