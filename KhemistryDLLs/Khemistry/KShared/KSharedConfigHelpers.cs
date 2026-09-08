@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-
 using System.Globalization;
 
 namespace Khemistry
@@ -8,6 +7,7 @@ namespace Khemistry
     public partial class KShared
     {
         // Help get a value safely
+        /// <summary>Get an integer value from a config node safely.</summary>
         public static int GetIntValueFromCFG(ConfigNode node, string value, int defaultValue)
         {
             if (node != null && node.HasValue(value))
@@ -15,20 +15,25 @@ namespace Khemistry
                     return tmp;
             return defaultValue;
         }
+        /// <summary>Get a float value from a config node safely.</summary>
         public static float GetFloatValueFromCFG(ConfigNode node, string value, float defaultValue)
         {
             if (node != null && node.HasValue(value))
                 if (float.TryParse(node.GetValue(value), NumberStyles.Float, CultureInfo.InvariantCulture, out float tmp))
-                    if (!float.IsNaN(tmp) && !float.IsInfinity(tmp)) return tmp;
+                    if (!float.IsNaN(tmp) && !float.IsInfinity(tmp))
+                        return tmp;
             return defaultValue;
         }
+        /// <summary>Get a double value from a config node safely.</summary>
         public static double GetDoubleValueFromCFG(ConfigNode node, string value, double defaultValue)
         {
             if (node != null && node.HasValue(value))
                 if (double.TryParse(node.GetValue(value), NumberStyles.Float, CultureInfo.InvariantCulture, out double tmp))
-                    if (!double.IsNaN(tmp) && !double.IsInfinity(tmp)) return tmp;
+                    if (!double.IsNaN(tmp) && !double.IsInfinity(tmp))
+                        return tmp;
             return defaultValue;
         }
+        /// <summary>Get a string value from a config node safely.</summary>
         public static string GetStrValueFromCFG(ConfigNode node, string value, string defaultValue)
             => (node != null && node.HasValue(value)) ? node.GetValue(value) : defaultValue;
 
@@ -46,8 +51,12 @@ namespace Khemistry
             amounts = new List<float>();
             List<string> names = new List<string>();
 
+            // Return nothing if no node
             if (moduleNode == null)
+            {
+                LogError("The provided node is null! Returning empty lists.", "KShared/GetChargingFromCFG");
                 return names;
+            }
 
             bool invalid = false;
 
@@ -55,8 +64,10 @@ namespace Khemistry
                 foreach (string n in moduleNode.GetNode("CHARGE_CON_NAMES").GetValues("name"))
                 {
                     string trimmed = n?.Trim();
-                    if (string.IsNullOrEmpty(trimmed)) invalid = true;
-                    else names.Add(trimmed);
+                    if (string.IsNullOrEmpty(trimmed))
+                        invalid = true;
+                    else
+                        names.Add(trimmed);
                 }
             if (moduleNode.HasNode("CHARGE_CON_AMOUNTS"))
                 foreach (string a in moduleNode.GetNode("CHARGE_CON_AMOUNTS").GetValues("amount"))
@@ -66,11 +77,18 @@ namespace Khemistry
                     else
                         invalid = true;
 
-            if (invalid || names.Count != amounts.Count)
+            if (names.Count != amounts.Count)
             {
                 amounts.Clear();
                 names.Clear();
-                KShared.LogError("CHARGE_CON_NAMES and CHARGE_CON_AMOUNTS must contain equal numbers of non-empty names and finite positive amounts.",
+                LogError("CHARGE_CON_NAMES and CHARGE_CON_AMOUNTS must contain equal numbers of non-empty names and finite positive amounts! Returning empty lists.",
+                    "KShared/GetChargingFromCFG");
+            }
+            if (invalid)
+            {
+                amounts.Clear();
+                names.Clear();
+                LogError("A value in CHARGE_CON_NAMES and/or CHARGE_CON_AMOUNTS is invalid! Returning empty lists.",
                     "KShared/GetChargingFromCFG");
             }
             return names;
@@ -111,8 +129,7 @@ namespace Khemistry
         /// <summary>
         /// Finds and returns the MODULE config node for this converter from partConfig.
         /// Matches on both module class name and ConverterName to support multiple
-        /// converters per part. Pass the expected module name (e.g. "KhemistryAdvancedISRUBase"
-        /// or "KhemistryEVAAdvancedISRU").
+        /// converters per part. Pass the expected module name (e.g. "KhemistryISRU").
         /// </summary>
         public static ConfigNode FindModuleConfigNode(Part part, string ConverterName, string moduleName)
         {
@@ -149,9 +166,9 @@ namespace Khemistry
 
             if (result == null)
                 KShared.LogError(
-                    "Could not find MODULE " + moduleName + " with ConverterName=\"" + ConverterName
+                    "Could not find MODULE " + moduleName + " with ConverterName \"" + ConverterName
                     + "\" in partConfig or GameDatabase!",
-                    moduleName + "/FindModuleConfigNode");
+                    "KShared/FindModuleConfigNode (" + moduleName + ")");
 
             return result;
         }
@@ -181,7 +198,7 @@ namespace Khemistry
             if (!foundTarget)
             {
                 KShared.LogError("Could not locate this " + moduleName
-                    + " instance in part.Modules.", moduleName + "/FindModuleConfigNode");
+                    + " instance in part.Modules.", "KShared/FindModuleConfigNode (" + moduleName + ")");
                 return null;
             }
 
@@ -215,7 +232,7 @@ namespace Khemistry
 
             KShared.LogError("Could not find occurrence " + occurrence + " of MODULE "
                 + moduleName + " in the part configuration.",
-                moduleName + "/FindModuleConfigNode");
+                "KShared/FindModuleConfigNode (" + moduleName + ")");
             return null;
         }
     }
