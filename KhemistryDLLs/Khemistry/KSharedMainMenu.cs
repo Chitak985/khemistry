@@ -1,4 +1,4 @@
-﻿using System.Linq;
+using System.Linq;
 using UnityEngine;
 using System.Globalization;
 
@@ -154,7 +154,7 @@ namespace Khemistry
                 string typeError;
                 bool typeErr = true;
 
-                if (string.IsNullOrEmpty(resource))
+                if (string.IsNullOrEmpty(type))
                     typeError = "MISSING";
                 else if (type != "surface" && type != "surfaceOnly" && type != "underground")
                     typeError = "INVALID ("+type+")";
@@ -180,7 +180,7 @@ namespace Khemistry
                         if (shared.celestialBodies.Contains(body))
                         {
                             bodyError = "Valid (" + body + ")";
-                            resoErr = false;
+                            bodyErr = false;
                         }
                         else
                             bodyError = "INVALID (" + body + ")";
