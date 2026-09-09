@@ -11,13 +11,15 @@ namespace Khemistry
     /// </summary>
     public class KhemistryFluidCell : PartModule
     {
+        /// <summary>The maximum amount of resources the cell can hold.</summary>
         [KSPField(isPersistant = false)]
         public float ResourceMaxAmount = 100.0f;
 
+        /// <summary>The maximum resource transfer distance in meters.</summary>
         [KSPField(isPersistant = false)]
         public float TransferDistance = 10.0f;
 
-        // Canonical contents, serialized as "ResourceA:1.5|ResourceB:2".
+        /// <summary>Canonical contents, serialized as "ResourceA:1.5|ResourceB:2".</summary>
         [KSPField(isPersistant = true)]
         public string StoredResourcesData = "";
 
@@ -31,8 +33,10 @@ namespace Khemistry
         private readonly List<HashSet<string>> _supportedResourceGroups
             = new List<HashSet<string>>();
 
-        // Union of every group, for callers that only need to know whether a resource
-        // belongs to this cell at all.
+        /// <summary>
+        /// Union of every group, for callers that only need to know whether a resource
+        /// belongs to this cell at all.
+        /// </summary>
         public HashSet<string> SupportedResources = new HashSet<string>();
 
         public bool HasSupportedResourceGroups => _supportedResourceGroups.Count > 0;
@@ -186,6 +190,22 @@ namespace Khemistry
                 if (group.Count == 0) continue;
                 _supportedResourceGroups.Add(group);
                 SupportedResources.UnionWith(group);
+            }
+            
+            foreach (ConfigNode supportedSNode in node.GetNodes("SUPPORTED_RESOURCES_SINGULAR"))
+            {
+                var tmp = new HashSet<string>(StringComparer.Ordinal);
+                foreach (string name in supportedSNode.GetValues("name"))
+                {
+                    string trimmed = name?.Trim();
+                    if (!string.IsNullOrEmpty(trimmed))
+                    {
+                        tmp.Clear();
+                        tmp.Add(trimmed);
+                        _supportedResourceGroups.Add(tmp);
+                        SupportedResources.UnionWith(tmp);
+                    }
+                }
             }
 
             StoredResourcesData = SerializeResources(
