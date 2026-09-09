@@ -636,7 +636,7 @@ namespace Khemistry
                 }
                 KShared.LogError("Could not parse destroy power in " + fieldName + "=\"" + raw + "\".",
                     "KhemistryAdvancedStorage/ParseConsequence");
-                result = default(ConsequenceConfig);
+                result = default;
                 return false;
             }
 
@@ -650,13 +650,13 @@ namespace Khemistry
                 }
                 KShared.LogError("Could not parse boiloff rate in " + fieldName + "=\"" + raw + "\".",
                     "KhemistryAdvancedStorage/ParseConsequence");
-                result = default(ConsequenceConfig);
+                result = default;
                 return false;
             }
 
             KShared.LogError("Unknown consequence value " + fieldName + "=\"" + raw + "\".",
                 "KhemistryAdvancedStorage/ParseConsequence");
-            result = default(ConsequenceConfig);
+            result = default;
             return false;
         }
 
@@ -683,7 +683,7 @@ namespace Khemistry
                 }
                 else
                 {
-                    if (!IsFinite(existing.amount) || existing.amount < 0.0)
+                    if (!KShared.IsFinite(existing.amount) || existing.amount < 0.0)
                     {
                         KShared.LogWarning("Resetting invalid stored amount for resource \"" + resName + "\".",
                             "KhemistryAdvancedStorage/EnsureResourcesExistOnPart");
@@ -738,7 +738,7 @@ namespace Khemistry
 
         private void SanitizePersistentState()
         {
-            if (!IsFinite(chargePercent))
+            if (!KShared.IsFinite(chargePercent))
             {
                 KShared.LogWarning("Saved chargePercent was not finite; resetting it to zero.",
                     "KhemistryAdvancedStorage/SanitizePersistentState");
@@ -769,7 +769,7 @@ namespace Khemistry
                 state = KShared.ChargablePartState.Off;
             }
 
-            if (!IsFinite(filledUnpoweredElapsed) || filledUnpoweredElapsed < 0.0)
+            if (!KShared.IsFinite(filledUnpoweredElapsed) || filledUnpoweredElapsed < 0.0)
             {
                 KShared.LogWarning("Saved filled-unpowered elapsed time was invalid; resetting it.",
                     "KhemistryAdvancedStorage/SanitizePersistentState");
@@ -853,7 +853,7 @@ namespace Khemistry
                 return;
             }
 
-            if (IsFinite(lastUpdateUniversalTime) && lastUpdateUniversalTime >= 0.0)
+            if (KShared.IsFinite(lastUpdateUniversalTime) && lastUpdateUniversalTime >= 0.0)
             {
                 double elapsed = now - lastUpdateUniversalTime;
                 if (elapsed >= 0.0)
@@ -879,7 +879,7 @@ namespace Khemistry
             if (TryGetUniversalTime(out double now))
             {
                 double elapsed = 0.0;
-                if (IsFinite(lastUpdateUniversalTime) && lastUpdateUniversalTime >= 0.0)
+                if (KShared.IsFinite(lastUpdateUniversalTime) && lastUpdateUniversalTime >= 0.0)
                 {
                     elapsed = now - lastUpdateUniversalTime;
                     if (elapsed < 0.0)
@@ -905,7 +905,7 @@ namespace Khemistry
         private bool TryGetUniversalTime(out double universalTime)
         {
             universalTime = Planetarium.GetUniversalTime();
-            if (IsFinite(universalTime) && universalTime >= 0.0)
+            if (KShared.IsFinite(universalTime) && universalTime >= 0.0)
             {
                 _universalTimeWarningLogged = false;
                 return true;
@@ -923,7 +923,7 @@ namespace Khemistry
 
         private static double BoundElapsedTime(double elapsed, string source)
         {
-            if (!IsFinite(elapsed) || elapsed <= 0.0) return 0.0;
+            if (!KShared.IsFinite(elapsed) || elapsed <= 0.0) return 0.0;
             if (elapsed <= MaximumElapsedSeconds) return elapsed;
 
             KShared.LogWarning(source + " exceeded the safety limit and was clamped.",
@@ -934,7 +934,7 @@ namespace Khemistry
         private void HandleCharging(double dt)
         {
             if (!chargingRequired) return;
-            if (!IsFinite(dt) || dt <= 0.0) return;
+            if (!KShared.IsFinite(dt) || dt <= 0.0) return;
 
             if (state == KShared.ChargablePartState.Off)
             {
@@ -982,7 +982,7 @@ namespace Khemistry
         private void HandlePassiveConsumption(double dt)
         {
             if (!passiveConsumption) return;
-            if (!IsFinite(dt) || dt <= 0.0) return;
+            if (!KShared.IsFinite(dt) || dt <= 0.0) return;
             if (state != KShared.ChargablePartState.On)
             {
                 _passiveUnsatisfiedFired = false;
@@ -1028,10 +1028,10 @@ namespace Khemistry
                 return;
             }
 
-            if (!IsFinite(dt) || dt <= 0.0) return;
+            if (!KShared.IsFinite(dt) || dt <= 0.0) return;
 
             filledUnpoweredElapsed += dt;
-            if (!IsFinite(filledUnpoweredElapsed))
+            if (!KShared.IsFinite(filledUnpoweredElapsed))
             {
                 KShared.LogError("Filled-unpowered timer overflowed; resetting it.",
                     "KhemistryAdvancedStorage/HandleFilledUnpowered");
@@ -1094,7 +1094,7 @@ namespace Khemistry
         /// </summary>
         private void ApplyBoiloff(double amountPerTick, string source)
         {
-            if (!IsFinite(amountPerTick) || amountPerTick <= 0.0) return;
+            if (!KShared.IsFinite(amountPerTick) || amountPerTick <= 0.0) return;
 
             List<PartResource> filled = new List<PartResource>();
             double total = 0.0;
@@ -1130,17 +1130,17 @@ namespace Khemistry
             if (names == null || amounts == null) return false;
             if (names.Count != amounts.Count) return false;
             if (names.Count == 0) return true;
-            if (!IsFinite(dt) || dt <= 0.0) return false;
+            if (!KShared.IsFinite(dt) || dt <= 0.0) return false;
 
             // Validate the complete request before pulling anything so malformed
             // runtime state cannot cause a partial transaction.
             for (int i = 0; i < names.Count; i++)
             {
                 if (string.IsNullOrWhiteSpace(names[i])
-                    || !IsFinite(amounts[i]) || amounts[i] <= 0f
+                    || !KShared.IsFinite(amounts[i]) || amounts[i] <= 0f
                     || PartResourceLibrary.Instance == null
                     || PartResourceLibrary.Instance.GetDefinition(names[i]) == null
-                    || !IsFinite(amounts[i] * dt))
+                    || !KShared.IsFinite(amounts[i] * dt))
                 {
                     KShared.LogError("Invalid resource-consumption request.",
                         "KhemistryAdvancedStorage/ConsumeVesselResources");
@@ -1176,7 +1176,7 @@ namespace Khemistry
             if (!allSatisfied)
             {
                 for (int i = 0; i < names.Count; i++)
-                    if (IsFinite(pulled[i]) && pulled[i] > 0.0)
+                    if (KShared.IsFinite(pulled[i]) && pulled[i] > 0.0)
                         part.RequestResource(names[i], -pulled[i]);
                 return false;
             }
@@ -1250,7 +1250,7 @@ namespace Khemistry
             foreach (PartResource pr in part.Resources)
             {
                 if (!_supportedResources.Contains(pr.resourceName)) continue;
-                if (IsFinite(pr.amount) && pr.amount >= 0.0) continue;
+                if (KShared.IsFinite(pr.amount) && pr.amount >= 0.0) continue;
 
                 KShared.LogWarning("Resetting invalid stored amount for resource \"" + pr.resourceName + "\".",
                     "KhemistryAdvancedStorage/EnforceCapacity");
@@ -1321,14 +1321,9 @@ namespace Khemistry
 
         private static bool WasFullyTransferred(double requested, double actual)
         {
-            if (!IsFinite(requested) || requested < 0.0 || !IsFinite(actual) || actual < 0.0)
+            if (!KShared.IsFinite(requested) || requested < 0.0 || !KShared.IsFinite(actual) || actual < 0.0)
                 return false;
             return actual >= requested - Math.Max(1e-9, requested * 1e-9);
-        }
-
-        private static bool IsFinite(double value)
-        {
-            return !double.IsNaN(value) && !double.IsInfinity(value);
         }
 
         private static bool TryReadOptionalFloat(ConfigNode node, string key,

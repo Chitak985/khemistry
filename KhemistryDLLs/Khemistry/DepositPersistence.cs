@@ -207,8 +207,8 @@ namespace Khemistry
             deposit = null;
             if (!TryLoadCommon(node, out string planet, out string resource,
                     out Vector2 position, out float radius, out float depth)
-                || !TryReadFloat(node, "depthStart", out float depthStart)
-                || depthStart < 0f || !IsFinite(depthStart + depth))
+                || !KShared.TryReadFloat(node, "depthStart", out float depthStart)
+                || depthStart < 0f || !KShared.IsFinite(depthStart + depth))
                 return false;
 
             deposit = new KhemistryUDeposit
@@ -258,11 +258,11 @@ namespace Khemistry
             radius = 0f;
             depth = 0f;
             if (string.IsNullOrEmpty(planet) || string.IsNullOrEmpty(resource)
-                || !IsKnownBody(planet)
-                || !TryReadFloat(node, "latitude", out float latitude)
-                || !TryReadFloat(node, "longitude", out float longitude)
-                || !TryReadFloat(node, "radius", out radius) || radius <= 0f
-                || !TryReadFloat(node, "depth", out depth) || depth <= 0f
+                || !KShared.IsKnownBody(planet)
+                || !KShared.TryReadFloat(node, "latitude", out float latitude)
+                || !KShared.TryReadFloat(node, "longitude", out float longitude)
+                || !KShared.TryReadFloat(node, "radius", out radius) || radius <= 0f
+                || !KShared.TryReadFloat(node, "depth", out depth) || depth <= 0f
                 || latitude < -90f || latitude > 90f
                 || longitude < -180f || longitude > 180f)
                 return false;
@@ -270,36 +270,19 @@ namespace Khemistry
             return true;
         }
 
-        private static bool TryReadFloat(ConfigNode node, string key, out float value)
-        {
-            value = 0f;
-            return node != null && float.TryParse(node.GetValue(key), NumberStyles.Float,
-                CultureInfo.InvariantCulture, out value) && IsFinite(value);
-        }
-
-        private static bool IsFinite(float value)
-            => !float.IsNaN(value) && !float.IsInfinity(value);
-
-        private static bool IsKnownBody(string bodyName)
-        {
-            try { return FlightGlobals.GetBodyByName(bodyName) != null; }
-            catch { return false; }
-        }
-
         private static bool IsValid(KhemistryDeposit deposit)
         {
             if (deposit == null || string.IsNullOrWhiteSpace(deposit.Planet)
-                || string.IsNullOrWhiteSpace(deposit.Resource) || !IsKnownBody(deposit.Planet)
-                || !IsFinite(deposit.Position.x) || deposit.Position.x < -90f
-                || deposit.Position.x > 90f || !IsFinite(deposit.Position.y)
+                || string.IsNullOrWhiteSpace(deposit.Resource) || !KShared.IsKnownBody(deposit.Planet)
+                || !KShared.IsFinite(deposit.Position.x) || deposit.Position.x < -90f
+                || deposit.Position.x > 90f || !KShared.IsFinite(deposit.Position.y)
                 || deposit.Position.y < -180f || deposit.Position.y > 180f
-                || !IsFinite(deposit.Radius) || deposit.Radius <= 0f
-                || !IsFinite(deposit.Depth) || deposit.Depth <= 0f)
+                || !KShared.IsFinite(deposit.Radius) || deposit.Radius <= 0f
+                || !KShared.IsFinite(deposit.Depth) || deposit.Depth <= 0f)
                 return false;
-            KhemistryUDeposit underground = deposit as KhemistryUDeposit;
-            return underground == null || (IsFinite(underground.DepthStart)
+            return !(deposit is KhemistryUDeposit underground) || (KShared.IsFinite(underground.DepthStart)
                 && underground.DepthStart >= 0f
-                && IsFinite(underground.DepthStart + underground.Depth));
+                && KShared.IsFinite(underground.DepthStart + underground.Depth));
         }
 
         private static bool HasMatchingFootprint(KhemistryGDeposit surface,

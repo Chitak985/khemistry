@@ -24,6 +24,17 @@ namespace Khemistry
                         return tmp;
             return defaultValue;
         }
+        /// <summary>Try getting a float value from a config node safely.</summary>
+        public static bool TryReadFloat(ConfigNode node, string key, out float value)
+        {
+            value = 0f;
+            return node != null &&
+                float.TryParse(
+                    node.GetValue(key),
+                    NumberStyles.Float,
+                    CultureInfo.InvariantCulture, out value)
+                && IsFinite(value);
+        }
         /// <summary>Get a double value from a config node safely.</summary>
         public static double GetDoubleValueFromCFG(ConfigNode node, string value, double defaultValue)
         {

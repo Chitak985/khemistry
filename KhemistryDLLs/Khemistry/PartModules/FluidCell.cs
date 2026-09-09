@@ -41,9 +41,6 @@ namespace Khemistry
 
         public bool HasSupportedResourceGroups => _supportedResourceGroups.Count > 0;
 
-        private static bool IsFinite(double value)
-            => !double.IsNaN(value) && !double.IsInfinity(value);
-
         internal static Dictionary<string, double> DeserializeResources(string data)
         {
             var result = new Dictionary<string, double>(StringComparer.Ordinal);
@@ -58,12 +55,12 @@ namespace Khemistry
                     || !double.TryParse(entry.Substring(separator + 1),
                         NumberStyles.Float, CultureInfo.InvariantCulture,
                         out double amount)
-                    || !IsFinite(amount) || amount <= 0.0)
+                    || !KShared.IsFinite(amount) || amount <= 0.0)
                     continue;
 
                 result.TryGetValue(name, out double current);
                 double combined = current + amount;
-                if (IsFinite(combined)) result[name] = combined;
+                if (KShared.IsFinite(combined)) result[name] = combined;
             }
             return result;
         }
@@ -74,7 +71,7 @@ namespace Khemistry
             if (resources == null) return "";
             return string.Join("|", resources
                 .Where(value => !string.IsNullOrWhiteSpace(value.Key)
-                    && IsFinite(value.Value) && value.Value > 0.0)
+                    && KShared.IsFinite(value.Value) && value.Value > 0.0)
                 .OrderBy(value => value.Key, StringComparer.Ordinal)
                 .Select(value => value.Key.Trim() + ":"
                     + value.Value.ToString("R", CultureInfo.InvariantCulture))
@@ -88,9 +85,9 @@ namespace Khemistry
             double total = 0.0;
             foreach (KeyValuePair<string, double> value in resources)
             {
-                if (!IsFinite(value.Value) || value.Value <= 0.0) continue;
+                if (!KShared.IsFinite(value.Value) || value.Value <= 0.0) continue;
                 total += value.Value;
-                if (!IsFinite(total)) return double.PositiveInfinity;
+                if (!KShared.IsFinite(total)) return double.PositiveInfinity;
             }
             return total;
         }
@@ -137,7 +134,7 @@ namespace Khemistry
         /// </summary>
         public double RequestStoredResource(string resourceName, double amount)
         {
-            if (string.IsNullOrWhiteSpace(resourceName) || !IsFinite(amount)
+            if (string.IsNullOrWhiteSpace(resourceName) || !KShared.IsFinite(amount)
                 || amount == 0.0)
                 return 0.0;
 
@@ -158,12 +155,12 @@ namespace Khemistry
 
             if (!CanAddResource(resourceName, resources.Keys)) return 0.0;
             double total = GetResourceTotal(resources);
-            if (!IsFinite(total) || !IsFinite(ResourceMaxAmount)
+            if (!KShared.IsFinite(total) || !KShared.IsFinite(ResourceMaxAmount)
                 || ResourceMaxAmount <= 0f)
                 return 0.0;
             double added = Math.Min(-amount,
                 Math.Max(0.0, ResourceMaxAmount - total));
-            if (added <= 0.0 || !IsFinite(current + added)) return 0.0;
+            if (added <= 0.0 || !KShared.IsFinite(current + added)) return 0.0;
             resources[resourceName] = current + added;
             StoredResourcesData = SerializeResources(resources);
             return -added;

@@ -9,6 +9,25 @@ namespace Khemistry
     public partial class KShared
     {
         /// <summary>
+        /// Check if bodyName is a known celestial body in the current game.
+        /// </summary>
+        /// <param name="bodyName">The name of the body to check.</param>
+        /// <returns>Whether it is a known body or not.</returns>
+        public static bool IsKnownBody(string bodyName)
+        {
+            try { return FlightGlobals.GetBodyByName(bodyName) != null; }
+            catch { return false; }
+        }
+
+        /// <summary>
+        /// Check if a double is finite (not NaN or infinite).
+        /// </summary>
+        /// <param name="value">The double to check</param>
+        /// <returns>If the double is finite (not NaN or infinite)</returns>
+        public static bool IsFinite(double value)
+            => !double.IsNaN(value) && !double.IsInfinity(value);
+
+        /// <summary>
         /// Returns a biome name using a latitude-longitude position on a CelestialBody.
         /// Returns null if the planet does not exist or has no biome map.
         /// </summary>

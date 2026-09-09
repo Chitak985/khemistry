@@ -75,7 +75,6 @@ namespace Khemistry
         /// </summary>
         public KhemistryISRU kerbalEVAISRU = null;
 
-        [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE0044:Add readonly modifier", Justification = "This is clearly used elsewhere in the code and shouldn't be readonly")]
         private ModuleInventoryPart _inventory;
         private KerbalEVA eva;
         private bool _disabledDuplicate;
@@ -115,15 +114,12 @@ namespace Khemistry
             return label;
         }
 
-        private static bool IsFinite(double value)
-            => !double.IsNaN(value) && !double.IsInfinity(value);
-
         private static bool HasUsableAmount(PartResource resource)
-            => resource != null && IsFinite(resource.amount) && resource.amount > 0.0;
+            => resource != null && KShared.IsFinite(resource.amount) && resource.amount > 0.0;
 
         private static bool CanAcceptResource(PartResource resource)
-            => resource != null && IsFinite(resource.amount) && resource.amount >= 0.0
-                && IsFinite(resource.maxAmount) && resource.maxAmount >= 0.0
+            => resource != null && KShared.IsFinite(resource.amount) && resource.amount >= 0.0
+                && KShared.IsFinite(resource.maxAmount) && resource.maxAmount >= 0.0
                 && resource.amount < resource.maxAmount;
 
         private bool IsStoredPartCurrent(StoredPart stored)
@@ -138,7 +134,7 @@ namespace Khemistry
         private bool IsPartCurrentAndInRange(Part candidate, double range)
         {
             if (candidate == null || part == null || candidate == part
-                || !IsFinite(range) || range < 0.0 || candidate.vessel == null
+                || !KShared.IsFinite(range) || range < 0.0 || candidate.vessel == null
                 || !FlightGlobals.VesselsLoaded.Contains(candidate.vessel)
                 || !candidate.vessel.parts.Contains(candidate))
                 return false;
@@ -262,7 +258,7 @@ namespace Khemistry
             double amount, bool allowSuitCell)
         {
             if (!IsStoredPartCurrent(stored) || string.IsNullOrWhiteSpace(name)
-                || !IsFinite(amount) || amount == 0.0)
+                || !KShared.IsFinite(amount) || amount == 0.0)
                 return 0.0;
 
             name = name.Trim();
@@ -282,7 +278,7 @@ namespace Khemistry
             {
                 double current = ReadResourceAmountValue(stored, name);
                 KhemistryFluidCell cell = ReadFluidCellPrefab(stored.partName);
-                double totalSpace = cell == null || !IsFinite(cell.ResourceMaxAmount)
+                double totalSpace = cell == null || !KShared.IsFinite(cell.ResourceMaxAmount)
                     || cell.ResourceMaxAmount <= 0f
                     ? 0.0
                     : Math.Max(0.0, cell.ResourceMaxAmount - ReadResourceAmount(stored));
@@ -297,7 +293,7 @@ namespace Khemistry
             {
                 double suitMoved = RequestSuitCellResource(name,
                     amount > 0.0 ? remaining : -remaining);
-                if (IsFinite(suitMoved)) moved += Math.Abs(suitMoved);
+                if (KShared.IsFinite(suitMoved)) moved += Math.Abs(suitMoved);
             }
 
             return amount > 0.0 ? moved : -moved;
@@ -938,16 +934,16 @@ namespace Khemistry
             KhemistryDegradingBattery prefab = PartLoader.getPartInfoByName(stored.partName)?.partPrefab
                 .FindModuleImplementing<KhemistryDegradingBattery>();
             ProtoPartModuleSnapshot snapshot = GetModuleSnapshot(stored, "KhemistryDegradingBattery");
-            if (prefab == null || snapshot == null || !IsFinite(prefab.DegradeTime)
+            if (prefab == null || snapshot == null || !KShared.IsFinite(prefab.DegradeTime)
                 || prefab.DegradeTime <= 0.0) return;
 
             ProtoPartResourceSnapshot resource = FindStoredPartResource(stored,
                 prefab.ResourceName);
-            if (resource == null || !IsFinite(resource.amount) || resource.amount < 0.0
-                || !IsFinite(resource.maxAmount) || resource.maxAmount < 0.0) return;
+            if (resource == null || !KShared.IsFinite(resource.amount) || resource.amount < 0.0
+                || !KShared.IsFinite(resource.maxAmount) || resource.maxAmount < 0.0) return;
 
             double now = Planetarium.GetUniversalTime();
-            if (!IsFinite(now) || now < 0.0) return;
+            if (!KShared.IsFinite(now) || now < 0.0) return;
             bool changed = false;
             if (!double.TryParse(snapshot.moduleValues.GetValue("OriginalMaxAmount"),
                     NumberStyles.Float, CultureInfo.InvariantCulture, out double originalMax)
@@ -1005,7 +1001,7 @@ namespace Khemistry
                 && double.TryParse(module.moduleValues.GetValue("ResourceAmount"),
                     NumberStyles.Float, CultureInfo.InvariantCulture,
                     out double legacyAmount)
-                && IsFinite(legacyAmount) && legacyAmount > 1e-9)
+                && KShared.IsFinite(legacyAmount) && legacyAmount > 1e-9)
             {
                 KhemistryFluidCell prefab = ReadFluidCellPrefab(stored.partName);
                 if (prefab != null && prefab.CanAddResource(legacyName, resources.Keys))
@@ -1065,14 +1061,14 @@ namespace Khemistry
             if (string.IsNullOrWhiteSpace(resourceName)) return 0.0;
             ReadCellResourceDictionary(stored).TryGetValue(resourceName.Trim(),
                 out double amount);
-            return IsFinite(amount) && amount > 0.0 ? amount : 0.0;
+            return KShared.IsFinite(amount) && amount > 0.0 ? amount : 0.0;
         }
 
-        private float ReadMaxAmount(StoredPart stored, string resourceName = null)
+        private float ReadMaxAmount(StoredPart stored)
         {
             double capacity = ReadFluidCellPrefab(stored?.partName)
                 ?.ResourceMaxAmount ?? 0f;
-            if (!IsFinite(capacity) || capacity <= 0.0) return 0f;
+            if (!KShared.IsFinite(capacity) || capacity <= 0.0) return 0f;
             return capacity >= float.MaxValue ? float.MaxValue : (float)capacity;
         }
 
@@ -1082,7 +1078,7 @@ namespace Khemistry
         private double ReadCellTotalFreeSpace(StoredPart stored)
         {
             KhemistryFluidCell cell = ReadFluidCellPrefab(stored?.partName);
-            if (cell == null || !IsFinite(cell.ResourceMaxAmount)
+            if (cell == null || !KShared.IsFinite(cell.ResourceMaxAmount)
                 || cell.ResourceMaxAmount <= 0f) return 0.0;
             return Math.Max(0.0, cell.ResourceMaxAmount - ReadResourceAmount(stored));
         }
@@ -1109,7 +1105,7 @@ namespace Khemistry
             double amount)
         {
             if (!IsStoredPartCurrent(stored) || string.IsNullOrWhiteSpace(resourceName)
-                || !IsFinite(amount) || amount < 0.0)
+                || !KShared.IsFinite(amount) || amount < 0.0)
                 return false;
 
             ProtoPartModuleSnapshot module = GetCellModuleSnapshot(stored);
@@ -1125,7 +1121,7 @@ namespace Khemistry
             {
                 if (!prefab.CanAddResource(resourceName, resources.Keys)) return false;
                 double total = KhemistryFluidCell.GetResourceTotal(resources);
-                if (!IsFinite(total)
+                if (!KShared.IsFinite(total)
                     || increase > Math.Max(0.0,
                         prefab.ResourceMaxAmount - total) + epsilon)
                     return false;
@@ -1469,7 +1465,7 @@ namespace Khemistry
                 var (sourcePart, sourceResource) = selection;
                 string resourceName = sourceResource.resourceName;
                 if (!IsPartCurrentAndInRange(sourcePart, _suitCellTransferDistance)
-                    || !HasUsableAmount(sourceResource) || !IsFinite(spaceRemaining)
+                    || !HasUsableAmount(sourceResource) || !KShared.IsFinite(spaceRemaining)
                     || spaceRemaining <= 0.0) return;
                 double maxTakeValue = Math.Min(sourceResource.amount, spaceRemaining);
                 float maxTake = maxTakeValue >= float.MaxValue

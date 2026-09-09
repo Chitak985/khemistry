@@ -259,8 +259,8 @@ namespace Khemistry
             foreach (KeyValuePair<string, ValueRange> variable in
                      vars ?? new Dictionary<string, ValueRange>())
             {
-                if (!IsFinite(variable.Value.Minimum)
-                    || !IsFinite(variable.Value.Maximum)
+                if (!KShared.IsFinite(variable.Value.Minimum)
+                    || !KShared.IsFinite(variable.Value.Maximum)
                     || variable.Value.Minimum > variable.Value.Maximum)
                 {
                     error = "Variable \"" + variable.Key + "\" has an invalid range.";
@@ -279,7 +279,7 @@ namespace Khemistry
                     error = "Unexpected trailing characters at position " + pos + ".";
                     return false;
                 }
-                if (!IsFinite(result.Minimum) || !IsFinite(result.Maximum)
+                if (!KShared.IsFinite(result.Minimum) || !KShared.IsFinite(result.Maximum)
                     || result.Minimum > result.Maximum)
                 {
                     error = "Expression range is not finite.";
@@ -423,7 +423,7 @@ namespace Khemistry
             double b = left.Minimum * right.Maximum;
             double c = left.Maximum * right.Minimum;
             double d = left.Maximum * right.Maximum;
-            if (!IsFinite(a) || !IsFinite(b) || !IsFinite(c) || !IsFinite(d))
+            if (!KShared.IsFinite(a) || !KShared.IsFinite(b) || !KShared.IsFinite(c) || !KShared.IsFinite(d))
                 throw new Exception("Expression range overflowed.");
             return new ValueRange(Math.Min(Math.Min(a, b), Math.Min(c, d)),
                 Math.Max(Math.Max(a, b), Math.Max(c, d)));
@@ -447,7 +447,7 @@ namespace Khemistry
                 throw new Exception("Pow with a variable exponent cannot be safely bounded.");
 
             double exponent = (exponentRange.Minimum + exponentRange.Maximum) * 0.5;
-            if (!IsFinite(exponent)) throw new Exception("Pow exponent is not finite.");
+            if (!KShared.IsFinite(exponent)) throw new Exception("Pow exponent is not finite.");
             if (exponent == 0.0) return MakeRange(1.0, 1.0);
 
             double roundedExponent = Math.Round(exponent);
@@ -460,7 +460,7 @@ namespace Khemistry
 
             double first = Math.Pow(baseRange.Minimum, exponent);
             double second = Math.Pow(baseRange.Maximum, exponent);
-            if (!IsFinite(first) || !IsFinite(second))
+            if (!KShared.IsFinite(first) || !KShared.IsFinite(second))
                 throw new Exception("Pow range is not finite.");
 
             double minimum = Math.Min(first, second);
@@ -474,14 +474,9 @@ namespace Khemistry
 
         private static ValueRange MakeRange(double first, double second)
         {
-            if (!IsFinite(first) || !IsFinite(second))
+            if (!KShared.IsFinite(first) || !KShared.IsFinite(second))
                 throw new Exception("Expression range is not finite.");
             return new ValueRange(Math.Min(first, second), Math.Max(first, second));
-        }
-
-        private static bool IsFinite(double value)
-        {
-            return !double.IsNaN(value) && !double.IsInfinity(value);
         }
     }
 }
