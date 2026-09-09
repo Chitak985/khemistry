@@ -15,6 +15,18 @@ namespace Khemistry
                     return tmp;
             return defaultValue;
         }
+        /// <summary>
+        /// Try getting an integer value from a config node safely.
+        /// This version also uses a default value.
+        /// </summary>
+        public static bool TryGetIntValueFromCFG(ConfigNode node, string key, int defaultValue,
+            out int value)
+        {
+            value = defaultValue;
+            return node != null && (!node.HasValue(key)
+                || int.TryParse(node.GetValue(key), NumberStyles.Integer,
+                    CultureInfo.InvariantCulture, out value));
+        }
         /// <summary>Get a float value from a config node safely.</summary>
         public static float GetFloatValueFromCFG(ConfigNode node, string value, float defaultValue)
         {
@@ -34,6 +46,20 @@ namespace Khemistry
                     NumberStyles.Float,
                     CultureInfo.InvariantCulture, out value)
                 && IsFinite(value);
+        }
+        /// <summary>
+        /// Try getting a float value from a config node safely.
+        /// This version also uses a default value.
+        /// </summary>
+        public static bool TryGetFloatValueFromCFG(ConfigNode node, string key, float defaultValue,
+            out float value)
+        {
+            value = defaultValue;
+            if (node == null) return false;
+            if (!node.HasValue(key)) return true;
+            return float.TryParse(node.GetValue(key), NumberStyles.Float,
+                CultureInfo.InvariantCulture, out value)
+                && !float.IsNaN(value) && !float.IsInfinity(value);
         }
         /// <summary>Get a double value from a config node safely.</summary>
         public static double GetDoubleValueFromCFG(ConfigNode node, string value, double defaultValue)

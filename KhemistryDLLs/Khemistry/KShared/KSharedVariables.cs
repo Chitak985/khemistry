@@ -62,8 +62,8 @@ namespace Khemistry
         public List<string> _selectorResources;
         public bool _kcoSelectorVisible = false;
 
-        // Other
-        public System.Random rand = new System.Random();
+        // Random number generator
+        public static System.Random rand = new System.Random();
 
         // Enumerators
         public enum SituationCondition

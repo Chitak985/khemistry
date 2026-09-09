@@ -28,6 +28,30 @@ namespace Khemistry
             => !double.IsNaN(value) && !double.IsInfinity(value);
 
         /// <summary>
+        /// Check if a float is finite (not NaN or infinite).
+        /// </summary>
+        /// <param name="value">The float to check</param>
+        /// <returns>If the float is finite (not NaN or infinite)</returns>
+        public static bool IsFiniteF(float value)
+            => !float.IsNaN(value) && !float.IsInfinity(value);
+
+        /// <summary>
+        /// Check if the float is finite (not NaN or infinite) and isn't negative.
+        /// </summary>
+        /// <param name="value">The float to check</param>
+        /// <returns>If the float is finite (not NaN or infinite) and isn't negative.</returns>
+        public static bool IsFiniteNonNegative(float value)
+            => IsFiniteF(value) && value >= 0f;
+
+        /// <summary>
+        /// Check if the float is finite (not NaN or infinite) and is positive.
+        /// </summary>
+        /// <param name="value">The float to check</param>
+        /// <returns>If the float is finite (not NaN or infinite) and is negative.</returns>
+        public static bool IsFinitePositive(float value)
+            => IsFiniteF(value) && value > 0f;
+
+        /// <summary>
         /// Returns a biome name using a latitude-longitude position on a CelestialBody.
         /// Returns null if the planet does not exist or has no biome map.
         /// </summary>
@@ -177,9 +201,6 @@ namespace Khemistry
             return paramValue == comparison;
         }
 
-        public static double DoubleFarenheitToCelsius(double f) => (f - 32.0) * (5.0 / 9.0);
-        public static float FloatFarenheitToCelsius(float f) => (f - 32f) * (5f / 9f);
-
         public static double LatLonDistanceMeters(
             double lat1Deg,
             double lon1Deg,
@@ -215,47 +236,6 @@ namespace Khemistry
                 Math.Sqrt(1 - a));
 
             return celestialBody.Radius * c;
-        }
-
-        public static double DegreesToRadians(double degrees) => degrees * Math.PI / 180.0;
-
-        public List<string> SurfaceDepositsAtPoint(float lat, float lon, string body, float depth)
-        {
-            List<string> tmp = new List<string>();
-            foreach (KhemistryGDeposit deposit in surfaceDeposits)
-            {
-                if (body == deposit.Planet && deposit.IsInsideDeposit(lat, lon) && deposit.IsDepthInsideDeposit(depth))
-                {
-                    tmp.Add(deposit.Resource);
-                }
-            }
-            return tmp;
-        }
-        public List<string> UndergroundDepositsAtPoint(float lat, float lon, string body, float depth)
-        {
-            List<string> tmp = new List<string>();
-            foreach (KhemistryUDeposit deposit in undergroundDeposits)
-            {
-                if (body == deposit.Planet && deposit.IsInsideDeposit(lat, lon) && deposit.IsDepthInsideDeposit(depth))
-                {
-                    tmp.Add(deposit.Resource);
-                }
-            }
-            return tmp;
-        }
-
-        /// <summary>
-        /// Returns underground resources whose horizontal footprint is below a point. This is
-        /// used by surface-mounted extractors, which have no meaningful drill-depth value to
-        /// pass to <see cref="UndergroundDepositsAtPoint"/>.
-        /// </summary>
-        public List<string> UndergroundDepositsBelowPoint(float lat, float lon, string body)
-        {
-            List<string> result = new List<string>();
-            foreach (KhemistryUDeposit deposit in undergroundDeposits)
-                if (body == deposit.Planet && deposit.IsInsideDeposit(lat, lon))
-                    result.Add(deposit.Resource);
-            return result;
         }
 
         public static void ParseShowRule(string raw, out bool showPAW, out bool showEVA,
@@ -390,22 +370,7 @@ namespace Khemistry
             }
         }
 
-        /// <summary>
-        /// Get a random double variable between two numbers.
-        /// If the KShared instance is null, returns the mean value of a and b instead.
-        /// </summary>
-        /// <param name="a">The lowest value.</param>
-        /// <param name="b">The highest value.</param>
-        /// <returns>The resulting random value between <paramref name="a"/> and <paramref name="b"/>.</returns>
-        public static double RandomDouble(double a, double b)
-        {
-            if (Instance != null)
-                return a + Instance.rand.NextDouble() * (b - a);
-            else
-            {
-                LogError("KShared instance in RandomDouble is null, returning mean value instead.", "KShared/RandomDouble");
-                return (a+b)/2;
-            }
-        }
+        public static double DoubleFarenheitToCelsius(double f) => (f - 32.0) * (5.0 / 9.0);
+        public static double DegreesToRadians(double degrees) => degrees * Math.PI / 180.0;
     }
 }

@@ -123,7 +123,7 @@ namespace Khemistry
         internal static bool GenerateConfiguredDeposits(KShared shared)
         {
             // Null check everything
-            if (shared == null || shared.rand == null || GameDatabase.Instance == null
+            if (shared == null || KShared.rand == null || GameDatabase.Instance == null
                 || PartResourceLibrary.Instance == null || FlightGlobals.Bodies == null
                 || FlightGlobals.Bodies.Count == 0)
                 return false;
@@ -209,11 +209,11 @@ namespace Khemistry
                         + "\" requests rendering, which is not implemented yet.",
                         "KSharedMainMenu/GenerateConfiguredDeposits");
 
-                if (!TryReadInt(node, "minAmount", 5, out int minAmount)
-                    || !TryReadInt(node, "maxAmount", 10, out int maxAmount)
-                    || !TryReadFloat(node, "minRadius", 10f, out float minRadius)
-                    || !TryReadFloat(node, "maxRadius", 20f, out float maxRadius)
-                    || !TryReadFloat(node, "depthUnderground", 50f, out float depthUnderground))
+                if (!KShared.TryGetIntValueFromCFG(node, "minAmount", 5, out int minAmount)
+                    || !KShared.TryGetIntValueFromCFG(node, "maxAmount", 10, out int maxAmount)
+                    || !KShared.TryGetFloatValueFromCFG(node, "minRadius", 10f, out float minRadius)
+                    || !KShared.TryGetFloatValueFromCFG(node, "maxRadius", 20f, out float maxRadius)
+                    || !KShared.TryGetFloatValueFromCFG(node, "depthUnderground", 50f, out float depthUnderground))
                 {
                     KShared.LogError("Deposit \"" + resource
                         + "\" has a malformed numeric setting and was not loaded.",
@@ -230,7 +230,7 @@ namespace Khemistry
                         "KSharedMainMenu/GenerateConfiguredDeposits");
                     continue;
                 }
-                if (!IsFinitePositive(minRadius) || !IsFinitePositive(maxRadius)
+                if (!KShared.IsFinitePositive(minRadius) || !KShared.IsFinitePositive(maxRadius)
                     || maxRadius < minRadius)
                 {
                     KShared.LogError("Deposit \"" + resource + "\" has invalid radius range ["
@@ -259,20 +259,20 @@ namespace Khemistry
                     continue;
                 }
 
-                int amount = NextInclusive(shared.rand, minAmount, maxAmount);
+                int amount = KShared.RandomIntInclusive(minAmount, maxAmount);
                 if (type == "surface")
                 {
                     string resource2 = node.GetValue("resource2")?.Trim();
                     float undergroundStart = 0f;
-                    bool validDepths = TryReadFloat(node, "depthSurface", 10f,
+                    bool validDepths = KShared.TryGetFloatValueFromCFG(node, "depthSurface", 10f,
                             out float surfaceDepth)
-                        && TryReadFloat(node, "depthUndergroundStart", 100f,
+                        && KShared.TryGetFloatValueFromCFG(node, "depthUndergroundStart", 100f,
                             out undergroundStart);
                     if (!validDepths || string.IsNullOrEmpty(resource2)
-                        || !IsFinitePositive(surfaceDepth)
-                        || !IsFiniteNonNegative(undergroundStart)
-                        || !IsFinitePositive(depthUnderground)
-                        || !IsFiniteNonNegative(undergroundStart + depthUnderground)
+                        || !KShared.IsFinitePositive(surfaceDepth)
+                        || !KShared.IsFiniteNonNegative(undergroundStart)
+                        || !KShared.IsFinitePositive(depthUnderground)
+                        || !KShared.IsFiniteNonNegative(undergroundStart + depthUnderground)
                         || PartResourceLibrary.Instance.GetDefinition(resource2) == null)
                     {
                         KShared.LogError("Surface deposit \"" + resource
@@ -283,7 +283,7 @@ namespace Khemistry
 
                     for (int i = 0; i < amount; i++)
                     {
-                        KhemistryGDeposit deposit = new KhemistryGDeposit(shared, body, biome,
+                        KhemistryGDeposit deposit = new KhemistryGDeposit(body, biome,
                             surfaceDepth, resource, minRadius, maxRadius, resource2,
                             undergroundStart, depthUnderground);
                         shared.surfaceDeposits.Add(deposit);
@@ -293,8 +293,8 @@ namespace Khemistry
                 }
                 else if (type == "surfaceOnly")
                 {
-                    if (!TryReadFloat(node, "depthSurface", 10f, out float surfaceDepth)
-                        || !IsFinitePositive(surfaceDepth))
+                    if (!KShared.TryGetFloatValueFromCFG(node, "depthSurface", 10f, out float surfaceDepth)
+                        || !KShared.IsFinitePositive(surfaceDepth))
                     {
                         KShared.LogError("Surface-only deposit \"" + resource
                             + "\" has invalid depthSurface and was not loaded.",
@@ -302,16 +302,16 @@ namespace Khemistry
                         continue;
                     }
                     for (int i = 0; i < amount; i++)
-                        shared.surfaceDeposits.Add(new KhemistryGDeposit(shared, body, biome,
+                        shared.surfaceDeposits.Add(new KhemistryGDeposit(body, biome,
                             surfaceDepth, resource, minRadius, maxRadius, null, 0f, 0f));
                 }
                 else
                 {
-                    if (!TryReadFloat(node, "depthUndergroundStart", 100f,
+                    if (!KShared.TryGetFloatValueFromCFG(node, "depthUndergroundStart", 100f,
                             out float undergroundStart)
-                        || !IsFiniteNonNegative(undergroundStart)
-                        || !IsFinitePositive(depthUnderground)
-                        || !IsFiniteNonNegative(undergroundStart + depthUnderground))
+                        || !KShared.IsFiniteNonNegative(undergroundStart)
+                        || !KShared.IsFinitePositive(depthUnderground)
+                        || !KShared.IsFiniteNonNegative(undergroundStart + depthUnderground))
                     {
                         KShared.LogError("Underground deposit \"" + resource
                             + "\" has invalid depth values and was not loaded.",
@@ -319,7 +319,7 @@ namespace Khemistry
                         continue;
                     }
                     for (int i = 0; i < amount; i++)
-                        shared.undergroundDeposits.Add(new KhemistryUDeposit(shared, body, biome,
+                        shared.undergroundDeposits.Add(new KhemistryUDeposit(body, biome,
                             undergroundStart, depthUnderground, resource, minRadius, maxRadius));
                 }
             }
@@ -329,46 +329,6 @@ namespace Khemistry
             KShared.Log("Created " + shared.surfaceDeposits.Count
                 + " surface deposits.", "KSharedMainMenu/GenerateConfiguredDeposits");
             return true;
-        }
-
-        /// <summary>
-        /// Check if the float is finite, not NaN, and isn't negative.
-        /// </summary>
-        private static bool IsFiniteNonNegative(float value)
-            => !float.IsNaN(value) && !float.IsInfinity(value) && value >= 0f;
-
-        /// <summary>
-        /// Check if the float is finite, not NaN, and is positive.
-        /// </summary>
-        private static bool IsFinitePositive(float value)
-            => !float.IsNaN(value) && !float.IsInfinity(value) && value > 0f;
-
-        private static int NextInclusive(System.Random random, int min, int max)
-        {
-            if (min == max) return min;
-            long range = (long)max - min + 1L;
-            long offset = (long)(random.NextDouble() * range);
-            return (int)((long)min + offset);
-        }
-
-        private static bool TryReadInt(ConfigNode node, string key, int defaultValue,
-            out int value)
-        {
-            value = defaultValue;
-            return node != null && (!node.HasValue(key)
-                || int.TryParse(node.GetValue(key), NumberStyles.Integer,
-                    CultureInfo.InvariantCulture, out value));
-        }
-
-        private static bool TryReadFloat(ConfigNode node, string key, float defaultValue,
-            out float value)
-        {
-            value = defaultValue;
-            if (node == null) return false;
-            if (!node.HasValue(key)) return true;
-            return float.TryParse(node.GetValue(key), NumberStyles.Float,
-                CultureInfo.InvariantCulture, out value)
-                && !float.IsNaN(value) && !float.IsInfinity(value);
         }
     }
 }

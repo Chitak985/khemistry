@@ -153,50 +153,6 @@ namespace Khemistry
             NotifyInventoryChanged();
         }
 
-        [KSPEvent(guiActive = true, guiActiveEditor = false,
-                  guiName = "Use Held Processor", groupName = "processoreva",
-                  groupDisplayName = "Processors", groupStartCollapsed = false)]
-        public void EVAUseProcessor()
-        {
-            List<HeldPartEVAProcessor> processors = GetHeldPartEVAProcessors();
-            if (processors.Count == 0)
-            {
-                ScreenMessages.PostScreenMessage(new ScreenMessage(
-                    "No partEVA BatchISRU processor is in this kerbal's inventory.",
-                    5f, ScreenMessageStyle.UPPER_CENTER));
-                return;
-            }
-
-            if (processors.Count == 1)
-            {
-                ShowPartEVAProcessorMenu(processors[0]);
-                return;
-            }
-
-            var labels = new List<string>();
-            var byLabel = new Dictionary<string, HeldPartEVAProcessor>();
-            foreach (HeldPartEVAProcessor processor in processors)
-            {
-                KhemistryISRU.InventoryProcessorInfo info = processor.prefab
-                    .ReadInventoryInfo(this, processor.stored, processor.snapshot,
-                        processor.config);
-                string title = PartLoader.getPartInfoByName(processor.stored.partName)
-                    ?.title ?? processor.stored.partName;
-                string label = MakeUniqueLabel(labels, title + " / "
-                    + (info?.converterName ?? "Converter") + " — "
-                    + (info?.isRunning == true ? "Running" : "Stopped"));
-                labels.Add(label);
-                byLabel.Add(label, processor);
-            }
-
-            KShared.Instance?.ShowSelector("Select held processor", labels, label =>
-            {
-                if (byLabel.TryGetValue(label, out HeldPartEVAProcessor selected)
-                    && IsStoredPartCurrent(selected.stored))
-                    ShowPartEVAProcessorMenu(selected);
-            });
-        }
-
         private void ShowPartEVAProcessorMenu(HeldPartEVAProcessor processor)
         {
             if (!IsStoredPartCurrent(processor.stored)) return;

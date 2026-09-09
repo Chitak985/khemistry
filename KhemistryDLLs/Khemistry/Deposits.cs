@@ -33,10 +33,10 @@ namespace Khemistry
         }
         public bool IsInsideDeposit(float lat, float lon) => DistanceFromDeposit(lat, lon) <= Radius;
 
-        protected static float RollRadius(KShared kinst, float minRadius, float maxRadius,
+        protected static float RollRadius(float minRadius, float maxRadius,
             string logContext)
         {
-            if (kinst?.rand == null || float.IsNaN(minRadius) || float.IsInfinity(minRadius)
+            if (KShared.rand == null || float.IsNaN(minRadius) || float.IsInfinity(minRadius)
                 || float.IsNaN(maxRadius) || float.IsInfinity(maxRadius)
                 || minRadius < 0f || maxRadius < minRadius)
             {
@@ -47,12 +47,12 @@ namespace Khemistry
             }
 
             if (minRadius.Equals(maxRadius)) return minRadius;
-            return minRadius + (float)kinst.rand.NextDouble() * (maxRadius - minRadius);
+            return minRadius + (float)KShared.rand.NextDouble() * (maxRadius - minRadius);
         }
 
-        protected static Vector2 RollPosition(KShared kinst, string logContext)
+        protected static Vector2 RollPosition(string logContext)
         {
-            if (kinst?.rand == null)
+            if (KShared.rand == null)
             {
                 KShared.LogError("Could not generate a deposit position because the random generator is unavailable.",
                     logContext);
@@ -62,9 +62,9 @@ namespace Khemistry
             // Uniform latitude values over-represent the polar regions. Sampling the sine of
             // latitude uniformly instead gives every equal-area patch of the body the same
             // chance of receiving a deposit.
-            double sinLatitude = (kinst.rand.NextDouble() * 2.0) - 1.0;
+            double sinLatitude = (KShared.rand.NextDouble() * 2.0) - 1.0;
             float latitude = (float)(Math.Asin(sinLatitude) * 180.0 / Math.PI);
-            float longitude = (float)(kinst.rand.NextDouble() * 360.0) - 180f;
+            float longitude = (float)(KShared.rand.NextDouble() * 360.0) - 180f;
             return new Vector2(latitude, longitude);
         }
     }
@@ -82,7 +82,7 @@ namespace Khemistry
         public bool IsDepthInsideDeposit(float depth2)
             => depth2 >= DepthStart && depth2 <= DepthStart + Depth;
 
-        public KhemistryUDeposit(KShared kinst, string planet, string requiredBiome, float depthStart, float depth, string resource, float minRadius, float maxRadius, float latOverride = -12345, float lonOverride = -12345)
+        public KhemistryUDeposit(string planet, string requiredBiome, float depthStart, float depth, string resource, float minRadius, float maxRadius, float latOverride = -12345, float lonOverride = -12345)
         {
             try
             {
@@ -91,13 +91,13 @@ namespace Khemistry
                 Depth = depth;
                 Resource = resource;
 
-                Radius = RollRadius(kinst, minRadius, maxRadius,
+                Radius = RollRadius(minRadius, maxRadius,
                     "KhemistryUDeposit/constructor");
 
                 // Generate position
                 if ((int)latOverride == -12345 || (int)lonOverride == -12345)  // If either of them are not set, calculate as normal
                 {
-                    Position = RollPosition(kinst, "KhemistryUDeposit/constructor");
+                    Position = RollPosition("KhemistryUDeposit/constructor");
                     if (requiredBiome != null)  // If it is null, any biome is supported
                     {
                         // Just keep randomizing the deposit until it hits the right biome, up to a
@@ -117,7 +117,7 @@ namespace Khemistry
                                     "KhemistryUDeposit/constructor");
                                 break;
                             }
-                            Position = RollPosition(kinst, "KhemistryUDeposit/constructor");
+                            Position = RollPosition("KhemistryUDeposit/constructor");
                         }
                     }
                 }
@@ -152,7 +152,7 @@ namespace Khemistry
         /// <returns>Whether the depth is inside the deposit.</returns>
         public bool IsDepthInsideDeposit(float depth2) => depth2 >= 0f && depth2 <= Depth;
 
-        public KhemistryGDeposit(KShared kinst, string planet, string requiredBiome, float depth,
+        public KhemistryGDeposit(string planet, string requiredBiome, float depth,
             string resource, float minRadius, float maxRadius, string resource2,
             float undergroundDepthStart, float undergroundDepth)
         {
@@ -163,11 +163,11 @@ namespace Khemistry
                 Depth = depth;
                 Resource = resource;
 
-                Radius = RollRadius(kinst, minRadius, maxRadius,
+                Radius = RollRadius(minRadius, maxRadius,
                     "KhemistryGDeposit/constructor");
 
                 // Generate position
-                Position = RollPosition(kinst, "KhemistryGDeposit/constructor");
+                Position = RollPosition("KhemistryGDeposit/constructor");
                 if (requiredBiome != null)
                 {
                     // Just keep randomizing the deposit until it hits the right biome, up to a sane
@@ -187,7 +187,7 @@ namespace Khemistry
                                 "KhemistryGDeposit/constructor");
                             break;
                         }
-                        Position = RollPosition(kinst, "KhemistryGDeposit/constructor");
+                        Position = RollPosition("KhemistryGDeposit/constructor");
                     }
                 }
 
@@ -196,12 +196,14 @@ namespace Khemistry
                 // If resource2 is null, the deposit is considered "surfaceOnly" and the underground deposit won't be created
                 if (resource2 != null)
                 {
-                    PairGDeposit = new KhemistryUDeposit(kinst, planet, null,
+                    PairGDeposit = new KhemistryUDeposit(planet, null,
                         undergroundDepthStart, undergroundDepth, resource2, minRadius, maxRadius,
-                        latOverride: Position[0], lonOverride: Position[1]);
-                    // A paired deposit describes the same horizontal body of ore at a
-                    // different depth. It must not independently reroll its footprint.
-                    PairGDeposit.Radius = Radius;
+                        latOverride: Position[0], lonOverride: Position[1])
+                    {
+                        // A paired deposit describes the same horizontal body of ore at a
+                        // different depth. It must not independently reroll its footprint.
+                        Radius = Radius
+                    };
                 }
             }
             catch (Exception ex)

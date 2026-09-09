@@ -76,6 +76,8 @@
     <Compile Include="DepositPersistence.cs" />
     <Compile Include="KerbalSuitPersistence.cs" />
     <Compile Include="KSharedMainMenu.cs" />
+    <Compile Include="KShared\KSharedDeposits.cs" />
+    <Compile Include="KShared\KSharedRandom.cs" />
     <Compile Include="PartModules\AdvancedStorage.cs" />
     <Compile Include="PartModules\FluidCell.cs" />
     <Compile Include="KEI\KEIData.cs" />
@@ -89,8 +91,10 @@
     <Compile Include="KShared\KSharedOtherHelpers.cs" />
     <Compile Include="KShared\KSharedVariables.cs" />
     <Compile Include="Materials.cs" />
-    <Compile Include="PartModules\Kerbal.cs" />
-    <Compile Include="PartModules\KerbalPartEVA.cs" />
+    <Compile Include="PartModules\Kerbal\KerbalCell.cs" />
+    <Compile Include="PartModules\Kerbal\KerbalEvents.cs" />
+    <Compile Include="PartModules\Kerbal\KerbalMain.cs" />
+    <Compile Include="PartModules\Kerbal\KerbalPartEVA.cs" />
     <Compile Include="PartModules\KhemistryISRU\ISRUActions.cs" />
     <Compile Include="PartModules\KhemistryISRU\ISRUBiomeConfig.cs" />
     <Compile Include="PartModules\KhemistryISRU\ISRUEvents.cs" />
