@@ -953,10 +953,14 @@ namespace Khemistry
                 outputNode.AddValue("randomSequence", _materialOutputRandomSequence[material]
                     .ToString(CultureInfo.InvariantCulture));
                 ConfigNode paramsNode = new ConfigNode("PARAMS");
-                foreach (KeyValuePair<string, string> parameter in
-                         (material.parameters ?? new Dictionary<string, string>())
-                         .OrderBy(value => value.Key, StringComparer.Ordinal))
+                IEnumerable<KeyValuePair<string, string>> assignments =
+                    (IEnumerable<KeyValuePair<string, string>>)material.parameterAssignments
+                    ?? (material.parameters ?? new Dictionary<string, string>())
+                        .OrderBy(value => value.Key, StringComparer.Ordinal);
+                foreach (KeyValuePair<string, string> parameter in assignments)
                     paramsNode.AddValue(parameter.Key, parameter.Value);
+                if (material.parameterAssignments != null)
+                    outputNode.AddValue("parameterOrderVersion", "1");
                 outputNode.AddNode(paramsNode);
                 node.AddNode(outputNode);
             }
@@ -1000,11 +1004,27 @@ namespace Khemistry
             if (left.name != right.name || left.shape != right.shape || left.size != right.size
                 || left.outVolume != right.outVolume)
                 return false;
-            if (ReferenceEquals(left.parameters, right.parameters)) return true;
-            if (left.parameters == null || right.parameters == null
-                || left.parameters.Count != right.parameters.Count) return false;
-            foreach (KeyValuePair<string, string> parameter in left.parameters)
-                if (!right.parameters.TryGetValue(parameter.Key, out string value) || value != parameter.Value)
+            if (!ReferenceEquals(left.parameters, right.parameters))
+            {
+                if (left.parameters == null || right.parameters == null
+                    || left.parameters.Count != right.parameters.Count) return false;
+                foreach (KeyValuePair<string, string> parameter in left.parameters)
+                    if (!right.parameters.TryGetValue(parameter.Key, out string value)
+                        || value != parameter.Value)
+                        return false;
+            }
+
+            // Buffers written before parameter order was persisted have no ordered list.
+            // Treat those as compatible based on their dictionary values so old saves still load.
+            if (left.parameterAssignments == null || right.parameterAssignments == null)
+                return true;
+            if (left.parameterAssignments.Count != right.parameterAssignments.Count)
+                return false;
+            for (int index = 0; index < left.parameterAssignments.Count; index++)
+                if (!string.Equals(left.parameterAssignments[index].Key,
+                        right.parameterAssignments[index].Key, StringComparison.Ordinal)
+                    || !string.Equals(left.parameterAssignments[index].Value,
+                        right.parameterAssignments[index].Value, StringComparison.Ordinal))
                     return false;
             return true;
         }
@@ -1030,6 +1050,9 @@ namespace Khemistry
             source.parameters = source.parameters == null
                 ? new Dictionary<string, string>()
                 : new Dictionary<string, string>(source.parameters);
+            source.parameterAssignments = source.parameterAssignments == null
+                ? null
+                : new List<KeyValuePair<string, string>>(source.parameterAssignments);
             return source;
         }
 
@@ -1072,9 +1095,27 @@ namespace Khemistry
                     continue;
                 }
 
-                Dictionary<string, string> parameters = outputNode.HasNode("PARAMS")
-                    ? KShared.NodeToDictionary(outputNode.GetNode("PARAMS"))
+                ConfigNode savedParamsNode = outputNode.HasNode("PARAMS")
+                    ? outputNode.GetNode("PARAMS")
+                    : null;
+                Dictionary<string, string> parameters = savedParamsNode != null
+                    ? KShared.NodeToDictionary(savedParamsNode)
                     : new Dictionary<string, string>();
+                List<KeyValuePair<string, string>> parameterAssignments = null;
+                if (outputNode.HasValue("parameterOrderVersion"))
+                {
+                    if (outputNode.GetValue("parameterOrderVersion") != "1")
+                    {
+                        unrestored.Add(outputNode);
+                        continue;
+                    }
+
+                    parameterAssignments = new List<KeyValuePair<string, string>>();
+                    if (savedParamsNode != null)
+                        foreach (ConfigNode.Value parameter in savedParamsNode.values)
+                            parameterAssignments.Add(new KeyValuePair<string, string>(
+                                parameter.name, parameter.value));
+                }
                 KhemistryISRURecipe.ResourceOutputMaterial restored = new KhemistryISRURecipe.ResourceOutputMaterial
                 {
                     name = outputNode.GetValue("name"),
@@ -1082,6 +1123,7 @@ namespace Khemistry
                     size = outputNode.GetValue("size"),
                     usesParams = parameters.Count > 0,
                     parameters = parameters,
+                    parameterAssignments = parameterAssignments,
                     amount = 0.0,
                     outVolume = outputNode.GetValue("outVolume")
                 };
@@ -2306,10 +2348,19 @@ namespace Khemistry
                         randomSequence);
                     string resolvedSize = ResolveRandf(matOutput.size, random);
                     Dictionary<string, string> resolvedParameters = new Dictionary<string, string>();
-                    foreach (KeyValuePair<string, string> kv in
-                             (matOutput.parameters ?? new Dictionary<string, string>())
-                             .OrderBy(value => value.Key, StringComparer.Ordinal))
-                        resolvedParameters[kv.Key] = ResolveRandf(kv.Value, random);
+                    List<KeyValuePair<string, string>> resolvedAssignments =
+                        new List<KeyValuePair<string, string>>();
+                    IEnumerable<KeyValuePair<string, string>> assignments =
+                        (IEnumerable<KeyValuePair<string, string>>)matOutput.parameterAssignments
+                        ?? (matOutput.parameters ?? new Dictionary<string, string>())
+                            .OrderBy(value => value.Key, StringComparer.Ordinal);
+                    foreach (KeyValuePair<string, string> assignment in assignments)
+                    {
+                        string resolvedValue = ResolveRandf(assignment.Value, random);
+                        resolvedParameters[assignment.Key] = resolvedValue;
+                        resolvedAssignments.Add(new KeyValuePair<string, string>(
+                            assignment.Key, resolvedValue));
+                    }
 
                     if (!KShared.TryEvaluateOutVolumeExpression(matOutput.outVolume, resolvedSize, resolvedParameters,
                             "KhemistryISRU/TryTransferMaterialOutputBuffer", out double perUnitVolume))
@@ -2325,10 +2376,13 @@ namespace Khemistry
                     }
 
                     KhemistryMaterialInstance instance = new KhemistryMaterialInstance(
-                        material, matOutput.shape, resolvedSize, (float)perUnitVolume, resolvedParameters)
+                        material, matOutput.shape, resolvedSize, (float)perUnitVolume, null)
                     {
                         amount = 1
                     };
+                    if (!instance.ApplyParameterValuesInOrder(resolvedAssignments,
+                            "KhemistryISRU/TryTransferMaterialOutputBuffer"))
+                        break;
 
                     bool placed = false;
                     if ((moduleType == "kerbalEVA"

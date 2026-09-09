@@ -73,8 +73,8 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Deposits.cs" />
-    <Compile Include="DepositPersistence.cs" />
-    <Compile Include="KerbalSuitPersistence.cs" />
+    <Compile Include="Persistance\DepositPersistence.cs" />
+    <Compile Include="Persistance\KerbalSuitPersistence.cs" />
     <Compile Include="KSharedMainMenu.cs" />
     <Compile Include="KShared\KSharedDeposits.cs" />
     <Compile Include="KShared\KSharedRandom.cs" />

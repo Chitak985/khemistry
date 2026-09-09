@@ -26,6 +26,7 @@ namespace Khemistry
         /// The derivation equation must start with DER and it is a KMathExpr.
         /// </summary>
         public Dictionary<string, string> parameters = new Dictionary<string, string>();
+        public readonly List<string> parameterOrder = new List<string>();
         
         /// <summary>
         /// List of equations to merge parameters of the material.
@@ -34,6 +35,7 @@ namespace Khemistry
         /// material's variables with an O suffix.
         /// </summary>
         public Dictionary<string, string> parameterMergers = new Dictionary<string, string>();
+        public readonly List<string> parameterMergeOrder = new List<string>();
 
         /// <summary>
         /// Construct the material from a ConfigNode.
@@ -102,6 +104,7 @@ namespace Khemistry
                         continue;
                     }
                     parameters.Add(key, parameter.value);
+                    parameterOrder.Add(key);
                 }
 
                 foreach (string parameterName in parameters.Keys)
@@ -142,46 +145,81 @@ namespace Khemistry
                         configurationError = true;
                         continue;
                     }
-                    if (IsDerivedParameter(key))
-                    {
-                        KShared.LogError(
-                            "Material \"" + name + "\" has a PARAM_MERGING equation for derived parameter \""
-                            + key + "\"; derived parameters are recalculated after a merge.",
-                            "KhemistryMaterial/constructor");
-                        configurationError = true;
-                        continue;
-                    }
-
-                    string expression = merger.value;
-                    if (!string.IsNullOrWhiteSpace(expression))
-                        parameterMergers[key] = expression.Trim();
-                    else
+                    string expression = merger.value?.Trim();
+                    if (string.IsNullOrWhiteSpace(expression))
                     {
                         KShared.LogError("Material \"" + name
                             + "\" has an empty PARAM_MERGING equation for parameter \"" + key + "\".",
                             "KhemistryMaterial/constructor");
                         configurationError = true;
+                        continue;
                     }
+
+                    if (IsDerivedParameter(key)
+                        && !string.Equals(expression, "DERIVE",
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        KShared.LogError(
+                            "Material \"" + name + "\" has a PARAM_MERGING equation for derived parameter \""
+                            + key + "\"; use \"" + key
+                            + " = DERIVE\" to recalculate it at that point.",
+                            "KhemistryMaterial/constructor");
+                        configurationError = true;
+                        continue;
+                    }
+                    if (!IsDerivedParameter(key)
+                        && string.Equals(expression, "DERIVE",
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        KShared.LogError("Material \"" + name
+                            + "\" uses DERIVE for non-derived parameter \"" + key + "\".",
+                            "KhemistryMaterial/constructor");
+                        configurationError = true;
+                        continue;
+                    }
+
+                    parameterMergers[key] = expression;
+                    parameterMergeOrder.Add(key);
                 }
             }
 
-            // Default non-derived merge expressions to a weighted average.
-            foreach (string param in parameters.Keys)
+            // Explicit PARAM_MERGING entries run first in their config order. Parameters that
+            // have no explicit equation follow in PARAMS order using a weighted average.
+            foreach (string param in parameterOrder)
                 if (!IsDerivedParameter(param) && !parameterMergers.ContainsKey(param))
+                {
                     parameterMergers.Add(param, $"(({param}*amount)+({param}O*amountO))/(amount+amountO)");
+                    parameterMergeOrder.Add(param);
+                }
 
-            Dictionary<string, string> syntaxVariables = BuildExpressionValidationVariables(parameters.Keys);
-            foreach (string parameterName in parameters.Keys)
+            Dictionary<string, string> syntaxVariables = BuildExpressionValidationVariables(parameterOrder);
+            foreach (string parameterName in parameterOrder)
             {
-                string expression = IsDerivedParameter(parameterName)
-                    ? GetDerivationExpression(parameterName)
-                    : parameterMergers[parameterName];
+                if (!IsDerivedParameter(parameterName)) continue;
+                string expression = GetDerivationExpression(parameterName);
                 if (KMathExpr.TryEvaluate(expression, out _, out string expressionError,
                         syntaxVariables))
                     continue;
 
                 KShared.LogError("Material \"" + name + "\": expression for parameter \""
                     + parameterName + "\" is invalid: " + expressionError,
+                    "KhemistryMaterial/constructor");
+                configurationError = true;
+            }
+            foreach (string parameterName in parameterMergeOrder)
+            {
+                string expression = parameterMergers[parameterName];
+                if (string.Equals(expression, "DERIVE",
+                        StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                if (KMathExpr.TryEvaluate(expression, out _,
+                        out string expressionError, syntaxVariables))
+                    continue;
+
+                KShared.LogError("Material \"" + name
+                    + "\": merge expression for parameter \"" + parameterName
+                    + "\" is invalid: " + expressionError,
                     "KhemistryMaterial/constructor");
                 configurationError = true;
             }
@@ -370,13 +408,90 @@ namespace Khemistry
             ReplaceDictionary(parameters, replacement);
         }
 
+        private string GetCanonicalParameterName(string configuredName)
+        {
+            if (string.IsNullOrWhiteSpace(configuredName)) return null;
+            return material.parameterOrder.FirstOrDefault(parameterName =>
+                string.Equals(parameterName, configuredName.Trim(),
+                    StringComparison.OrdinalIgnoreCase));
+        }
+
+        private bool TryDeriveParameter(Dictionary<string, string> sourceParameters,
+            int sourceAmount, string parameterName, out string error)
+        {
+            error = null;
+            string canonicalName = GetCanonicalParameterName(parameterName);
+            if (canonicalName == null || !material.IsDerivedParameter(canonicalName))
+            {
+                error = "Parameter \"" + (parameterName ?? "")
+                    + "\" is not a derived parameter.";
+                return false;
+            }
+
+            // Do not let a stale value satisfy a self-reference. Other derived parameters
+            // deliberately remain available so preceding DERIVE steps can feed later ones.
+            Dictionary<string, string> variables =
+                new Dictionary<string, string>(sourceParameters);
+            variables.Remove(canonicalName);
+            if (!KMathExpr.TryEvaluate(material.GetDerivationExpression(canonicalName),
+                    out double value, out string evaluationError,
+                    BuildVariableList(variables, sourceAmount)))
+            {
+                error = canonicalName + ": " + evaluationError;
+                return false;
+            }
+
+            sourceParameters[canonicalName] = value.ToString("R",
+                CultureInfo.InvariantCulture);
+            return true;
+        }
+
+        /// <summary>
+        /// Applies OUTPUT_MATERIAL parameters in config order. A value of DERIVE recalculates
+        /// that derived parameter immediately, so following entries observe the new value.
+        /// All derived parameters are refreshed once more after the ordered pass.
+        /// </summary>
+        public bool ApplyParameterValuesInOrder(
+            IEnumerable<KeyValuePair<string, string>> assignments, string location)
+        {
+            foreach (KeyValuePair<string, string> assignment in
+                     assignments ?? Enumerable.Empty<KeyValuePair<string, string>>())
+            {
+                string parameterName = GetCanonicalParameterName(assignment.Key);
+                if (parameterName == null)
+                {
+                    KShared.LogError("Material instance of material " + material.name
+                        + " has an invalid parameter " + assignment.Key + ".", location);
+                    return false;
+                }
+
+                string configuredValue = assignment.Value?.Trim();
+                if (string.Equals(configuredValue, "DERIVE",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!TryDeriveParameter(parameters, amount, parameterName,
+                            out string deriveError))
+                    {
+                        KShared.LogError("Could not apply OUTPUT_MATERIAL DERIVE: "
+                            + deriveError, location);
+                        return false;
+                    }
+                }
+                else
+                    parameters[parameterName] = assignment.Value;
+            }
+
+            UpdateParams(location);
+            return true;
+        }
+
         private bool TryCalculateDerivedParameters(Dictionary<string, string> sourceParameters,
             int sourceAmount, out Dictionary<string, string> updated, out string error)
         {
             updated = new Dictionary<string, string>(sourceParameters);
             error = null;
 
-            List<string> pending = material.parameters.Keys
+            List<string> pending = material.parameterOrder
                 .Where(material.IsDerivedParameter)
                 .ToList();
             foreach (string derivedParameter in pending)
@@ -593,16 +708,25 @@ namespace Khemistry
 
             Dictionary<string, string> otherVariables = other.BuildVariableList(otherSnapshot, other.amount)
                 .ToDictionary(pair => pair.Key + "O", pair => pair.Value);
-            Dictionary<string, string> mergeVariables = BuildVariableList(
-                currentSnapshot, amount, otherVariables);
             Dictionary<string, string> mergedParameters = new Dictionary<string, string>(currentSnapshot);
             int mergedAmount = amount + other.amount;
 
-            foreach (string parameterName in material.parameters.Keys)
+            // Run the configured equations from top to bottom. Rebuild the variables after
+            // every step so later equations observe earlier merged values. The O-suffixed
+            // values always describe the unchanged incoming material.
+            foreach (string parameterName in material.parameterMergeOrder)
             {
-                if (material.IsDerivedParameter(parameterName)) continue;
+                string expression = material.parameterMergers[parameterName];
+                if (string.Equals(expression, "DERIVE",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!TryDeriveParameter(mergedParameters, mergedAmount,
+                            parameterName, out string deriveError))
+                        return FailContaminatedMerge(deriveError);
+                    continue;
+                }
 
-                string currentValue = currentSnapshot[parameterName];
+                string currentValue = mergedParameters[parameterName];
                 string otherValue = otherSnapshot[parameterName];
                 bool currentNumeric = double.TryParse(currentValue, NumberStyles.Float,
                     CultureInfo.InvariantCulture, out _);
@@ -616,7 +740,8 @@ namespace Khemistry
                     continue;
                 }
 
-                string expression = material.parameterMergers[parameterName];
+                Dictionary<string, string> mergeVariables = BuildVariableList(
+                    mergedParameters, amount, otherVariables);
                 if (!KMathExpr.TryEvaluate(expression, out double mergedValue, out string mergeError,
                         mergeVariables))
                     return FailContaminatedMerge("Parameter \"" + parameterName + "\": " + mergeError);

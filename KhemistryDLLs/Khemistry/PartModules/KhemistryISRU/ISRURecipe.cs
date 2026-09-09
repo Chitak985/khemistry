@@ -53,6 +53,7 @@ namespace Khemistry
             public string size;
             public bool usesParams;
             public Dictionary<string, string> parameters;
+            public List<KeyValuePair<string, string>> parameterAssignments;
             public double amount;
             public string outVolume;
         }
@@ -513,6 +514,8 @@ namespace Khemistry
 
                     bool usesParams = matNode.HasNode("PARAMS");
                     Dictionary<string, string> parameters = new Dictionary<string, string>();
+                    var parameterAssignments =
+                        new List<KeyValuePair<string, string>>();
                     bool validParameters = true;
                     if (usesParams)
                     {
@@ -530,6 +533,8 @@ namespace Khemistry
                                 break;
                             }
                             parameters.Add(key, parameter.value);
+                            parameterAssignments.Add(
+                                new KeyValuePair<string, string>(key, parameter.value));
                         }
                     }
 
@@ -560,6 +565,7 @@ namespace Khemistry
                         size = size,
                         usesParams = usesParams,
                         parameters = parameters,
+                        parameterAssignments = parameterAssignments,
                         amount = amount,
                         outVolume = outVolume
                     });
@@ -909,6 +915,27 @@ namespace Khemistry
                 if (!ValidateMaterialReference(definition, output.name, output.shape,
                         output.parameters?.Keys, "OUTPUT_MATERIAL", context))
                     valid = false;
+                else if (output.parameterAssignments != null)
+                {
+                    foreach (KeyValuePair<string, string> assignment in
+                             output.parameterAssignments)
+                    {
+                        if (!string.Equals(assignment.Value?.Trim(), "DERIVE",
+                                StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        string canonicalName = definition.parameterOrder
+                            .FirstOrDefault(parameterName => string.Equals(parameterName,
+                                assignment.Key, StringComparison.OrdinalIgnoreCase));
+                        if (canonicalName != null
+                            && definition.IsDerivedParameter(canonicalName))
+                            continue;
+                        valid = false;
+                        KShared.LogError("Recipe \"" + _name
+                            + "\": OUTPUT_MATERIAL \"" + output.name
+                            + "\" uses DERIVE for non-derived parameter \""
+                            + assignment.Key + "\".", context);
+                    }
+                }
             }
 
             IsValid = valid;
@@ -1044,6 +1071,10 @@ namespace Khemistry
                     size = mat.size,
                     usesParams = mat.usesParams,
                     parameters = new Dictionary<string, string>(mat.parameters),
+                    parameterAssignments = mat.parameterAssignments == null
+                        ? null
+                        : new List<KeyValuePair<string, string>>(
+                            mat.parameterAssignments),
                     amount = mat.amount * multiplier,
                     outVolume = mat.outVolume
                 });
