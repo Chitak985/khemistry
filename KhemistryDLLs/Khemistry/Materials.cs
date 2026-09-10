@@ -46,14 +46,24 @@ namespace Khemistry
             bool configurationError = false;
 
             // Check if the config node is valid
-            if (configNode == null || configNode.name != "KHEMISTRY_MATERIAL")
+            if (configNode == null)
+            {
+                KShared.LogError("KhemistryMaterial loading failed because the ConfigNode provided is null!", "KhemistryMaterial/constructor");
+                return;
+            }
+            if (configNode.name != "KHEMISTRY_MATERIAL")
             {
                 KShared.LogError("KhemistryMaterial loading failed because the node isn't named KHEMISTRY_MATERIAL!", "KhemistryMaterial/constructor");
                 return;
             }
-            if (!configNode.HasNode("SHAPES") || !configNode.HasValue("name"))
+            if (!configNode.HasNode("SHAPES"))
             {
-                KShared.LogError("KhemistryMaterial loading failed because one of the nodes isn't present!", "KhemistryMaterial/constructor");
+                KShared.LogError("KhemistryMaterial loading failed because node SHAPES isn't present!", "KhemistryMaterial/constructor");
+                return;
+            }
+            if (!configNode.HasValue("name"))
+            {
+                KShared.LogError("KhemistryMaterial loading failed because value name isn't present!", "KhemistryMaterial/constructor");
                 return;
             }
 
@@ -61,7 +71,7 @@ namespace Khemistry
             name = configNode.GetValue("name")?.Trim();
             if (string.IsNullOrEmpty(name))
             {
-                KShared.LogError("KhemistryMaterial loading failed because its name is empty!", "KhemistryMaterial/constructor");
+                KShared.LogError("KhemistryMaterial loading failed because its name is null or empty!", "KhemistryMaterial/constructor");
                 return;
             }
 
@@ -74,7 +84,7 @@ namespace Khemistry
             }
             if (shapes.Count == 0)
             {
-                KShared.LogError("Material \"" + name + "\" has no valid shapes.", "KhemistryMaterial/constructor");
+                KShared.LogError("Material \"" + name + "\" has no valid shapes!", "KhemistryMaterial/constructor");
                 return;
             }
 
