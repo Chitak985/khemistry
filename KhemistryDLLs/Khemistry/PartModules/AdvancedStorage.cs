@@ -2,77 +2,35 @@
 using System.Collections.Generic;
 using System.Globalization;
 
-/* Example config node
-MODULE
-{
-	name = KhemistryAdvancedStorage
-    storageType = multiShared  // Can be type or storageType. "single" stores one resource, "multi" stores multiple and can be configured, "multiShared" stores multiple all at the same time
-	maximumResources = 1000.0  // Maximum resources it can hold in total. This will be shared for multiShare types but per-resource for others.
-	chargingRequired = true    // Does the container need to be charged to be used
-	passiveConsumption = true  // Does the container have a passive consumption
-	maxInputRate = 10.0        // Maximum transfer rate to the container. Do not include if you want it to be unlimited
-	maxOutputRate = 10.0       // Maximum transfer rate from the container. Do not include if you want it to be unlimited
-	chargeRate = 50.0          // Percent per second to fill charge (50 = 2 seconds to full). Not required if charging is disabled
-	chargeDecayRate = 5.0      // Percent per second to lose charge when storage can no longer charge. Not required if charging is disabled
-    filledUnpoweredResult = boiloff,1         // What will happen if the storage is not on but has a resource. Possible options are listed below
-    passiveUnsatisfiedResult = destroy,500    // What will happen if the storage cannot consume resources as part of passive consumption. Possible options are listed below
-                                              // off = The container will turn off
-                                              // void = All resources will be voided
-                                              // destroy,50 = The part will blow up with the specified power
-                                              // boiloff,1 = All resources will slowly (or not) disappear at the specified amount per second.
-                                              // Note that boiloff can only be applied to filledUnpoweredResult because passiveUnsatisfiedResult is only checked once and the container turns off.
-                                              // Also the fields can have double quotes (") around them but that is not recommended to do.
-
-	SUPPORTED_RESOURCES        // Resource the container supports and can hold at the same time.
-	{                          // More than one entry with single type will error out and remove all after the first one.
-		name = LiquidFuel      // If it isn't present, the part will error out and the storage will not show up.
-		name = Oxidizer
-		name = MonoPropellant
-	}
-
-	PASSIVE_CON_NAMES          // Resources used for passive consumption. Not required if passive consumption is disabled
-	{
-		name = ElectricCharge
-	}
-	PASSIVE_CON_AMOUNTS        // Amount of each resource used for passive consumption (per second). Not required if passive consumption is disabled
-	{
-		amount = 0.5
-	}
-
-	CHARGE_CON_NAMES           // Resources used for charge consumption. Not required if charging is disabled
-	{
-		name = ElectricCharge
-	}
-	CHARGE_CON_AMOUNTS         // Amount of each resource used for charge consumption (per second). Not required if charging is disabled
-	{
-		amount = 5.0
-	}
-}
-*/
-
 namespace Khemistry
 {
     /// <summary>
-    /// A versatile storage system that can be configured to store multiple resources, require charging, and have passive consumption.
-    /// See the comment above source for a sample config.
+    /// A versatile storage system that can be configured to store multiple resources,
+	/// require charging, and have passive consumption.
     /// </summary>
     public class KhemistryAdvancedStorage : PartModule
     {
+		/// <summary>Storage type of the AdvancedStorage. Can be single, multi, and multiShared.</summary>
         [KSPField(isPersistant = false)]
         public string storageType = "single";
 
+		/// <summary>Maximum amount of resources, per one for single and multi and for all resources combined for multiShared.</summary>
         [KSPField(isPersistant = false)]
         public float maximumResources = 1000f;
 
+		/// <summary>Is charging required to run.</summary>
         [KSPField(isPersistant = false)]
         public bool chargingRequired = false;
 
+		/// <summary>Does the storage use passive consumption.</summary>
         [KSPField(isPersistant = false)]
         public bool passiveConsumption = false;
 
+		/// <summary>Max input rate in units per second, -1 is unlimited.</summary>
         [KSPField(isPersistant = false)]
         public float maxInputRate = -1f;
 
+		/// <summary>Max output rate in units per second, -1 is unlimited.</summary>
         [KSPField(isPersistant = false)]
         public float maxOutputRate = -1f;
 
