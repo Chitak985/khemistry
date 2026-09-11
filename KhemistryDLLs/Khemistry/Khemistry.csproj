@@ -34,15 +34,36 @@
   <PropertyGroup>
     <RunPostBuildEvent>OnBuildSuccess</RunPostBuildEvent>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'">
+    <DebugSymbols>true</DebugSymbols>
+    <OutputPath>bin\x64\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <DebugType>full</DebugType>
+    <PlatformTarget>x64</PlatformTarget>
+    <LangVersion>7.3</LangVersion>
+    <ErrorReport>prompt</ErrorReport>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x64'">
+    <OutputPath>bin\x64\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <Optimize>true</Optimize>
+    <DebugType>pdbonly</DebugType>
+    <PlatformTarget>x64</PlatformTarget>
+    <LangVersion>7.3</LangVersion>
+    <ErrorReport>prompt</ErrorReport>
+  </PropertyGroup>
   <ItemGroup>
     <Reference Include="Assembly-CSharp">
       <HintPath>$(KspRoot)\KSP_x64_Data\Managed\Assembly-CSharp.dll</HintPath>
     </Reference>
+    <Reference Include="CustomPreLaunchChecks">
+      <HintPath>..\..\..\..\..\Desktop\v1 test\GameData\CustomPreLaunchChecks\CustomPreLaunchChecks.dll</HintPath>
+    </Reference>
     <Reference Include="ParallaxContinued">
-      <HintPath>$(KspRoot)\GameData\ParallaxContinued\Plugins\ParallaxContinued.dll</HintPath>
+      <HintPath>..\..\..\..\..\Desktop\v1 test\GameData\ParallaxContinued\Plugins\ParallaxContinued.dll</HintPath>
     </Reference>
     <Reference Include="Unity.Mathematics">
-      <HintPath>$(KspRoot)\GameData\000_KSPBurst\Plugins\Unity.Mathematics.dll</HintPath>
+      <HintPath>..\..\..\..\..\Desktop\v1 test\GameData\000_KSPBurst\Plugins\Unity.Mathematics.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />

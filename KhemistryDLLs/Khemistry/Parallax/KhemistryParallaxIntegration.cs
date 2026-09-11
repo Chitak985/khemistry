@@ -7,7 +7,7 @@ using UnityEngine;
 
 namespace Khemistry
 {
-    internal struct KhemistryParallaxScatterIdentity : IEquatable<KhemistryParallaxScatterIdentity>
+    internal readonly struct KhemistryParallaxScatterIdentity : IEquatable<KhemistryParallaxScatterIdentity>
     {
         internal readonly string bodyName;
         internal readonly string scatterName;

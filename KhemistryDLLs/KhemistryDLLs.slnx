@@ -1,4 +1,12 @@
 <Solution>
-  <Project Path="Khemistry/Khemistry.csproj" Id="64d42ee0-86b3-4703-9a9c-c2438c639369" />
-  <Project Path="KhemistryConstructionOverhaul/KhemistryConstructionOverhaul.csproj" Id="11c3619a-b409-44c4-8176-73b41473f83e" />
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+  </Configurations>
+  <Project Path="Khemistry/Khemistry.csproj" Id="64d42ee0-86b3-4703-9a9c-c2438c639369">
+    <Platform Solution="*|x64" Project="x64" />
+  </Project>
+  <Project Path="KhemistryConstructionOverhaul/KhemistryConstructionOverhaul.csproj" Id="11c3619a-b409-44c4-8176-73b41473f83e">
+    <Platform Solution="*|x64" Project="x64" />
+  </Project>
 </Solution>
