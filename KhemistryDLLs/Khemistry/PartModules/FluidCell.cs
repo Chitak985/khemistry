@@ -166,9 +166,13 @@ namespace Khemistry
             return -added;
         }
 
-        [KSPField(isPersistant = false, guiActive = true,
-            guiActiveEditor = false, guiName = "Contents")]
-        public string ContentsDisplay = "Empty";
+        [KSPEvent(guiActive = true, guiActiveEditor = false,
+            guiName = "Cell Contents")]
+        public void OpenCellContents()
+        {
+            KShared.Instance?.ShowResourceContents("Cell Contents",
+                () => part == null ? null : GetStoredResources());
+        }
 
         public override void OnLoad(ConfigNode node)
         {
@@ -273,16 +277,5 @@ namespace Khemistry
             }
         }
 
-        public override void OnUpdate()
-        {
-            Dictionary<string, double> resources = GetStoredResources();
-            var displayed = resources
-                .Select(value => string.Format("{0}: {1:F2}", value.Key, value.Value))
-                .ToList();
-            string contents = displayed.Count == 0
-                ? "Empty" : string.Join(", ", displayed.ToArray());
-            ContentsDisplay = string.Format("{0} ({1:F2} / {2:F2})", contents,
-                GetResourceTotal(resources), ResourceMaxAmount);
-        }
     }
 }

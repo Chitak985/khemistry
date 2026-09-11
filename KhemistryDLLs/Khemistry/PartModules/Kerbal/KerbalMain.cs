@@ -42,9 +42,6 @@ namespace Khemistry
         public readonly List<KhemistryMaterialInstance> materialSuitCellContents = new List<KhemistryMaterialInstance>();
         private readonly List<ConfigNode> _pendingMaterialSuitContents = new List<ConfigNode>();
 
-        [KSPField(isPersistant = false, guiActive = true, guiActiveEditor = false, guiName = "Material Cell")]
-        public string MaterialCellContentsDisplay = "No material cell";
-
         public bool HasMaterialSuitCell => _materialSuitCellVolume > 0f;
         public float MaterialSuitCellTransferDistance => _materialSuitCellTransferDistance;
 
@@ -65,9 +62,6 @@ namespace Khemistry
         private bool _loadedAuthoritativeSuitState;
         private int _inventoryChangeBatchDepth;
         private bool _inventoryChangePending;
-
-        [KSPField(isPersistant = false, guiActive = true, guiActiveEditor = false, guiName = "Held Cells")]
-        public string CellContentsDisplay = "No cells available";
 
         private struct FluidCellRef
         {
@@ -530,9 +524,8 @@ namespace Khemistry
                 }
             }
 
-            UpdateFluidCellDisplay();
-            UpdateMaterialSuitCellDisplay();
-            Fields["MaterialCellContentsDisplay"].guiActive = HasMaterialSuitCell;
+            Events["OpenSuitCellContents"].active = HasFluidSuitCell;
+            Events["OpenMaterialSuitCellContents"].active = HasMaterialSuitCell;
 
             Events["EnableOccupation"].active = !canBeOccupied;
             Events["DisableOccupation"].active = canBeOccupied;

@@ -196,23 +196,6 @@ namespace Khemistry
             return false;
         }
 
-        private void UpdateMaterialSuitCellDisplay()
-        {
-            if (!HasMaterialSuitCell) { MaterialCellContentsDisplay = "No material cell"; return; }
-
-            var parts = new List<string>();
-            foreach (KhemistryMaterialInstance m in materialSuitCellContents)
-                if (m?.material != null && m.amount > 0)
-                    parts.Add(m.amount + "× " + m.material.name + " as " + m.shape);
-
-            string contentsStr = parts.Count > 0 ? string.Join(", ", parts) : "Empty";
-            double usedVolume = ComputeMaterialSuitCellVolume();
-            MaterialCellContentsDisplay = double.IsNaN(usedVolume) || double.IsInfinity(usedVolume)
-                ? contentsStr + " (preserved saved material)"
-                : string.Format("{0} ({1:F2}/{2:F2})", contentsStr, usedVolume,
-                    _materialSuitCellVolume);
-        }
-
         private void RestoreMaterialSuitContents()
         {
             List<ConfigNode> savedContents = new List<ConfigNode>(_pendingMaterialSuitContents);
@@ -286,36 +269,6 @@ namespace Khemistry
             return string.Format("{0} ({1:F2}/{2:F2})",
                 string.Join(", ", contents.ToArray()), ReadResourceAmount(stored),
                 ReadMaxAmount(stored));
-        }
-
-        private void UpdateFluidCellDisplay()
-        {
-            var cells = GetAllCellRefs();
-            if (cells.Count == 0) { CellContentsDisplay = "No cells available"; return; }
-            var parts = new List<string>();
-            for (int i = 0; i < cells.Count; i++)
-            {
-                string label = GetCellLabel(cells[i], i);
-                if (cells[i].isSuit)
-                {
-                    var dict = GetSuitCellDict();
-                    double total = GetResourceDictionaryTotal(dict);
-                    if (dict.Count == 0)
-                        parts.Add(string.Format("{0}: Empty (0/{1:F2})", label, _suitCellMaxAmount));
-                    else
-                    {
-                        var cp = new List<string>();
-                        foreach (var kvp in dict)
-                            cp.Add(string.Format("{0}: {1:F2}", kvp.Key, kvp.Value));
-                        parts.Add(string.Format("{0}: {1} ({2:F2}/{3:F2})",
-                            label, string.Join(", ", cp.ToArray()), total, _suitCellMaxAmount));
-                    }
-                }
-                else
-                    parts.Add(string.Format("{0}: {1}", label,
-                        DescribeStoredCell(cells[i].stored)));
-            }
-            CellContentsDisplay = string.Join("  |  ", parts.ToArray());
         }
 
         private List<StoredPart> GetHeldCellSnapshots()

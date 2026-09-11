@@ -46,6 +46,7 @@ namespace Khemistry
             _amountCallback = null;
             _selectorOptions = null;
             _selectorResources = null;
+            CloseContentsWindows();
         }
 
         /// <summary>
@@ -205,6 +206,8 @@ namespace Khemistry
                     DrawDepositsWindow,
                     "Nearby Deposits",
                     HighLogic.Skin.window);
+
+            DrawContentsWindows();
         }
 
         public void ShowAmountSelector(string title, float min, float max, float initial, Action<float> onConfirm)

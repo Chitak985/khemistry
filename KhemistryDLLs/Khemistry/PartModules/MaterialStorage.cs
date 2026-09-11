@@ -14,11 +14,6 @@ namespace Khemistry
         public float volume = 1f;
 
         [KSPField(isPersistant = false, guiActive = true, guiActiveEditor = true,
-                  guiName = "Contents", groupName = "khemistrymatstorage",
-                  groupDisplayName = "Khemistry Material Container", groupStartCollapsed = false)]
-        public string contentsDisplay = "Empty";
-
-        [KSPField(isPersistant = false, guiActive = true, guiActiveEditor = true,
                   guiName = "Volume Used", groupName = "khemistrymatstorage")]
         public string volumeDisplay = "0 / 0";
 
@@ -74,7 +69,6 @@ namespace Khemistry
             if (_fatalConfigError)
             {
                 foreach (BaseEvent e in Events) e.active = false;
-                contentsDisplay = "ERROR: see log";
                 return;
             }
 
@@ -307,6 +301,17 @@ namespace Khemistry
             return true;
         }
 
+        [KSPEvent(guiActive = true, guiActiveEditor = true,
+                  guiName = "Material Storage Contents",
+                  groupName = "khemistrymatstorage",
+                  groupDisplayName = "Khemistry Material Container",
+                  groupStartCollapsed = false)]
+        public void OpenMaterialStorageContents()
+        {
+            KShared.Instance?.ShowMaterialContents("Material Storage Contents",
+                () => part == null ? null : contents);
+        }
+
         public static bool MatchesMaterial(KhemistryMaterialInstance material, string name, string shape,
             string size, Dictionary<string, string> paramConditions)
         {
@@ -401,14 +406,11 @@ namespace Khemistry
 
         private void UpdateUI()
         {
-            List<string> contentsDisplayNames = new List<string>();
             foreach (KhemistryMaterialInstance m in contents)
             {
                 if (m?.material == null || m.amount <= 0) continue;
                 m.UpdateParams("KhemistryMaterialStorage/UpdateUI");
-                contentsDisplayNames.Add(m.amount + "× " + m.material.name + " as " + m.shape + " (" + KShared.DictToString(m.parameters) + ")");
             }
-            contentsDisplay = contentsDisplayNames.Count == 0 ? "Empty" : string.Join("\n", contentsDisplayNames);
             double usedVolume = ComputeCurrentVolume();
             volumeDisplay = double.IsNaN(usedVolume) || double.IsInfinity(usedVolume)
                 ? $"Preserved saved material / {volume:F10}"

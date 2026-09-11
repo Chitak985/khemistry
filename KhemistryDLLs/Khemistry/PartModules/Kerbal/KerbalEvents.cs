@@ -28,6 +28,16 @@ namespace Khemistry
 
 
         ///// EVA Fluid Cell Actions /////
+        [KSPEvent(guiActive = true, guiActiveEditor = false,
+                 guiName = "Suit Cell Contents", groupName = "fluidcelleva",
+                 groupDisplayName = "Fluid Cells", groupStartCollapsed = false)]
+        public void OpenSuitCellContents()
+        {
+            if (!HasFluidSuitCell) return;
+            KShared.Instance?.ShowResourceContents("Suit Cell Contents",
+                () => part == null ? null : GetSuitCellDict());
+        }
+
         [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Transfer from cell to nearby part",
                  groupName = "fluidcelleva", groupDisplayName = "Fluid Cells", groupStartCollapsed = false)]
         public void EVASendResources()
@@ -127,6 +137,17 @@ namespace Khemistry
                     if (index >= 0) ShowPartSelectorForTake(cells[index]);
                 });
             }
+        }
+
+        ///// EVA Material Suit Cell Actions /////
+        [KSPEvent(guiActive = true, guiActiveEditor = false,
+                 guiName = "Material Suit Cell Contents", groupName = "materialcelleva",
+                 groupDisplayName = "Material Suit Cell", groupStartCollapsed = false)]
+        public void OpenMaterialSuitCellContents()
+        {
+            if (!HasMaterialSuitCell) return;
+            KShared.Instance?.ShowMaterialContents("Material Suit Cell Contents",
+                () => part == null ? null : materialSuitCellContents);
         }
 
         ///// EVA Processor Actions /////

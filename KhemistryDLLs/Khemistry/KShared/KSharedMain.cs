@@ -28,6 +28,9 @@ namespace Khemistry
             _windowId = ("Khemistry.Selector." + windowIdSeed).GetHashCode();
             _amountWindowId = ("Khemistry.Amount." + windowIdSeed).GetHashCode();
             _depositsWindowId = ("Khemistry.Deposits." + windowIdSeed).GetHashCode();
+            _materialContentsWindowId = ("Khemistry.MaterialContents." + windowIdSeed).GetHashCode();
+            _materialParametersWindowId = ("Khemistry.MaterialParameters." + windowIdSeed).GetHashCode();
+            _resourceContentsWindowId = ("Khemistry.ResourceContents." + windowIdSeed).GetHashCode();
 
             _depositsButtonTexture = new Texture2D(38, 38, TextureFormat.RGBA32, false);
             Color depositIconColor = new Color(0.85f, 0.55f, 0.15f, 1f);

@@ -96,6 +96,7 @@
     <Compile Include="KMathExpr.cs" />
     <Compile Include="KShared\KSharedConfigHelpers.cs" />
     <Compile Include="KShared\KSharedGUI.cs" />
+    <Compile Include="KShared\KSharedContentsGUI.cs" />
     <Compile Include="KShared\KSharedLogging.cs" />
     <Compile Include="KShared\KSharedMain.cs" />
     <Compile Include="KShared\KSharedOtherHelpers.cs" />

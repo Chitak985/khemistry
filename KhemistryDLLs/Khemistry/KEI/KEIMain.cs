@@ -188,6 +188,19 @@ namespace Khemistry
             _detailScroll = Vector2.zero;
         }
 
+        /// <summary>Opens KEI directly to the exact internal resource name.</summary>
+        public static bool OpenResourcePage(string resourceName)
+        {
+            if (_instance == null || string.IsNullOrWhiteSpace(resourceName))
+                return false;
+
+            KhemistryResourceInfo resource = _instance.FindResource(
+                resourceName.Trim());
+            if (resource == null) return false;
+            _instance.OpenDetailWindow(resource);
+            return true;
+        }
+
         private void DrawDetailWindow(int id)
         {
             KhemistryResourceInfo res = _selectedResource;
