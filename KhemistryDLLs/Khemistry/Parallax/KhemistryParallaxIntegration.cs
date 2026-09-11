@@ -137,7 +137,7 @@ namespace Khemistry
             EnsureDefinitionsLoaded();
             HashSet<string> accepted = new HashSet<string>(
                 (requirements ?? Enumerable.Empty<KhemistryISRURecipe.ParallaxScatterRequirement>())
-                    .Select(value => value.scatterName)
+                    .Select(value => NormalizeScatterName(bodyName, value.scatterName))
                     .Where(value => !string.IsNullOrEmpty(value)),
                 StringComparer.Ordinal);
             if (accepted.Count == 0) return false;
@@ -151,7 +151,8 @@ namespace Khemistry
             for (int scatterIndex = 0; scatterIndex < count; scatterIndex++)
             {
                 Scatter scatter = scatters[scatterIndex];
-                string scatterName = scatter?.scatterName;
+                string scatterName = NormalizeScatterName(bodyName,
+                    scatter?.scatterName);
                 if (string.IsNullOrEmpty(scatterName) || !accepted.Contains(scatterName))
                     continue;
                 if (!TryGetTreeDefinition(bodyName, scatterName, out TreeDefinition definition))
@@ -176,7 +177,8 @@ namespace Khemistry
                         Vector3 nearest;
                         try
                         {
-                            nearest = collider.ClosestPoint(interactionPosition);
+                            nearest = GetClosestColliderPoint(collider,
+                                interactionPosition);
                         }
                         catch (Exception)
                         {
@@ -232,7 +234,7 @@ namespace Khemistry
                 MeshCollider collider = target.colliderObject.GetComponent<MeshCollider>();
                 if (collider == null || !collider.enabled) return false;
                 double distance = Vector3.Distance(interactionPosition,
-                    collider.ClosestPoint(interactionPosition));
+                    GetClosestColliderPoint(collider, interactionPosition));
                 return !double.IsNaN(distance) && !double.IsInfinity(distance)
                     && distance <= maximumDistance;
             }
@@ -303,7 +305,8 @@ namespace Khemistry
             float now = Time.realtimeSinceStartup;
             for (int scatterIndex = 0; scatterIndex < count; scatterIndex++)
             {
-                string scatterName = scatters[scatterIndex]?.scatterName;
+                string scatterName = NormalizeScatterName(bodyName,
+                    scatters[scatterIndex]?.scatterName);
                 Dictionary<PositionDataQuadID, GameObject> instances = active[scatterIndex];
                 if (string.IsNullOrEmpty(scatterName) || instances == null
                     || !scenario.HasHarvestedScatter(bodyName, scatterName))
@@ -450,11 +453,13 @@ namespace Khemistry
             {
                 Scatter scatter = scatterData?.scatter;
                 if (scatter == null) continue;
-                if (string.Equals(scatter.scatterName, target.identity.scatterName,
+                if (string.Equals(NormalizeScatterName(target.identity.bodyName,
+                            scatter.scatterName), target.identity.scatterName,
                         StringComparison.Ordinal))
                     baseData.Add(scatterData);
                 else if (scatter is SharedScatter shared && shared.parent != null
-                    && string.Equals(shared.parent.scatterName,
+                    && string.Equals(NormalizeScatterName(target.identity.bodyName,
+                            shared.parent.scatterName),
                         target.identity.scatterName, StringComparison.Ordinal))
                     sharedData.Add(scatterData);
             }
@@ -555,7 +560,8 @@ namespace Khemistry
                          "KHEMISTRY_PARALLAX_TREE"))
             {
                 string bodyName = node.GetValue("body")?.Trim();
-                string scatterName = node.GetValue("scatter")?.Trim();
+                string scatterName = NormalizeScatterName(bodyName,
+                    node.GetValue("scatter"));
                 string heightText = node.GetValue("trunkHeight")
                     ?? node.GetValue("usableTrunkLength");
                 if (string.IsNullOrEmpty(bodyName) || string.IsNullOrEmpty(scatterName)
@@ -600,6 +606,22 @@ namespace Khemistry
         private static string MakeDefinitionKey(string bodyName, string scatterName)
             => bodyName + "\0" + scatterName;
 
+        /// <summary>
+        /// Parallax exposes configured scatter names with the celestial body prepended
+        /// (for example, "Kerbin-PineTree"), while recipe and tree-definition configs use
+        /// the original name ("PineTree"). Keep the original config name as Khemistry's
+        /// canonical and persisted identity so both representations work consistently.
+        /// </summary>
+        private static string NormalizeScatterName(string bodyName, string scatterName)
+        {
+            string value = scatterName?.Trim();
+            if (string.IsNullOrEmpty(value) || string.IsNullOrEmpty(bodyName))
+                return value;
+            string prefix = bodyName.Trim() + "-";
+            return value.StartsWith(prefix, StringComparison.Ordinal)
+                ? value.Substring(prefix.Length) : value;
+        }
+
         private static bool TryReadPositiveDouble(string raw, out double value)
         {
             return double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture,
@@ -619,6 +641,17 @@ namespace Khemistry
         {
             float scale = Math.Max(1f, Math.Max(Math.Abs(left), Math.Abs(right)));
             return Math.Abs(left - right) <= scale * 1e-5f;
+        }
+
+        private static Vector3 GetClosestColliderPoint(MeshCollider collider,
+            Vector3 position)
+        {
+            // Unity only supports Collider.ClosestPoint for convex MeshColliders. Parallax's
+            // pooled tree colliders are non-convex, so use their world-space bounds in that
+            // case rather than emitting a warning every converter update.
+            return collider.convex
+                ? collider.ClosestPoint(position)
+                : collider.bounds.ClosestPoint(position);
         }
     }
 }
