@@ -9,7 +9,7 @@
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>Khemistry</RootNamespace>
     <AssemblyName>Khemistry</AssemblyName>
-    <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <Deterministic>true</Deterministic>
     <KspRoot Condition=" '$(KspRoot)' == '' ">$(ProjectDir)..\..\..\..\..\..\..\Kerbal Space Program</KspRoot>
@@ -38,6 +38,12 @@
     <Reference Include="Assembly-CSharp">
       <HintPath>$(KspRoot)\KSP_x64_Data\Managed\Assembly-CSharp.dll</HintPath>
     </Reference>
+    <Reference Include="ParallaxContinued">
+      <HintPath>$(KspRoot)\GameData\ParallaxContinued\Plugins\ParallaxContinued.dll</HintPath>
+    </Reference>
+    <Reference Include="Unity.Mathematics">
+      <HintPath>$(KspRoot)\GameData\000_KSPBurst\Plugins\Unity.Mathematics.dll</HintPath>
+    </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Xml.Linq" />
@@ -64,6 +70,9 @@
     <Reference Include="UnityEngine.ParticleSystemModule">
       <HintPath>$(KspRoot)\KSP_x64_Data\Managed\UnityEngine.ParticleSystemModule.dll</HintPath>
     </Reference>
+    <Reference Include="UnityEngine.PhysicsModule">
+      <HintPath>$(KspRoot)\KSP_x64_Data\Managed\UnityEngine.PhysicsModule.dll</HintPath>
+    </Reference>
     <Reference Include="UnityEngine.TextCoreModule">
       <HintPath>$(KspRoot)\KSP_x64_Data\Managed\UnityEngine.TextCoreModule.dll</HintPath>
     </Reference>
@@ -75,6 +84,7 @@
     <Compile Include="Deposits.cs" />
     <Compile Include="Persistance\DepositPersistence.cs" />
     <Compile Include="Persistance\KerbalSuitPersistence.cs" />
+    <Compile Include="Persistance\ParallaxScatterPersistence.cs" />
     <Compile Include="KSharedMainMenu.cs" />
     <Compile Include="KShared\KSharedDeposits.cs" />
     <Compile Include="KShared\KSharedRandom.cs" />
@@ -101,10 +111,12 @@
     <Compile Include="PartModules\KhemistryISRU\ISRUHelpers.cs" />
     <Compile Include="PartModules\KhemistryISRU\ISRUInventory.cs" />
     <Compile Include="PartModules\KhemistryISRU\ISRUMain.cs" />
+    <Compile Include="PartModules\KhemistryISRU\ISRUParallax.cs" />
     <Compile Include="PartModules\KhemistryISRU\ISRURecipe.cs" />
     <Compile Include="PartModules\KhemistryISRU\ISRUVariables.cs" />
     <Compile Include="PartModules\MaterialStorage.cs" />
     <Compile Include="PartModules\OBSOLETE.cs" />
+    <Compile Include="Parallax\KhemistryParallaxIntegration.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="RuntimeData.cs" />
   </ItemGroup>

@@ -25,6 +25,7 @@ An addon for Khemistry, this mod overhauls VAB construction to require resources
 - **Kopernicus** (used to add custom ores for all planets, mod may break without it)
 - **B9 Part Switch** (used to assign the custom per planet ores to cargo tanks, mod may break without it)
 - **SystemHeat** (used for many things, many ISRU and drills will become unusable)
+- **ParallaxContinued** (yes it's a dependency, you can chop down trees and do similar things to its scatter objects)
 - **CustomPrelaunchChecks** (used for the KhemistryConstructionOverhaul addon so not strictly required for the base mod)
 - **Resourceful Technologies** (my ISRU parts mod, Khemistry uses various parts from there)
 - **Far Future Technologies** (while not strictly required and the game will work without it, its parts are used for progression) 

@@ -56,6 +56,12 @@ namespace Khemistry
             public List<KeyValuePair<string, string>> parameterAssignments;
             public double amount;
             public string outVolume;
+            public bool parallaxResolved;
+        }
+
+        public struct ParallaxScatterRequirement
+        {
+            public string scatterName;
         }
 
         public struct ResourceInputMaterial
@@ -76,6 +82,8 @@ namespace Khemistry
         public readonly List<PassiveResourceInput> _passiveInputs = new List<PassiveResourceInput>();
         public readonly List<ResourceOutput> _outputs = new List<ResourceOutput>();
         public readonly List<ResourceOutputMaterial> _outputMaterials = new List<ResourceOutputMaterial>();
+        public readonly List<ParallaxScatterRequirement> _parallaxScatters =
+            new List<ParallaxScatterRequirement>();
         public double _recipeTime = 0;  // in seconds
         public double _biomeResourceScale = 1.0;
 
@@ -150,6 +158,27 @@ namespace Khemistry
                     string trimmed = condition?.Trim();
                     if (!string.IsNullOrEmpty(trimmed) && !_depositConditions.Contains(trimmed))
                         _depositConditions.Add(trimmed);
+                }
+
+                ///// Parallax scatter inputs /////
+                _parallaxScatters.Clear();
+                HashSet<string> parallaxScatterNames = new HashSet<string>(StringComparer.Ordinal);
+                foreach (ConfigNode scatterNode in node.GetNodes("PARALLAX_SCATTER"))
+                {
+                    string scatterName = (scatterNode.GetValue("scatter")
+                        ?? scatterNode.GetValue("name"))?.Trim();
+                    if (string.IsNullOrEmpty(scatterName) || !parallaxScatterNames.Add(scatterName))
+                    {
+                        configurationError = true;
+                        KShared.LogError("Recipe \"" + _name
+                            + "\": PARALLAX_SCATTER requires a unique, non-empty scatter/name value.",
+                            "KhemistryISRURecipe/constructor");
+                        continue;
+                    }
+                    _parallaxScatters.Add(new ParallaxScatterRequirement
+                    {
+                        scatterName = scatterName
+                    });
                 }
 
                 ///// Charging /////
@@ -548,7 +577,24 @@ namespace Khemistry
                         continue;
                     }
 
-                    if (!TryValidateOutVolumeDefinition(outVolume, size, parameters,
+                    bool usesParallaxValues = MaterialOutputUsesParallaxValues(
+                        size, outVolume, parameterAssignments);
+                    if (usesParallaxValues && _parallaxScatters.Count == 0)
+                    {
+                        configurationError = true;
+                        KShared.LogError("Recipe \"" + _name + "\": OUTPUT_MATERIAL \""
+                            + matName + "\" uses PARALLAX_* values without a PARALLAX_SCATTER node. Entry skipped.",
+                            "KhemistryISRURecipe/constructor");
+                        continue;
+                    }
+
+                    string validationSize = ReplaceParallaxNumericValues(size, "1");
+                    string validationOutVolume = ReplaceParallaxNumericValues(outVolume, "1");
+                    Dictionary<string, string> validationParameters = parameters.ToDictionary(
+                        pair => pair.Key,
+                        pair => ReplaceParallaxNumericValues(pair.Value, "1"));
+                    if (!TryValidateOutVolumeDefinition(validationOutVolume, validationSize,
+                            validationParameters,
                             out string outVolumeError))
                     {
                         configurationError = true;
@@ -567,7 +613,8 @@ namespace Khemistry
                         parameters = parameters,
                         parameterAssignments = parameterAssignments,
                         amount = amount,
-                        outVolume = outVolume
+                        outVolume = outVolume,
+                        parallaxResolved = false
                     });
                 }
 
@@ -1011,6 +1058,7 @@ namespace Khemistry
             copy._recipeSubtypes = _recipeSubtypes;
             copy._recipeSubsubtypes = _recipeSubsubtypes;
             copy._depositConditions.AddRange(_depositConditions);
+            copy._parallaxScatters.AddRange(_parallaxScatters);
             copy._chargingRequired = _chargingRequired;
             copy._chargeRate = _chargeRate;
             copy._chargeDecay = _chargeDecay;
@@ -1076,7 +1124,8 @@ namespace Khemistry
                         : new List<KeyValuePair<string, string>>(
                             mat.parameterAssignments),
                     amount = mat.amount * multiplier,
-                    outVolume = mat.outVolume
+                    outVolume = mat.outVolume,
+                    parallaxResolved = mat.parallaxResolved
                 });
 
             return copy;
@@ -1084,6 +1133,44 @@ namespace Khemistry
 
         /// <summary>Parameterless constructor used internally by ScaledCopy.</summary>
         public KhemistryISRURecipe() { }
+
+        public bool UsesParallaxScatters => _parallaxScatters.Count > 0;
+
+        public const string ParallaxRadiusValue = "PARALLAX_RADIUS";
+        public const string ParallaxHeightValue = "PARALLAX_HEIGHT";
+        public const string ParallaxVolumeValue = "PARALLAX_VOLUME";
+        public const string ParallaxScatterValue = "PARALLAX_SCATTER";
+
+        internal static bool ContainsParallaxValue(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return false;
+            return value.Contains(ParallaxRadiusValue)
+                || value.Contains(ParallaxHeightValue)
+                || value.Contains(ParallaxVolumeValue)
+                || value.Contains(ParallaxScatterValue);
+        }
+
+        internal static bool MaterialOutputUsesParallaxValues(string size, string outVolume,
+            IEnumerable<KeyValuePair<string, string>> parameters)
+        {
+            return ContainsParallaxValue(size) || ContainsParallaxValue(outVolume)
+                || (parameters ?? Enumerable.Empty<KeyValuePair<string, string>>())
+                    .Any(pair => ContainsParallaxValue(pair.Value));
+        }
+
+        internal static bool MaterialOutputUsesParallaxValues(ResourceOutputMaterial output)
+            => MaterialOutputUsesParallaxValues(output.size, output.outVolume,
+                (IEnumerable<KeyValuePair<string, string>>)output.parameterAssignments
+                    ?? output.parameters
+                    ?? new Dictionary<string, string>());
+
+        internal static string ReplaceParallaxNumericValues(string value, string replacement)
+        {
+            if (value == null) return null;
+            return value.Replace(ParallaxRadiusValue, replacement)
+                .Replace(ParallaxHeightValue, replacement)
+                .Replace(ParallaxVolumeValue, replacement);
+        }
 
         /// <summary>True if this recipe is tagged with the given recipeType/Subtype/Subsubtype (any left null are not checked).</summary>
         public bool MatchesTypes(string recipeType, string recipeSubtype, string recipeSubsubtype)
@@ -1117,7 +1204,8 @@ namespace Khemistry
         // entry, and a module entry with a new resource name is added alongside the base entries.
         private static readonly HashSet<string> _keyedByNameNodeKeys = new HashSet<string>
         {
-            "INPUT_RESOURCE", "OUTPUT_RESOURCE", "PINPUT_RESOURCE", "INPUT_MATERIAL", "OUTPUT_MATERIAL"
+            "INPUT_RESOURCE", "OUTPUT_RESOURCE", "PINPUT_RESOURCE", "INPUT_MATERIAL", "OUTPUT_MATERIAL",
+            "PARALLAX_SCATTER"
         };
 
         // Node types that hold a single node full of repeated values (e.g. CHARGE_CON_NAMES holding
@@ -1161,14 +1249,16 @@ namespace Khemistry
 
             foreach (ConfigNode n in baseRecipeNode.GetNodes(nodeName))
             {
-                string key = n.GetValue("name") ?? ("\0unnamed" + keyOrder.Count);
+                string key = GetKeyedNodeName(n, nodeName)
+                    ?? ("\0unnamed" + keyOrder.Count);
                 if (!keyed.ContainsKey(key)) keyOrder.Add(key);
                 keyed[key] = n;
             }
 
             foreach (ConfigNode n in overrideModuleNode.GetNodes(nodeName))
             {
-                string key = n.GetValue("name") ?? ("\0unnamed" + keyOrder.Count);
+                string key = GetKeyedNodeName(n, nodeName)
+                    ?? ("\0unnamed" + keyOrder.Count);
                 if (!keyed.ContainsKey(key)) keyOrder.Add(key);
                 keyed[key] = n;
             }
@@ -1181,6 +1271,13 @@ namespace Khemistry
                 result.Add(copy);
             }
             return result;
+        }
+
+        private static string GetKeyedNodeName(ConfigNode node, string nodeName)
+        {
+            if (nodeName == "PARALLAX_SCATTER")
+                return node.GetValue("scatter") ?? node.GetValue("name");
+            return node.GetValue("name");
         }
 
         /// <summary>

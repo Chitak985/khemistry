@@ -196,6 +196,13 @@ namespace Khemistry
             new Dictionary<KhemistryISRURecipe.ResourceOutputMaterial, long>();
         protected readonly List<ConfigNode> _pendingMaterialOutputNodes = new List<ConfigNode>();
 
+        // Tree targets are expensive to find because Parallax exposes them as per-scatter
+        // collider dictionaries. Keep a short-lived target while still checking its collider
+        // and distance every physics update.
+        private KhemistryParallaxTarget _parallaxTargetCache = null;
+        private float _nextParallaxTargetScan = 0f;
+        private string _lastBatchFailureStatus = null;
+
         // Used only by the EVA boarding-transfer bridge. A normal vessel save is
         // authoritative and must not be overwritten by an older boarding snapshot.
         private bool _loadedAuthoritativePersistentState = false;

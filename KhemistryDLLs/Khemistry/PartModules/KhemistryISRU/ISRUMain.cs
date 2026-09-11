@@ -518,6 +518,7 @@ namespace Khemistry
         protected void ApplyRecipe(KhemistryISRURecipe recipe, bool resetProgress = true)
         {
             _activeRecipe = recipe;
+            ClearParallaxTargetCache();
             activeRecipeName = recipe._name;
             if (resetProgress || double.IsNaN(batchProgress) || double.IsInfinity(batchProgress)
                 || batchProgress < 0.0)
@@ -948,6 +949,8 @@ namespace Khemistry
                 outputNode.AddValue("size", material.size ?? "");
                 outputNode.AddValue("amount", buffered.Value.ToString("R", CultureInfo.InvariantCulture));
                 outputNode.AddValue("outVolume", material.outVolume ?? "0");
+                if (material.parallaxResolved)
+                    outputNode.AddValue("parallaxResolved", true);
                 outputNode.AddValue("randomSeed", _materialOutputRandomSeed[material]
                     .ToString(CultureInfo.InvariantCulture));
                 outputNode.AddValue("randomSequence", _materialOutputRandomSequence[material]
@@ -1116,6 +1119,14 @@ namespace Khemistry
                             parameterAssignments.Add(new KeyValuePair<string, string>(
                                 parameter.name, parameter.value));
                 }
+                bool parallaxResolved = false;
+                if (outputNode.HasValue("parallaxResolved")
+                    && !bool.TryParse(outputNode.GetValue("parallaxResolved"),
+                        out parallaxResolved))
+                {
+                    unrestored.Add(outputNode);
+                    continue;
+                }
                 KhemistryISRURecipe.ResourceOutputMaterial restored = new KhemistryISRURecipe.ResourceOutputMaterial
                 {
                     name = outputNode.GetValue("name"),
@@ -1125,17 +1136,25 @@ namespace Khemistry
                     parameters = parameters,
                     parameterAssignments = parameterAssignments,
                     amount = 0.0,
-                    outVolume = outputNode.GetValue("outVolume")
+                    outVolume = outputNode.GetValue("outVolume"),
+                    parallaxResolved = parallaxResolved
                 };
 
                 bool matched = false;
                 foreach (KhemistryISRURecipe.ResourceOutputMaterial configured in
                          recipes.SelectMany(recipe => recipe._outputMaterials))
                 {
-                    if (!OutputMaterialsEquivalent(restored, configured)) continue;
-                    restored = configured;
-                    matched = true;
-                    break;
+                    if (OutputMaterialsEquivalent(restored, configured))
+                    {
+                        restored = configured;
+                        matched = true;
+                        break;
+                    }
+                    if (IsSavedParallaxMaterialRealization(restored, configured))
+                    {
+                        matched = true;
+                        break;
+                    }
                 }
 
                 if (!matched)
@@ -1710,6 +1729,13 @@ namespace Khemistry
                 return false;
             }
 
+            if (_activeRecipe.UsesParallaxScatters
+                && !TryGetNearbyParallaxTarget(false, out _))
+            {
+                statusDisplay = KhemistryParallaxIntegration.NoSuitableTreeMessage;
+                return false;
+            }
+
             if (_runtimeData.alt < biomeConfig.minOperatingAltitude || _runtimeData.alt > biomeConfig.maxOperatingAltitude)
             {
                 statusDisplay = "Out of operating altitude range";
@@ -1785,7 +1811,9 @@ namespace Khemistry
                     batchProgress = effectiveRecipeTime;
                     if (!TryRunBatch(biomeConfig))
                     {
-                        statusDisplay = "Insufficient resources / no output space";
+                        statusDisplay = string.IsNullOrEmpty(_lastBatchFailureStatus)
+                            ? "Insufficient resources / no output space"
+                            : _lastBatchFailureStatus;
                         progressDisplay = FormatProgress(batchProgress, effectiveRecipeTime);
                         return performedWork;
                     }
@@ -2035,9 +2063,10 @@ namespace Khemistry
             return enoughSpace;
         }
 
-        private bool CommitResourceOutputs(List<PreparedResourceOutput> outputs)
+        private bool CommitResourceOutputs(List<PreparedResourceOutput> outputs,
+            out List<ResourceDraw> committed)
         {
-            List<ResourceDraw> committed = new List<ResourceDraw>();
+            committed = new List<ResourceDraw>();
 
             // Outputs that may not be dumped go first. The preflight above should make each
             // request succeed in full; any unexpected shortfall rolls the entire output set back.
@@ -2054,6 +2083,7 @@ namespace Khemistry
                 if (!WasFullyTransferred(output.amount, added))
                 {
                     RollBackProducedResources(committed);
+                    committed.Clear();
                     return false;
                 }
             }
@@ -2091,12 +2121,13 @@ namespace Khemistry
             return Math.Max(1, result);
         }
 
-        private bool CanBufferMaterialOutputs(KhemistryISRUBiomeConfig biomeConfig)
+        private bool CanBufferMaterialOutputs(KhemistryISRUBiomeConfig biomeConfig,
+            IList<KhemistryISRURecipe.ResourceOutputMaterial> materialOutputs)
         {
-            for (int i = 0; i < _activeRecipe._outputMaterials.Count; i++)
+            for (int i = 0; i < materialOutputs.Count; i++)
             {
                 KhemistryISRURecipe.ResourceOutputMaterial material =
-                    _activeRecipe._outputMaterials[i];
+                    materialOutputs[i];
                 double amount = material.amount * biomeConfig.outputMultiplier;
                 if (double.IsNaN(amount) || double.IsInfinity(amount) || amount < 0.0)
                     return false;
@@ -2112,7 +2143,7 @@ namespace Khemistry
                 for (int previous = 0; previous <= i; previous++)
                 {
                     KhemistryISRURecipe.ResourceOutputMaterial other =
-                        _activeRecipe._outputMaterials[previous];
+                        materialOutputs[previous];
                     if (!OutputMaterialsEquivalent(other, material)) continue;
                     double otherAmount = other.amount * biomeConfig.outputMultiplier;
                     if (double.IsNaN(otherAmount) || double.IsInfinity(otherAmount)
@@ -2126,8 +2157,24 @@ namespace Khemistry
 
         protected bool TryRunBatch(KhemistryISRUBiomeConfig biomeConfig)
         {
+            _lastBatchFailureStatus = null;
+            KhemistryParallaxTarget parallaxTarget = null;
+            List<KhemistryISRURecipe.ResourceOutputMaterial> materialOutputs =
+                _activeRecipe._outputMaterials;
+            if (_activeRecipe.UsesParallaxScatters)
+            {
+                if (!TryGetNearbyParallaxTarget(true, out parallaxTarget))
+                {
+                    _lastBatchFailureStatus =
+                        KhemistryParallaxIntegration.NoSuitableTreeMessage;
+                    return false;
+                }
+                materialOutputs = ResolveParallaxMaterialOutputs(materialOutputs,
+                    parallaxTarget);
+            }
+
             List<PreparedResourceOutput> outputs = PrepareResourceOutputs(biomeConfig);
-            if (!CanBufferMaterialOutputs(biomeConfig))
+            if (!CanBufferMaterialOutputs(biomeConfig, materialOutputs))
             {
                 KShared.LogError("Converter \"" + ConverterName
                     + "\": material output buffer would overflow; batch was not run.",
@@ -2176,14 +2223,27 @@ namespace Khemistry
                 return false;
             }
 
-            if (!CommitResourceOutputs(outputs))
+            if (!CommitResourceOutputs(outputs, out List<ResourceDraw> committedOutputs))
             {
                 RefundResourceDraws(resourceDraws);
                 RefundMaterialRemovals(materialTransaction);
                 return false;
             }
 
-            foreach (var mat in _activeRecipe._outputMaterials)
+            if (parallaxTarget != null
+                && !KhemistryParallaxIntegration.TryHarvest(parallaxTarget))
+            {
+                RollBackProducedResources(committedOutputs);
+                RefundResourceDraws(resourceDraws);
+                RefundMaterialRemovals(materialTransaction);
+                ClearParallaxTargetCache();
+                _lastBatchFailureStatus =
+                    KhemistryParallaxIntegration.NoSuitableTreeMessage;
+                return false;
+            }
+            if (parallaxTarget != null) ClearParallaxTargetCache();
+
+            foreach (var mat in materialOutputs)
             {
                 double amount = mat.amount * biomeConfig.outputMultiplier;
                 if (double.IsNaN(amount) || double.IsInfinity(amount) || amount <= 0.0) continue;

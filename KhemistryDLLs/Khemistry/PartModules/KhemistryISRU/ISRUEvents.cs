@@ -75,6 +75,17 @@ namespace Khemistry
                 return;
             }
 
+            if (_activeRecipe != null && _activeRecipe.UsesParallaxScatters
+                && !TryGetNearbyParallaxTarget(true, out _))
+            {
+                statusDisplay = KhemistryParallaxIntegration.NoSuitableTreeMessage;
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "Converter \"" + ConverterName + "\": "
+                    + KhemistryParallaxIntegration.NoSuitableTreeMessage + ".",
+                    5f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+
             isRunning = true;
             KShared.Log("Converter \"" + ConverterName + "\" started.", "KhemistryISRU/StartConverter");
             UpdateEventVisibility();
