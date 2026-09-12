@@ -196,18 +196,9 @@ namespace Khemistry
                     continue;
                 }
 
-                bool render = false;
-                if (node.HasValue("render") && !bool.TryParse(node.GetValue("render"), out render))
-                {
-                    KShared.LogError("Deposit \"" + resource
-                        + "\" has a malformed render setting and was not loaded.",
-                        "KSharedMainMenu/GenerateConfiguredDeposits");
+                if (!KhemistryDepositRenderingConfig.TryRead(node, resource, type, true,
+                        out bool render, out string model))
                     continue;
-                }
-                if (type != "underground" && render)
-                    KShared.LogWarning("Deposit \"" + resource
-                        + "\" requests rendering, which is not implemented yet.",
-                        "KSharedMainMenu/GenerateConfiguredDeposits");
 
                 if (!KShared.TryGetIntValueFromCFG(node, "minAmount", 5, out int minAmount)
                     || !KShared.TryGetIntValueFromCFG(node, "maxAmount", 10, out int maxAmount)
@@ -285,7 +276,7 @@ namespace Khemistry
                     {
                         KhemistryGDeposit deposit = new KhemistryGDeposit(body, biome,
                             surfaceDepth, resource, minRadius, maxRadius, resource2,
-                            undergroundStart, depthUnderground);
+                            undergroundStart, depthUnderground, render, model);
                         shared.surfaceDeposits.Add(deposit);
                         if (deposit.PairGDeposit != null)
                             shared.undergroundDeposits.Add(deposit.PairGDeposit);
@@ -303,7 +294,8 @@ namespace Khemistry
                     }
                     for (int i = 0; i < amount; i++)
                         shared.surfaceDeposits.Add(new KhemistryGDeposit(body, biome,
-                            surfaceDepth, resource, minRadius, maxRadius, null, 0f, 0f));
+                            surfaceDepth, resource, minRadius, maxRadius, null, 0f, 0f,
+                            render, model));
                 }
                 else
                 {

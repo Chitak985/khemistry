@@ -76,6 +76,7 @@ namespace Khemistry
             if (_depositsToolbarButton != null && ApplicationLauncher.Instance != null)
                 ApplicationLauncher.Instance.RemoveModApplication(_depositsToolbarButton);
             CloseTransientWindows();
+            DestroyDepositRenderers();
             if (_depositsButtonTexture != null)
                 Destroy(_depositsButtonTexture);
             _depositsToolbarButton = null;

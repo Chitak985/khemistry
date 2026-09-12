@@ -29,6 +29,7 @@ namespace Khemistry
         private void OnGameSceneLoadRequested(GameScenes destination)
         {
             CloseTransientWindows();
+            DestroyDepositRenderers();
         }
 
         /// <summary>

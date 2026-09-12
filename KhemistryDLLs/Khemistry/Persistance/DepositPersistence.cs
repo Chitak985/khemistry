@@ -83,6 +83,9 @@ namespace Khemistry
                     if (pairIndex >= 0)
                         deposit.PairGDeposit = undergroundBySavedIndex[pairIndex];
                 }
+                // Rendering is definition metadata, not procedural save data. Reapply it
+                // from the current config so existing saves immediately pick up model changes.
+                KhemistryDepositRenderingConfig.ApplyCurrentConfig(deposit);
                 _loadedSurface.Add(deposit);
             }
 

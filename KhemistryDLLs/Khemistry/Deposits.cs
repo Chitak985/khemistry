@@ -141,6 +141,8 @@ namespace Khemistry
     public class KhemistryGDeposit : KhemistryDeposit
     {
         public KhemistryUDeposit PairGDeposit { get; set; }
+        public bool Render { get; set; }
+        public string Model { get; set; }
 
         internal KhemistryGDeposit() { }
 
@@ -154,7 +156,8 @@ namespace Khemistry
 
         public KhemistryGDeposit(string planet, string requiredBiome, float depth,
             string resource, float minRadius, float maxRadius, string resource2,
-            float undergroundDepthStart, float undergroundDepth)
+            float undergroundDepthStart, float undergroundDepth, bool render = false,
+            string model = null)
         {
             try
             {
@@ -162,6 +165,8 @@ namespace Khemistry
                 Planet = planet;
                 Depth = depth;
                 Resource = resource;
+                Render = render;
+                Model = model;
 
                 Radius = RollRadius(minRadius, maxRadius,
                     "KhemistryGDeposit/constructor");

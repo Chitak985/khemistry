@@ -108,6 +108,7 @@
     <Compile Include="Persistance\ParallaxScatterPersistence.cs" />
     <Compile Include="KSharedMainMenu.cs" />
     <Compile Include="KShared\KSharedDeposits.cs" />
+    <Compile Include="KShared\KSharedDepositRendering.cs" />
     <Compile Include="KShared\KSharedRandom.cs" />
     <Compile Include="PartModules\AdvancedStorage.cs" />
     <Compile Include="PartModules\FluidCell.cs" />
