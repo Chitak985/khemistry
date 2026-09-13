@@ -951,6 +951,8 @@ namespace Khemistry
                 outputNode.AddValue("outVolume", material.outVolume ?? "0");
                 if (material.parallaxResolved)
                     outputNode.AddValue("parallaxResolved", true);
+                if (material.inputMaterialResolved)
+                    outputNode.AddValue("inputMaterialResolved", true);
                 outputNode.AddValue("randomSeed", _materialOutputRandomSeed[material]
                     .ToString(CultureInfo.InvariantCulture));
                 outputNode.AddValue("randomSequence", _materialOutputRandomSequence[material]
@@ -1127,6 +1129,14 @@ namespace Khemistry
                     unrestored.Add(outputNode);
                     continue;
                 }
+                bool inputMaterialResolved = false;
+                if (outputNode.HasValue("inputMaterialResolved")
+                    && !bool.TryParse(outputNode.GetValue("inputMaterialResolved"),
+                        out inputMaterialResolved))
+                {
+                    unrestored.Add(outputNode);
+                    continue;
+                }
                 KhemistryISRURecipe.ResourceOutputMaterial restored = new KhemistryISRURecipe.ResourceOutputMaterial
                 {
                     name = outputNode.GetValue("name"),
@@ -1136,8 +1146,10 @@ namespace Khemistry
                     parameters = parameters,
                     parameterAssignments = parameterAssignments,
                     amount = 0.0,
+                    amountScale = 1.0,
                     outVolume = outputNode.GetValue("outVolume"),
-                    parallaxResolved = parallaxResolved
+                    parallaxResolved = parallaxResolved,
+                    inputMaterialResolved = inputMaterialResolved
                 };
 
                 bool matched = false;
@@ -1151,6 +1163,11 @@ namespace Khemistry
                         break;
                     }
                     if (IsSavedParallaxMaterialRealization(restored, configured))
+                    {
+                        matched = true;
+                        break;
+                    }
+                    if (IsSavedInputMaterialRealization(restored, configured))
                     {
                         matched = true;
                         break;
@@ -1454,8 +1471,10 @@ namespace Khemistry
         /// material was fully satisfied.
         /// </summary>
         private bool ConsumeVesselMaterials(KhemistryISRURecipe.ResourceInputMaterial material, int amount,
-            List<MaterialRemovalRecord> transaction)
+            List<MaterialRemovalRecord> transaction,
+            out List<KhemistryMaterialInstance> consumed)
         {
+            consumed = new List<KhemistryMaterialInstance>();
             if (amount <= 0) return true;
 
             if ((moduleType == "kerbalEVA"
@@ -1466,6 +1485,7 @@ namespace Khemistry
                         material.parameters, amount, out List<KhemistryMaterialInstance> removed))
                     return false;
                 transaction.Add(new MaterialRemovalRecord { suitHost = _kerbalHost, pieces = removed });
+                consumed.AddRange(removed);
                 return true;
             }
 
@@ -1495,6 +1515,7 @@ namespace Khemistry
                         material.parameters, take, out List<KhemistryMaterialInstance> removed))
                     return false;
                 transaction.Add(new MaterialRemovalRecord { storage = storage, pieces = removed });
+                consumed.AddRange(removed);
                 remaining -= take;
                 if (remaining == 0) return true;
             }
@@ -2174,23 +2195,49 @@ namespace Khemistry
             }
 
             List<PreparedResourceOutput> outputs = PrepareResourceOutputs(biomeConfig);
+            List<MaterialRemovalRecord> materialTransaction = new List<MaterialRemovalRecord>();
+            Dictionary<string, KhemistryMaterialInstance> inputMaterialValues =
+                new Dictionary<string, KhemistryMaterialInstance>(StringComparer.Ordinal);
+            foreach (KhemistryISRURecipe.ResourceInputMaterial material in _activeRecipe._inputMaterials)
+            {
+                int amount = ScaleDiscreteMaterialAmount(material.amount, biomeConfig.inputMultiplier);
+                if (!ConsumeVesselMaterials(material, amount, materialTransaction,
+                        out List<KhemistryMaterialInstance> consumed))
+                {
+                    RefundMaterialRemovals(materialTransaction);
+                    return false;
+                }
+                if (!string.IsNullOrEmpty(material.id))
+                {
+                    KhemistryMaterialInstance snapshot =
+                        CreateConsumedInputMaterialSnapshot(consumed);
+                    if (snapshot == null)
+                    {
+                        KShared.LogError("Converter \"" + ConverterName
+                            + "\": INPUT_MATERIAL id \"" + material.id
+                            + "\" consumed no material instance.",
+                            "KhemistryISRU/TryRunBatch");
+                        RefundMaterialRemovals(materialTransaction);
+                        return false;
+                    }
+                    inputMaterialValues[material.id] = snapshot;
+                }
+            }
+
+            if (!TryResolveInputMaterialOutputs(materialOutputs, inputMaterialValues,
+                    out materialOutputs))
+            {
+                RefundMaterialRemovals(materialTransaction);
+                return false;
+            }
+
             if (!CanBufferMaterialOutputs(biomeConfig, materialOutputs))
             {
                 KShared.LogError("Converter \"" + ConverterName
                     + "\": material output buffer would overflow; batch was not run.",
                     "KhemistryISRU/TryRunBatch");
+                RefundMaterialRemovals(materialTransaction);
                 return false;
-            }
-
-            List<MaterialRemovalRecord> materialTransaction = new List<MaterialRemovalRecord>();
-            foreach (KhemistryISRURecipe.ResourceInputMaterial material in _activeRecipe._inputMaterials)
-            {
-                int amount = ScaleDiscreteMaterialAmount(material.amount, biomeConfig.inputMultiplier);
-                if (!ConsumeVesselMaterials(material, amount, materialTransaction))
-                {
-                    RefundMaterialRemovals(materialTransaction);
-                    return false;
-                }
             }
 
             List<string> names = new List<string>();

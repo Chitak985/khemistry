@@ -55,8 +55,11 @@ namespace Khemistry
             public Dictionary<string, string> parameters;
             public List<KeyValuePair<string, string>> parameterAssignments;
             public double amount;
+            public string amountExpression;
+            public double amountScale;
             public string outVolume;
             public bool parallaxResolved;
+            public bool inputMaterialResolved;
         }
 
         public struct ParallaxScatterRequirement
@@ -66,6 +69,7 @@ namespace Khemistry
 
         public struct ResourceInputMaterial
         {
+            public string id;
             public string name;
             public string shape;
             public string size;
@@ -310,8 +314,20 @@ namespace Khemistry
 
                 ///// Input materials /////
                 _inputMaterials.Clear();
+                HashSet<string> inputMaterialIds = new HashSet<string>(StringComparer.Ordinal);
                 foreach (ConfigNode matNode in node.GetNodes("INPUT_MATERIAL"))
                 {
+                    string id = matNode.GetValue("id")?.Trim();
+                    if (!string.IsNullOrEmpty(id) && !inputMaterialIds.Add(id))
+                    {
+                        configurationError = true;
+                        KShared.LogError("Recipe \"" + _name
+                            + "\": INPUT_MATERIAL id \"" + id
+                            + "\" is duplicated; IDs must be unique within a recipe.",
+                            "KhemistryISRURecipe/constructor");
+                        continue;
+                    }
+
                     string matName = matNode.GetValue("name")?.Trim();
                     if (string.IsNullOrEmpty(matName))
                     {
@@ -335,14 +351,29 @@ namespace Khemistry
                         continue;
                     }
 
-                    bool usesParams = matNode.HasNode("PARAM_REQUIREMENTS");
+                    bool hasParameterRequirements = matNode.HasNode("PARAM_REQUIREMENTS");
+                    bool hasParamsAlias = matNode.HasNode("PARAMS");
+                    if (hasParameterRequirements && hasParamsAlias)
+                    {
+                        configurationError = true;
+                        KShared.LogError("Recipe \"" + _name + "\": INPUT_MATERIAL \""
+                            + matName + "\" cannot contain both PARAM_REQUIREMENTS and PARAMS.",
+                            "KhemistryISRURecipe/constructor");
+                        continue;
+                    }
+
+                    ConfigNode parameterNode = hasParameterRequirements
+                        ? matNode.GetNode("PARAM_REQUIREMENTS")
+                        : matNode.GetNode("PARAMS");
+                    bool usesParams = parameterNode != null;
                     Dictionary<string, string> parameters = new Dictionary<string, string>();
                     if (usesParams)
-                        foreach (string key in matNode.GetNode("PARAM_REQUIREMENTS").values.DistinctNames())
-                            parameters.Add(key, matNode.GetNode("PARAM_REQUIREMENTS").GetValue(key));
+                        foreach (string key in parameterNode.values.DistinctNames())
+                            parameters.Add(key, parameterNode.GetValue(key));
 
                     _inputMaterials.Add(new ResourceInputMaterial
                     {
+                        id = id,
                         name = matName,
                         shape = shape,
                         size = size,
@@ -512,8 +543,31 @@ namespace Khemistry
 
                     string shape = matNode.GetValue("shape")?.Trim();
                     string size = matNode.GetValue("size")?.Trim();
-                    bool validOutputAmount = TryReadOptionalDouble(matNode, "amount", 1.0,
-                        out double amount);
+                    string amountExpression = matNode.HasValue("amount")
+                        ? matNode.GetValue("amount")?.Trim() : "1";
+                    bool amountUsesInputMaterial = ContainsInputMaterialValue(amountExpression);
+                    bool validOutputAmount;
+                    double amount = 1.0;
+                    if (amountUsesInputMaterial)
+                    {
+                        string amountReferenceError = null;
+                        string amountExpressionError = null;
+                        validOutputAmount = TryReplaceInputMaterialValuesForValidation(
+                                amountExpression, out string validationAmount,
+                                out amountReferenceError)
+                            && KMathExpr.TryEvaluate(validationAmount, out amount,
+                                out amountExpressionError);
+                        if (validOutputAmount) amount = 1.0;
+                        if (!validOutputAmount)
+                            KShared.LogError("Recipe \"" + _name + "\": OUTPUT_MATERIAL \""
+                                + matName + "\" has invalid amount expression: "
+                                + (amountReferenceError ?? amountExpressionError
+                                    ?? "the expression could not be validated"),
+                                "KhemistryISRURecipe/constructor");
+                    }
+                    else
+                        validOutputAmount = TryReadOptionalDouble(matNode, "amount", 1.0,
+                            out amount);
                     string outVolume = KShared.GetStrValueFromCFG(matNode, "outVolume", null)?.Trim();
 
                     if (string.IsNullOrEmpty(shape) || string.IsNullOrEmpty(size)
@@ -577,6 +631,25 @@ namespace Khemistry
                         continue;
                     }
 
+                    bool validInputMaterialReferences = true;
+                    foreach (string referencedValue in new[] { shape, size, amountExpression,
+                                 outVolume }.Concat(parameterAssignments.Select(pair => pair.Value)))
+                    {
+                        if (!ContainsInputMaterialValue(referencedValue)) continue;
+                        if (TryGetInputMaterialValueReferences(referencedValue, out _,
+                                out string referenceError))
+                            continue;
+                        validInputMaterialReferences = false;
+                        KShared.LogError("Recipe \"" + _name + "\": OUTPUT_MATERIAL \""
+                            + matName + "\" has an invalid input-material reference: "
+                            + referenceError, "KhemistryISRURecipe/constructor");
+                    }
+                    if (!validInputMaterialReferences)
+                    {
+                        configurationError = true;
+                        continue;
+                    }
+
                     bool usesParallaxValues = MaterialOutputUsesParallaxValues(
                         size, outVolume, parameterAssignments);
                     if (usesParallaxValues && _parallaxScatters.Count == 0)
@@ -590,9 +663,14 @@ namespace Khemistry
 
                     string validationSize = ReplaceParallaxNumericValues(size, "1");
                     string validationOutVolume = ReplaceParallaxNumericValues(outVolume, "1");
+                    TryReplaceInputMaterialValuesForValidation(validationSize,
+                        out validationSize, out _);
+                    TryReplaceInputMaterialValuesForValidation(validationOutVolume,
+                        out validationOutVolume, out _);
                     Dictionary<string, string> validationParameters = parameters.ToDictionary(
                         pair => pair.Key,
-                        pair => ReplaceParallaxNumericValues(pair.Value, "1"));
+                        pair => ContainsInputMaterialValue(pair.Value)
+                            ? "1" : ReplaceParallaxNumericValues(pair.Value, "1"));
                     if (!TryValidateOutVolumeDefinition(validationOutVolume, validationSize,
                             validationParameters,
                             out string outVolumeError))
@@ -613,8 +691,11 @@ namespace Khemistry
                         parameters = parameters,
                         parameterAssignments = parameterAssignments,
                         amount = amount,
+                        amountExpression = amountUsesInputMaterial ? amountExpression : null,
+                        amountScale = 1.0,
                         outVolume = outVolume,
-                        parallaxResolved = false
+                        parallaxResolved = false,
+                        inputMaterialResolved = false
                     });
                 }
 
@@ -959,7 +1040,8 @@ namespace Khemistry
             foreach (ResourceOutputMaterial output in _outputMaterials)
             {
                 KhemistryMaterial definition = definitions.FirstOrDefault(material => material.name == output.name);
-                if (!ValidateMaterialReference(definition, output.name, output.shape,
+                if (!ValidateMaterialReference(definition, output.name,
+                        ContainsInputMaterialValue(output.shape) ? null : output.shape,
                         output.parameters?.Keys, "OUTPUT_MATERIAL", context))
                     valid = false;
                 else if (output.parameterAssignments != null)
@@ -983,6 +1065,41 @@ namespace Khemistry
                             + assignment.Key + "\".", context);
                     }
                 }
+
+                foreach (string referencedValue in new[] { output.shape, output.size,
+                             output.amountExpression, output.outVolume }
+                         .Concat((output.parameterAssignments
+                                 ?? new List<KeyValuePair<string, string>>())
+                             .Select(pair => pair.Value)))
+                {
+                    if (!ContainsInputMaterialValue(referencedValue)) continue;
+                    if (!TryGetInputMaterialValueReferences(referencedValue,
+                            out List<InputMaterialValueReference> references,
+                            out string referenceError))
+                    {
+                        valid = false;
+                        KShared.LogError("Recipe \"" + _name
+                            + "\": invalid input-material reference: " + referenceError,
+                            context);
+                        continue;
+                    }
+
+                    foreach (InputMaterialValueReference reference in references)
+                    {
+                        if (IsBuiltInInputMaterialField(reference.field)) continue;
+                        KhemistryMaterial inputDefinition = definitions.FirstOrDefault(material =>
+                            material.name == reference.input.name);
+                        if (inputDefinition != null && inputDefinition.parameters.Keys.Any(key =>
+                                string.Equals(key, reference.field,
+                                    StringComparison.OrdinalIgnoreCase)))
+                            continue;
+                        valid = false;
+                        KShared.LogError("Recipe \"" + _name + "\": (INMAT:"
+                            + reference.input.id + ":" + reference.field
+                            + ") refers to a parameter not defined by input material \""
+                            + reference.input.name + "\".", context);
+                    }
+                }
             }
 
             IsValid = valid;
@@ -1000,7 +1117,7 @@ namespace Khemistry
             }
 
             bool valid = true;
-            if (!definition.shapes.Contains(shape))
+            if (shape != null && !definition.shapes.Contains(shape))
             {
                 valid = false;
                 KShared.LogError("Recipe \"" + _name + "\": " + nodeName + " \""
@@ -1089,6 +1206,7 @@ namespace Khemistry
                 if (mat.amount > 0 && multiplier > 0.0 && scaledAmount < 1) scaledAmount = 1;
                 copy._inputMaterials.Add(new ResourceInputMaterial
                 {
+                    id = mat.id,
                     name = mat.name,
                     shape = mat.shape,
                     size = mat.size,
@@ -1124,8 +1242,11 @@ namespace Khemistry
                         : new List<KeyValuePair<string, string>>(
                             mat.parameterAssignments),
                     amount = mat.amount * multiplier,
+                    amountExpression = mat.amountExpression,
+                    amountScale = mat.amountScale * multiplier,
                     outVolume = mat.outVolume,
-                    parallaxResolved = mat.parallaxResolved
+                    parallaxResolved = mat.parallaxResolved,
+                    inputMaterialResolved = mat.inputMaterialResolved
                 });
 
             return copy;
@@ -1140,6 +1261,108 @@ namespace Khemistry
         public const string ParallaxHeightValue = "PARALLAX_HEIGHT";
         public const string ParallaxVolumeValue = "PARALLAX_VOLUME";
         public const string ParallaxScatterValue = "PARALLAX_SCATTER";
+
+        internal sealed class InputMaterialValueReference
+        {
+            internal int start;
+            internal int length;
+            internal ResourceInputMaterial input;
+            internal string field;
+        }
+
+        internal static bool ContainsInputMaterialValue(string value)
+            => value?.IndexOf("(INMAT:", StringComparison.OrdinalIgnoreCase) >= 0;
+
+        internal bool TryGetInputMaterialValueReferences(string value,
+            out List<InputMaterialValueReference> references, out string error)
+        {
+            references = new List<InputMaterialValueReference>();
+            error = null;
+            if (string.IsNullOrEmpty(value)) return true;
+
+            int searchStart = 0;
+            while (true)
+            {
+                int tokenStart = value.IndexOf("(INMAT:", searchStart,
+                    StringComparison.OrdinalIgnoreCase);
+                if (tokenStart < 0) return true;
+
+                int idStart = tokenStart + "(INMAT:".Length;
+                ResourceInputMaterial? matchedInput = null;
+                int matchedLength = -1;
+                foreach (ResourceInputMaterial input in _inputMaterials)
+                {
+                    if (string.IsNullOrEmpty(input.id) || input.id.Length <= matchedLength
+                        || idStart + input.id.Length >= value.Length
+                        || value[idStart + input.id.Length] != ':'
+                        || string.CompareOrdinal(value, idStart, input.id, 0,
+                            input.id.Length) != 0)
+                        continue;
+                    matchedInput = input;
+                    matchedLength = input.id.Length;
+                }
+
+                if (!matchedInput.HasValue)
+                {
+                    int unknownEnd = value.IndexOf(')', idStart);
+                    string unknown = unknownEnd < 0
+                        ? value.Substring(idStart)
+                        : value.Substring(idStart, unknownEnd - idStart);
+                    error = "(INMAT:" + unknown
+                        + (unknownEnd < 0 ? "" : ")")
+                        + " does not start with an INPUT_MATERIAL id defined by this recipe.";
+                    return false;
+                }
+
+                int fieldStart = idStart + matchedLength + 1;
+                int tokenEnd = value.IndexOf(')', fieldStart);
+                if (tokenEnd < 0)
+                {
+                    error = "Input-material reference beginning at position " + tokenStart
+                        + " has no closing ')'.";
+                    return false;
+                }
+                string field = value.Substring(fieldStart, tokenEnd - fieldStart).Trim();
+                if (string.IsNullOrEmpty(field))
+                {
+                    error = "Input-material reference for id \"" + matchedInput.Value.id
+                        + "\" has no field name.";
+                    return false;
+                }
+
+                references.Add(new InputMaterialValueReference
+                {
+                    start = tokenStart,
+                    length = tokenEnd - tokenStart + 1,
+                    input = matchedInput.Value,
+                    field = field
+                });
+                searchStart = tokenEnd + 1;
+            }
+        }
+
+        internal bool TryReplaceInputMaterialValuesForValidation(string value,
+            out string resolved, out string error)
+        {
+            resolved = value;
+            if (!TryGetInputMaterialValueReferences(value, out
+                    List<InputMaterialValueReference> references, out error))
+                return false;
+            for (int index = references.Count - 1; index >= 0; index--)
+            {
+                InputMaterialValueReference reference = references[index];
+                resolved = resolved.Remove(reference.start, reference.length)
+                    .Insert(reference.start, "1");
+            }
+            return true;
+        }
+
+        internal static bool IsBuiltInInputMaterialField(string field)
+        {
+            return string.Equals(field, "shape", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(field, "size", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(field, "amount", StringComparison.OrdinalIgnoreCase);
+        }
 
         internal static bool ContainsParallaxValue(string value)
         {
@@ -1163,6 +1386,19 @@ namespace Khemistry
                 (IEnumerable<KeyValuePair<string, string>>)output.parameterAssignments
                     ?? output.parameters
                     ?? new Dictionary<string, string>());
+
+        internal static bool MaterialOutputUsesInputMaterialValues(
+            ResourceOutputMaterial output)
+        {
+            return ContainsInputMaterialValue(output.shape)
+                || ContainsInputMaterialValue(output.size)
+                || ContainsInputMaterialValue(output.amountExpression)
+                || ContainsInputMaterialValue(output.outVolume)
+                || ((IEnumerable<KeyValuePair<string, string>>)output.parameterAssignments
+                        ?? output.parameters
+                        ?? new Dictionary<string, string>())
+                    .Any(pair => ContainsInputMaterialValue(pair.Value));
+        }
 
         internal static string ReplaceParallaxNumericValues(string value, string replacement)
         {
