@@ -140,6 +140,7 @@ namespace Khemistry
         ///// Active recipe /////
         [KSPField(isPersistant = true)] public string activeRecipeName = null;
         [KSPField(isPersistant = true)] public double batchProgress = 0.0;
+        [KSPField(isPersistant = true)] public double resolvedRecipeTime = 0.0;
         [KSPField(isPersistant = true)] public bool hasLastBiome = false;
         [KSPField(isPersistant = true)] public string lastBiomePlanet = "";
         [KSPField(isPersistant = true)] public string lastBiomeName = "";

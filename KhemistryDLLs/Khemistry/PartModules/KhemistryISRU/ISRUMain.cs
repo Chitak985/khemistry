@@ -97,6 +97,7 @@ namespace Khemistry
                     RefundPassiveConsumption();
                     ResetPassiveTimers();
                     batchProgress = 0.0;
+                    resolvedRecipeTime = 0.0;
                     isRunning = false;
                     statusDisplay = "Stopped (powerfail)";
                     break;
@@ -104,6 +105,7 @@ namespace Khemistry
                     ClearPassiveConsumption();
                     ResetPassiveTimers();
                     batchProgress = 0.0;
+                    resolvedRecipeTime = 0.0;
                     isRunning = false;
                     statusDisplay = "Stopped (powerfail, resources lost)";
                     break;
@@ -111,6 +113,7 @@ namespace Khemistry
                     ClearPassiveConsumption();
                     ResetPassiveTimers();
                     batchProgress = 0.0;
+                    resolvedRecipeTime = 0.0;
                     isRunning = false;
                     needsMaintenance = true;
                     statusDisplay = "Needs maintenance";
@@ -500,6 +503,7 @@ namespace Khemistry
                 // automatically using progress and withdrawals that belonged to a removed one.
                 isRunning = false;
                 batchProgress = 0.0;
+                resolvedRecipeTime = 0.0;
                 KShared.LogWarning("Converter \"" + ConverterName + "\": saved recipe \""
                     + savedRecipeName
                     + "\" is no longer available; the converter was stopped and selected the first available recipe.",
@@ -522,9 +526,18 @@ namespace Khemistry
             activeRecipeName = recipe._name;
             if (resetProgress || double.IsNaN(batchProgress) || double.IsInfinity(batchProgress)
                 || batchProgress < 0.0)
+            {
                 batchProgress = 0.0;
-            else if (batchProgress > recipe._recipeTime)
-                batchProgress = recipe._recipeTime;
+                resolvedRecipeTime = 0.0;
+            }
+            else
+            {
+                double savedTime = resolvedRecipeTime > 0.0
+                    && !double.IsNaN(resolvedRecipeTime)
+                    && !double.IsInfinity(resolvedRecipeTime)
+                    ? resolvedRecipeTime : recipe._recipeTime;
+                if (batchProgress > savedTime) batchProgress = savedTime;
+            }
 
             _passiveTimers.Clear();
             _passiveConsumedThisBatch.Clear();
@@ -617,6 +630,7 @@ namespace Khemistry
                     // while retaining the opaque record for possible manual/future recovery.
                     isRunning = false;
                     batchProgress = 0.0;
+                    resolvedRecipeTime = 0.0;
                 }
 
                 KShared.LogWarning("Converter \"" + ConverterName
@@ -1718,7 +1732,8 @@ namespace Khemistry
         {
             // Reflects pre-tick progress for every early-return branch below (converter is
             // "on" but may be paused this tick); recomputed again once progress actually advances.
-            progressDisplay = FormatProgress(batchProgress, _activeRecipe._recipeTime);
+            progressDisplay = FormatProgress(batchProgress,
+                resolvedRecipeTime > 0.0 ? resolvedRecipeTime : _activeRecipe._recipeTime);
 
             KhemistryISRUBiomeConfig biomeConfig = _activeRecipe.GetBiomeConfig(_runtimeData.planet, _runtimeData.biome);
             if (biomeConfig == null)
@@ -1797,7 +1812,17 @@ namespace Khemistry
                 return false;
             }
 
-            double effectiveRecipeTime = _activeRecipe._recipeTime;
+            if (double.IsNaN(resolvedRecipeTime)
+                || double.IsInfinity(resolvedRecipeTime) || resolvedRecipeTime <= 0.0)
+            {
+                if (!TryResolveRecipeTime(biomeConfig, out double newlyResolvedTime))
+                {
+                    statusDisplay = "Recipe time inputs unavailable";
+                    return false;
+                }
+                resolvedRecipeTime = newlyResolvedTime;
+            }
+            double effectiveRecipeTime = resolvedRecipeTime;
             double speed = biomeConfig.speedMul;
             if (double.IsNaN(dt) || double.IsInfinity(dt) || dt <= 0.0
                 || double.IsNaN(speed) || double.IsInfinity(speed) || speed <= 0.0
@@ -1840,9 +1865,21 @@ namespace Khemistry
                     }
 
                     batchProgress = 0.0;
+                    resolvedRecipeTime = 0.0;
                     ClearPassiveConsumption();
                     completedBatches++;
                     performedWork = true;
+                    if (remainingDt > 0.0)
+                    {
+                        if (!TryResolveRecipeTime(biomeConfig,
+                                out effectiveRecipeTime))
+                        {
+                            statusDisplay = "Recipe time inputs unavailable";
+                            progressDisplay = "0%";
+                            return performedWork;
+                        }
+                        resolvedRecipeTime = effectiveRecipeTime;
+                    }
                     continue;
                 }
 
@@ -2225,7 +2262,7 @@ namespace Khemistry
             }
 
             if (!TryResolveInputMaterialOutputs(materialOutputs, inputMaterialValues,
-                    out materialOutputs))
+                    out materialOutputs, out _, biomeConfig.outputMultiplier))
             {
                 RefundMaterialRemovals(materialTransaction);
                 return false;

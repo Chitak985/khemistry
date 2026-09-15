@@ -39,6 +39,7 @@ namespace Khemistry
             chargePercent = 0f;
             activeRecipeName = null;
             batchProgress = 0.0;
+            resolvedRecipeTime = 0.0;
             hasLastBiome = false;
             lastBiomePlanet = "";
             lastBiomeName = "";
@@ -222,7 +223,9 @@ namespace Khemistry
                                 ? "Running" : "Not ready")
                             : "Stopped"),
                     progress = FormatProgress(batchProgress,
-                        _activeRecipe?._recipeTime ?? 0.0),
+                        resolvedRecipeTime > 0.0
+                            ? resolvedRecipeTime
+                            : (_activeRecipe?._recipeTime ?? 0.0)),
                     isRunning = isRunning,
                     needsMaintenance = needsMaintenance,
                     chargingRequired = chargingRequired,
