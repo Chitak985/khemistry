@@ -13,36 +13,45 @@ namespace Khemistry
     {
         ///// Occupation System /////
 
-        // Current occupation of the kerbal, null if none
+        ///<summary>Current occupation of the kerbal, null if none</summary>
         public string occupation = null;  // Apparently it gets set to "" if i don't do this
-        // Can the kerbal get occupied
+        ///<summary>Can the kerbal get occupied</summary>
         [KSPField(isPersistant = true)]
         public bool canBeOccupied = true;
-        // Is the kerbal frozen (cannot move)
+        ///<summary>Is the kerbal frozen (cannot move)</summary>
         public bool kerbalFrozen = false;
-        // String to show the kerbal's current occupation
+        ///<summary>String to show the kerbal's current occupation</summary>
         [KSPField(isPersistant = false, guiActive = true, guiActiveEditor = false, guiName = "Current occupation")]
         public string OccupationString = "Free";
 
-        // Serialized as "ResA:1.5000|ResB:2.0000".
+        ///<summary>Serialized as "ResA:1.5000|ResB:2.0000".</summary>
         [KSPField(isPersistant = true)]
         public string suitCellResourcesData = "";
 
+        ///<summary>Maximum amount of resources the suit cell can store.</summary>
         private float _suitCellMaxAmount = 0f;
+        ///<summary>Maximum transfer distance in meters for the suit cell.</summary>
         private float _suitCellTransferDistance = 10f;
+        ///<summary>Groups of supported resources by the suit cell.</summary>
         private readonly List<HashSet<string>> _suitCellSupportedResourceGroups
             = new List<HashSet<string>>();
 
         ///// Material suit cell (behaves like SUIT_CELL, but stores KhemistryMaterialInstance /////
         ///// via KhemistryMaterialStorage-style logic instead of fluid resources)             /////
+        ///<summary>Maxmimum volume in meters cubed the material suit cell can store.</summary>
         private float _materialSuitCellVolume = 0f;
+        ///<summary>Maximum transfer distance in meters for the material suit cell.</summary>
         private float _materialSuitCellTransferDistance = 2f;
+        ///<summary>List of allowed materials by the material suit cell.</summary>
         private readonly List<KhemistryAllowedMaterial> _materialSuitCellAllowed = new List<KhemistryAllowedMaterial>();
 
+        ///<summary>The current contents of the material suit cell.</summary>
         public readonly List<KhemistryMaterialInstance> materialSuitCellContents = new List<KhemistryMaterialInstance>();
         private readonly List<ConfigNode> _pendingMaterialSuitContents = new List<ConfigNode>();
 
+        ///<summary>Does the kerbal have the material suit cell?</summary>
         public bool HasMaterialSuitCell => _materialSuitCellVolume > 0f;
+        ///<summary>The public version of the material suit cell transfer distance.</summary>
         public float MaterialSuitCellTransferDistance => _materialSuitCellTransferDistance;
 
         /// <summary>
@@ -54,15 +63,21 @@ namespace Khemistry
 
         private ModuleInventoryPart _inventory;
         private KerbalEVA eva;
+        
+        ///<summary>Is this KhemistryKerbal instance disabled due to it finding a duplicate of itself?</summary>
         private bool _disabledDuplicate;
+        ///<summary>Persistent ID of the kerbal this PartModule is attached to.</summary>
         private uint _crewPersistentId;
+        ///<summary>Name of the kerbal this PartModule is attached to.</summary>
         private string _crewName = "";
+        ///<summary>Whether a boarding event was registered.</summary>
         private bool _boardingEventRegistered;
         private bool _suitPersistenceRestoreChecked;
         private bool _loadedAuthoritativeSuitState;
         private int _inventoryChangeBatchDepth;
         private bool _inventoryChangePending;
 
+        ///<summary>Reference to a <see cref="KhemistryFluidCell"/> on the kerbal. Used for various operations on it.</summary>
         private struct FluidCellRef
         {
             public bool isSuit;
@@ -84,13 +99,16 @@ namespace Khemistry
         {
             string label = baseLabel;
             int suffix = 2;
-            while (labels.Contains(label)) label = baseLabel + " (" + suffix++ + ")";
+            while (labels.Contains(label))
+                label = baseLabel + " (" + suffix++ + ")";
             return label;
         }
 
+        ///<summary>Does the provided <see cref="PartResource"/> have a usable amount?</summary>
         private static bool HasUsableAmount(PartResource resource)
             => resource != null && KShared.IsFinite(resource.amount) && resource.amount > 0.0;
 
+        ///<summary>Can the provided <see cref="PartResource"/> be accepted?</summary>
         private static bool CanAcceptResource(PartResource resource)
             => resource != null && KShared.IsFinite(resource.amount) && resource.amount >= 0.0
                 && KShared.IsFinite(resource.maxAmount) && resource.maxAmount >= 0.0
@@ -141,9 +159,11 @@ namespace Khemistry
                 GameEvents.onModuleInventoryChanged.Fire(_inventory);
         }
 
+        ///<summary>Get the deserialized version of the resource dictionary used for the suit cell.</summary>
         internal static Dictionary<string, double> DeserializeResourceDictionary(string data)
             => KhemistryFluidCell.DeserializeResources(data);
 
+        ///<summary>Get the serialized version of the resource dictionary used for the suit cell.</summary>
         internal static string SerializeResourceDictionary(
             IDictionary<string, double> resources)
             => KhemistryFluidCell.SerializeResources(resources);
@@ -323,8 +343,7 @@ namespace Khemistry
                         "KhemistryKerbal/LoadConfigFromPartInfo");
             }
 
-            KShared.Log("Loaded kerbal resource storage; suitCell="
-                + (_suitCellMaxAmount > 0f) + ".",
+            KShared.Log("Loaded kerbal resource storage.",
                 "KhemistryKerbal/LoadConfigFromPartInfo");
         }
 
@@ -570,6 +589,7 @@ namespace Khemistry
             return null;
         }
 
+        ///<summary>Apply degradation for a stored part with <see cref="KhemistryDegradingBattery"/>.</summary>
         private void ApplyHeldBatteryDegradation(StoredPart stored)
         {
             KhemistryDegradingBattery prefab = PartLoader.getPartInfoByName(stored.partName)?.partPrefab
@@ -623,10 +643,12 @@ namespace Khemistry
             if (changed) NotifyInventoryChanged();
         }
 
+        ///<summary>Get a list of resources stored in the provided part.</summary>
         private List<string> ReadResourceNames(StoredPart stored)
             => ReadCellResourceDictionary(stored).Keys
                 .OrderBy(name => name, StringComparer.Ordinal).ToList();
 
+        ///<summary>Get the total amount of resources stored in the provided part.</summary>
         private float ReadResourceAmount(StoredPart stored)
         {
             double total = KhemistryFluidCell.GetResourceTotal(
@@ -634,6 +656,7 @@ namespace Khemistry
             return total >= float.MaxValue ? float.MaxValue : (float)total;
         }
 
+        ///<summary>Get the amount of a resource stored in the provided part.</summary>
         private double ReadResourceAmountValue(StoredPart stored, string resourceName)
         {
             if (string.IsNullOrWhiteSpace(resourceName)) return 0.0;
@@ -660,6 +683,7 @@ namespace Khemistry
             return prefab.GetAddableResources(ReadResourceNames(stored));
         }
 
+        ///<summary>Can a resource be added to the provided part?</summary>
         private bool IsResourceAllowedForAddition(StoredPart stored, string resourceName)
         {
             KhemistryFluidCell prefab = ReadFluidCellPrefab(stored?.partName);
@@ -667,6 +691,7 @@ namespace Khemistry
                 && prefab.CanAddResource(resourceName, ReadResourceNames(stored));
         }
 
+        ///<summary>Add a resource to the provided part.</summary>
         private bool WriteResourceAmount(StoredPart stored, string resourceName,
             double amount)
         {
@@ -701,6 +726,7 @@ namespace Khemistry
             return true;
         }
 
+        ///<summary>Get all parts within a specific range of the kerbal.</summary>
         private List<Part> GetPartsInRange(float range)
         {
             KShared.Log("Called with range " + range.ToString(), "KhemistryKerbal/GetPartsInRange");
@@ -716,6 +742,7 @@ namespace Khemistry
             return result;
         }
 
+        ///<summary>Show the selector to choose which part to send resources to.</summary>
         private void ShowPartSelectorForSend(FluidCellRef cell)
         {
             if (cell.isSuit) { ShowSuitCellPartSelectorForSend(); return; }
@@ -751,6 +778,7 @@ namespace Khemistry
             });
         }
 
+        ///<summary>Show the selector to choose which part to send a specific resource to.</summary>
         private void ShowPartSelectorForSend(FluidCellRef cell, string resourceName)
         {
             if (!IsStoredPartCurrent(cell.stored)
@@ -801,6 +829,7 @@ namespace Khemistry
                 });
         }
 
+        ///<summary>Show the selector to take resources from a part into the provided fluid cell.</summary>
         private void ShowPartSelectorForTake(FluidCellRef cell)
         {
             if (cell.isSuit) { ShowSuitCellPartSelectorForTake(); return; }
