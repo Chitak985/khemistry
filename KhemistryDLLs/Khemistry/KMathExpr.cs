@@ -1,17 +1,92 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Text;
 
 namespace Khemistry
 {
     /// <summary>
     /// A minimal recursive-descent arithmetic expression evaluator supporting +, -, *, /,
     /// parentheses, unary +/-, the constant PI, and the function Pow(a,b).
-    /// Used for parsing mathematic expressions in config values.
+    /// Used for parsing mathematical expressions in config values. Config consumers expose
+    /// expressions through string interpolation: literal text [expression] literal text.
     /// The expressions it supports are in its three constant dictionaries: constants, functions1Arg, and functions2Arg.
     /// </summary>
     public static class KMathExpr
     {
+        /// <summary>True when a value contains at least one bracketed KMathExpr.</summary>
+        public static bool ContainsInterpolation(string value)
+            => !string.IsNullOrEmpty(value) && value.IndexOf('[') >= 0;
+
+        /// <summary>
+        /// Evaluates every [KMathExpr] segment and inserts its invariant numeric result into
+        /// the surrounding text. Text outside brackets is preserved verbatim.
+        /// </summary>
+        public static bool TryInterpolate(string template, out string result,
+            out string error, Dictionary<string, string> vars = null,
+            Func<double, double, double> randomFunction = null)
+        {
+            result = template;
+            error = null;
+            if (template == null) return true;
+
+            StringBuilder builder = new StringBuilder(template.Length);
+            int position = 0;
+            while (position < template.Length)
+            {
+                int opening = template.IndexOf('[', position);
+                int unexpectedClosing = template.IndexOf(']', position);
+                if (unexpectedClosing >= 0 && (opening < 0 || unexpectedClosing < opening))
+                {
+                    error = "Unexpected ']' at position " + unexpectedClosing + ".";
+                    return false;
+                }
+                if (opening < 0)
+                {
+                    builder.Append(template, position, template.Length - position);
+                    break;
+                }
+
+                builder.Append(template, position, opening - position);
+                int closing = template.IndexOf(']', opening + 1);
+                if (closing < 0)
+                {
+                    error = "Expression beginning at position " + opening + " has no closing ']'.";
+                    return false;
+                }
+
+                string expression = template.Substring(opening + 1,
+                    closing - opening - 1);
+                if (!TryEvaluate(expression, out double value, out string expressionError,
+                        vars, randomFunction))
+                {
+                    error = "Expression [" + expression + "] is invalid: " + expressionError;
+                    return false;
+                }
+                builder.Append(value.ToString("R", CultureInfo.InvariantCulture));
+                position = closing + 1;
+            }
+
+            result = builder.ToString();
+            return true;
+        }
+
+        public static bool TryInterpolateNumber(string template, out double result,
+            out string error, Dictionary<string, string> vars = null,
+            Func<double, double, double> randomFunction = null)
+        {
+            result = 0.0;
+            if (!TryInterpolate(template, out string resolved, out error, vars,
+                    randomFunction))
+                return false;
+            if (double.TryParse(resolved, NumberStyles.Float,
+                    CultureInfo.InvariantCulture, out result)
+                && !double.IsNaN(result) && !double.IsInfinity(result))
+                return true;
+            error = "Interpolated value \"" + resolved + "\" is not a finite number.";
+            return false;
+        }
+
         /// <summary>The dictionary of supported constants.</summary>
         static readonly Dictionary<string, double> constants = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
         {
@@ -47,7 +122,9 @@ namespace Khemistry
             }
         }
 
-        public static bool TryEvaluate(string expr, out double result, out string error, Dictionary<string, string> vars=null)
+        public static bool TryEvaluate(string expr, out double result, out string error,
+            Dictionary<string, string> vars=null,
+            Func<double, double, double> randomFunction = null)
         {
             result = 0.0;
             error = null;
@@ -64,7 +141,7 @@ namespace Khemistry
             try
             {
                 int pos = 0;
-                result = ParseExpr(expr, ref pos, expressionVars);
+                result = ParseExpr(expr, ref pos, expressionVars, randomFunction);
                 SkipWhitespace(expr, ref pos);
                 if (pos != expr.Length)
                 {
@@ -90,16 +167,17 @@ namespace Khemistry
             while (pos < s.Length && char.IsWhiteSpace(s[pos])) pos++;
         }
 
-        private static double ParseExpr(string s, ref int pos, Dictionary<string, string> vars)
+        private static double ParseExpr(string s, ref int pos, Dictionary<string, string> vars,
+            Func<double, double, double> randomFunction)
         {
-            double val = ParseTerm(s, ref pos, vars);
+            double val = ParseTerm(s, ref pos, vars, randomFunction);
             while (true)
             {
                 SkipWhitespace(s, ref pos);
                 if (pos < s.Length && (s[pos] == '+' || s[pos] == '-'))
                 {
                     char op = s[pos]; pos++;
-                    double rhs = ParseTerm(s, ref pos, vars);
+                    double rhs = ParseTerm(s, ref pos, vars, randomFunction);
                     val = op == '+' ? val + rhs : val - rhs;
                 }
                 else break;
@@ -107,16 +185,17 @@ namespace Khemistry
             return val;
         }
 
-        private static double ParseTerm(string s, ref int pos, Dictionary<string, string> vars)
+        private static double ParseTerm(string s, ref int pos, Dictionary<string, string> vars,
+            Func<double, double, double> randomFunction)
         {
-            double val = ParseFactor(s, ref pos, vars);
+            double val = ParseFactor(s, ref pos, vars, randomFunction);
             while (true)
             {
                 SkipWhitespace(s, ref pos);
                 if (pos < s.Length && (s[pos] == '*' || s[pos] == '/'))
                 {
                     char op = s[pos]; pos++;
-                    double rhs = ParseFactor(s, ref pos, vars);
+                    double rhs = ParseFactor(s, ref pos, vars, randomFunction);
                     val = op == '*' ? val * rhs : val / rhs;
                 }
                 else break;
@@ -124,22 +203,24 @@ namespace Khemistry
             return val;
         }
 
-        private static double ParseFactor(string s, ref int pos, Dictionary<string, string> vars)
+        private static double ParseFactor(string s, ref int pos, Dictionary<string, string> vars,
+            Func<double, double, double> randomFunction)
         {
             SkipWhitespace(s, ref pos);
-            if (pos < s.Length && s[pos] == '-') { pos++; return -ParseFactor(s, ref pos, vars); }
-            if (pos < s.Length && s[pos] == '+') { pos++; return ParseFactor(s, ref pos, vars); }
-            return ParsePrimary(s, ref pos, vars);
+            if (pos < s.Length && s[pos] == '-') { pos++; return -ParseFactor(s, ref pos, vars, randomFunction); }
+            if (pos < s.Length && s[pos] == '+') { pos++; return ParseFactor(s, ref pos, vars, randomFunction); }
+            return ParsePrimary(s, ref pos, vars, randomFunction);
         }
 
-        private static bool Parse1ArgFunction(string ident, string s, ref int pos, Dictionary<string, string> vars, string funcName, out double result)
+        private static bool Parse1ArgFunction(string ident, string s, ref int pos, Dictionary<string, string> vars, string funcName, out double result,
+            Func<double, double, double> randomFunction)
         {
             if (string.Equals(ident, funcName, StringComparison.OrdinalIgnoreCase))
             {
                 SkipWhitespace(s, ref pos);
                 if (pos >= s.Length || s[pos] != '(') KShared.LogFatalError("Expected ( after " + funcName + " function! String: " + s, "KMathExpr/Parse1ArgFunction");
                 pos++;
-                double a = ParseExpr(s, ref pos, vars);
+                double a = ParseExpr(s, ref pos, vars, randomFunction);
                 SkipWhitespace(s, ref pos);
                 if (pos >= s.Length || s[pos] != ')') KShared.LogFatalError("Expected ) closing the " + funcName + " function! String: " + s, "KMathExpr/Parse1ArgFunction");
                 pos++;
@@ -150,29 +231,33 @@ namespace Khemistry
             return false;
         }
 
-        private static bool Parse2ArgFunction(string ident, string s, ref int pos, Dictionary<string, string> vars, string funcName, out double result)
+        private static bool Parse2ArgFunction(string ident, string s, ref int pos, Dictionary<string, string> vars, string funcName, out double result,
+            Func<double, double, double> randomFunction)
         {
             if (string.Equals(ident, funcName, StringComparison.OrdinalIgnoreCase))
             {
                 SkipWhitespace(s, ref pos);
                 if (pos >= s.Length || s[pos] != '(') KShared.LogFatalError("Expected ( after \" + funcName + \" function! String: " + s, "KMathExpr/Parse2ArgFunction");
                 pos++;
-                double a = ParseExpr(s, ref pos, vars);
+                double a = ParseExpr(s, ref pos, vars, randomFunction);
                 SkipWhitespace(s, ref pos);
                 if (pos >= s.Length || s[pos] != ',') KShared.LogFatalError("Expected , to separate arguments in \" + funcName + \" function! String: " + s, "KMathExpr/Parse2ArgFunction");
                 pos++;
-                double b = ParseExpr(s, ref pos, vars);
+                double b = ParseExpr(s, ref pos, vars, randomFunction);
                 SkipWhitespace(s, ref pos);
                 if (pos >= s.Length || s[pos] != ')') KShared.LogFatalError("Expected ) closing the \" + funcName + \" function! String: " + s, "KMathExpr/Parse2ArgFunction");
                 pos++;
-                result = functions2Arg[funcName](a, b);
+                result = string.Equals(funcName, "randf", StringComparison.OrdinalIgnoreCase)
+                    && randomFunction != null
+                    ? randomFunction(a, b) : functions2Arg[funcName](a, b);
                 return true;
             }
             result = 0;
             return false;
         }
 
-        private static double ParsePrimary(string s, ref int pos, Dictionary<string, string> vars)
+        private static double ParsePrimary(string s, ref int pos, Dictionary<string, string> vars,
+            Func<double, double, double> randomFunction)
         {
             SkipWhitespace(s, ref pos);
             if (pos >= s.Length) KShared.LogFatalError("Unexpected end of expression! String: " + s, "KMathExpr/ParsePrimary");
@@ -180,7 +265,7 @@ namespace Khemistry
             if (s[pos] == '(')
             {
                 pos++;
-                double val = ParseExpr(s, ref pos, vars);
+                double val = ParseExpr(s, ref pos, vars, randomFunction);
                 SkipWhitespace(s, ref pos);
                 if (pos >= s.Length || s[pos] != ')') KShared.LogFatalError("Expected closing ) paranthesis! String: " + s, "KMathExpr/ParsePrimary");
                 pos++;
@@ -215,11 +300,11 @@ namespace Khemistry
 
                 // Parse 1 argument functions
                 foreach (string function in functions1Arg.Keys)
-                    if (Parse1ArgFunction(ident, s, ref pos, vars, function, out double result)) return result;
+                    if (Parse1ArgFunction(ident, s, ref pos, vars, function, out double result, randomFunction)) return result;
 
                 // Parse 2 argument functions
                 foreach (string function in functions2Arg.Keys)
-                    if (Parse2ArgFunction(ident, s, ref pos, vars, function, out double result)) return result;
+                    if (Parse2ArgFunction(ident, s, ref pos, vars, function, out double result, randomFunction)) return result;
 
                 // Parse variables
                 if (vars.TryGetValue(ident, out string rawVariableValue))

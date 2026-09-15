@@ -2353,62 +2353,6 @@ namespace Khemistry
         }
 
         /// <summary>
-        /// If the given value is a randf(a,b,n) expression, replaces it with a random float
-        /// between a and b (inclusive on both ends), rounded to n decimal places. Negative n is
-        /// an error and is treated as 0. Non-randf values are returned unchanged.
-        /// </summary>
-        protected static string ResolveRandf(string value, System.Random random)
-        {
-            if (string.IsNullOrEmpty(value)) return value;
-
-            var match = _randfPattern.Match(value.Trim());
-            if (!match.Success) return value;
-
-            if (!double.TryParse(match.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double a) ||
-                !double.TryParse(match.Groups[2].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double b)
-                || double.IsNaN(a) || double.IsInfinity(a)
-                || double.IsNaN(b) || double.IsInfinity(b))
-            {
-                KShared.LogError(
-                    "randf(...) expression \"" + value + "\" has non-numeric bounds — leaving value as-is.",
-                    "KhemistryISRU/ResolveRandf");
-                return value;
-            }
-
-            if (!int.TryParse(match.Groups[3].Value, NumberStyles.Integer,
-                    CultureInfo.InvariantCulture, out int n))
-            {
-                KShared.LogError(
-                    "randf(...) expression \"" + value + "\" has an invalid decimal-place count — leaving value as-is.",
-                    "KhemistryISRU/ResolveRandf");
-                return value;
-            }
-            if (n < 0 || n > 15)
-            {
-                int clamped = Math.Max(0, Math.Min(15, n));
-                KShared.LogError(
-                    "randf(...) expression \"" + value + "\" has a decimal-place count outside 0–15 — treating as "
-                    + clamped + ".", "KhemistryISRU/ResolveRandf");
-                n = clamped;
-            }
-
-            double lo = Math.Min(a, b);
-            double hi = Math.Max(a, b);
-            double t = random == null ? UnityEngine.Random.value : random.NextDouble();
-            double roll = lo * (1.0 - t) + hi * t;
-            if (double.IsNaN(roll) || double.IsInfinity(roll))
-            {
-                KShared.LogError(
-                    "randf(...) expression \"" + value + "\" overflowed — leaving value as-is.",
-                    "KhemistryISRU/ResolveRandf");
-                return value;
-            }
-            double rounded = Math.Round(roll, n, MidpointRounding.AwayFromZero);
-
-            return rounded.ToString("F" + n, CultureInfo.InvariantCulture);
-        }
-
-        /// <summary>
         /// Attempts to drain any buffered material output into a KhemistryMaterialStorage
         /// module on the vessel. Only whole units are ever moved.
         /// </summary>
@@ -2453,24 +2397,45 @@ namespace Khemistry
                     long randomSequence = _materialOutputRandomSequence[matOutput];
                     System.Random random = CreateMaterialOutputRandom(randomSeed,
                         randomSequence);
-                    string resolvedSize = ResolveRandf(matOutput.size, random);
-                    Dictionary<string, string> resolvedParameters = new Dictionary<string, string>();
-                    List<KeyValuePair<string, string>> resolvedAssignments =
-                        new List<KeyValuePair<string, string>>();
+                    Func<double, double, double> randomFunction = (first, second) =>
+                    {
+                        double low = Math.Min(first, second);
+                        double high = Math.Max(first, second);
+                        double interpolation = random.NextDouble();
+                        return low * (1.0 - interpolation)
+                            + high * interpolation;
+                    };
+                    if (!KMathExpr.TryInterpolate(matOutput.size,
+                            out string resolvedSize, out string sizeError, null,
+                            randomFunction))
+                    {
+                        KShared.LogError("Converter \"" + ConverterName
+                            + "\": OUTPUT_MATERIAL \"" + matOutput.name
+                            + "\" size could not be resolved: " + sizeError + ".",
+                            "KhemistryISRU/TryTransferMaterialOutputBuffer");
+                        break;
+                    }
                     IEnumerable<KeyValuePair<string, string>> assignments =
                         (IEnumerable<KeyValuePair<string, string>>)matOutput.parameterAssignments
                         ?? (matOutput.parameters ?? new Dictionary<string, string>())
                             .OrderBy(value => value.Key, StringComparer.Ordinal);
-                    foreach (KeyValuePair<string, string> assignment in assignments)
+                    // Start with the material defaults so expressions can reference either a
+                    // preceding assignment or a parameter that this OUTPUT_MATERIAL leaves at
+                    // its default value. Volume-dependent derived helpers are refreshed after
+                    // the real per-unit volume has been calculated below.
+                    KhemistryMaterialInstance instance = new KhemistryMaterialInstance(
+                        material, matOutput.shape, resolvedSize, 1f, null)
                     {
-                        string resolvedValue = ResolveRandf(assignment.Value, random);
-                        resolvedParameters[assignment.Key] = resolvedValue;
-                        resolvedAssignments.Add(new KeyValuePair<string, string>(
-                            assignment.Key, resolvedValue));
-                    }
+                        amount = 1
+                    };
+                    if (!instance.ApplyParameterValuesInOrder(assignments,
+                            "KhemistryISRU/TryTransferMaterialOutputBuffer",
+                            randomFunction))
+                        break;
 
-                    if (!KShared.TryEvaluateOutVolumeExpression(matOutput.outVolume, resolvedSize, resolvedParameters,
-                            "KhemistryISRU/TryTransferMaterialOutputBuffer", out double perUnitVolume))
+                    if (!KShared.TryEvaluateOutVolumeExpression(matOutput.outVolume, resolvedSize, instance.parameters,
+                            "KhemistryISRU/TryTransferMaterialOutputBuffer", out double perUnitVolume,
+                            randomFunction))
                         break;
                     if (double.IsNaN(perUnitVolume) || double.IsInfinity(perUnitVolume) || perUnitVolume <= 0.0
                         || perUnitVolume > float.MaxValue)
@@ -2482,14 +2447,9 @@ namespace Khemistry
                         break;
                     }
 
-                    KhemistryMaterialInstance instance = new KhemistryMaterialInstance(
-                        material, matOutput.shape, resolvedSize, (float)perUnitVolume, null)
-                    {
-                        amount = 1
-                    };
-                    if (!instance.ApplyParameterValuesInOrder(resolvedAssignments,
-                            "KhemistryISRU/TryTransferMaterialOutputBuffer"))
-                        break;
+                    instance.volume = (float)perUnitVolume;
+                    instance.UpdateParams(
+                        "KhemistryISRU/TryTransferMaterialOutputBuffer");
 
                     bool placed = false;
                     if ((moduleType == "kerbalEVA"

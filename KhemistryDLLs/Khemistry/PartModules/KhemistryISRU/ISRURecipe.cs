@@ -12,12 +12,6 @@ namespace Khemistry
     /// </summary>
     public class KhemistryISRURecipe
     {
-        private static readonly Regex OutVolumeTokenPattern = new Regex(
-            @"\[([A-Za-z_][A-Za-z0-9_]*)\]", RegexOptions.Compiled);
-        private static readonly Regex RandfValuePattern = new Regex(
-            @"^randf\(\s*([+-]?[0-9]*\.?[0-9]+(?:[eE][+-]?[0-9]+)?)\s*,\s*([+-]?[0-9]*\.?[0-9]+(?:[eE][+-]?[0-9]+)?)\s*,\s*([+-]?[0-9]+)\s*\)$",
-            RegexOptions.Compiled);
-
         public bool IsValid { get; private set; }
 
         ///// Structs and enums /////
@@ -545,17 +539,18 @@ namespace Khemistry
                     string size = matNode.GetValue("size")?.Trim();
                     string amountExpression = matNode.HasValue("amount")
                         ? matNode.GetValue("amount")?.Trim() : "1";
-                    bool amountUsesInputMaterial = ContainsInputMaterialValue(amountExpression);
+                    bool amountIsExpression = ContainsInputMaterialValue(amountExpression)
+                        || KMathExpr.ContainsInterpolation(amountExpression);
                     bool validOutputAmount;
                     double amount = 1.0;
-                    if (amountUsesInputMaterial)
+                    if (amountIsExpression)
                     {
                         string amountReferenceError = null;
                         string amountExpressionError = null;
                         validOutputAmount = TryReplaceInputMaterialValuesForValidation(
                                 amountExpression, out string validationAmount,
                                 out amountReferenceError)
-                            && KMathExpr.TryEvaluate(validationAmount, out amount,
+                            && KMathExpr.TryInterpolateNumber(validationAmount, out amount,
                                 out amountExpressionError);
                         if (validOutputAmount) amount = 1.0;
                         if (!validOutputAmount)
@@ -667,10 +662,45 @@ namespace Khemistry
                         out validationSize, out _);
                     TryReplaceInputMaterialValuesForValidation(validationOutVolume,
                         out validationOutVolume, out _);
-                    Dictionary<string, string> validationParameters = parameters.ToDictionary(
-                        pair => pair.Key,
-                        pair => ContainsInputMaterialValue(pair.Value)
-                            ? "1" : ReplaceParallaxNumericValues(pair.Value, "1"));
+                    if (!KMathExpr.TryInterpolate(validationSize, out validationSize,
+                            out string sizeExpressionError))
+                    {
+                        configurationError = true;
+                        KShared.LogError("Recipe \"" + _name + "\": OUTPUT_MATERIAL \""
+                            + matName + "\" has invalid size: " + sizeExpressionError
+                            + " Entry skipped.", "KhemistryISRURecipe/constructor");
+                        continue;
+                    }
+                    Dictionary<string, string> validationParameters =
+                        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    bool validParameterExpressions = true;
+                    foreach (KeyValuePair<string, string> parameter in parameterAssignments)
+                    {
+                        string validationValue = ReplaceParallaxNumericValues(
+                            parameter.Value, "1");
+                        TryReplaceInputMaterialValuesForValidation(validationValue,
+                            out validationValue, out _);
+                        if (!string.Equals(validationValue?.Trim(), "DERIVE",
+                                StringComparison.OrdinalIgnoreCase)
+                            && !KMathExpr.TryInterpolate(validationValue,
+                                out validationValue, out string parameterExpressionError,
+                                validationParameters))
+                        {
+                            validParameterExpressions = false;
+                            KShared.LogError("Recipe \"" + _name
+                                + "\": OUTPUT_MATERIAL \"" + matName
+                                + "\" parameter \"" + parameter.Key
+                                + "\" is invalid: " + parameterExpressionError
+                                + " Entry skipped.", "KhemistryISRURecipe/constructor");
+                            break;
+                        }
+                        validationParameters[parameter.Key] = validationValue;
+                    }
+                    if (!validParameterExpressions)
+                    {
+                        configurationError = true;
+                        continue;
+                    }
                     if (!TryValidateOutVolumeDefinition(validationOutVolume, validationSize,
                             validationParameters,
                             out string outVolumeError))
@@ -691,7 +721,7 @@ namespace Khemistry
                         parameters = parameters,
                         parameterAssignments = parameterAssignments,
                         amount = amount,
-                        amountExpression = amountUsesInputMaterial ? amountExpression : null,
+                        amountExpression = amountIsExpression ? amountExpression : null,
                         amountScale = 1.0,
                         outVolume = outVolume,
                         parallaxResolved = false,
@@ -888,117 +918,28 @@ namespace Khemistry
         private static bool TryValidateOutVolumeDefinition(string expression, string size,
             Dictionary<string, string> parameters, out string error)
         {
-            string localError = null;
-            Dictionary<string, string> values =
-                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            Dictionary<string, KMathExpr.ValueRange> ranges =
-                new Dictionary<string, KMathExpr.ValueRange>(StringComparer.OrdinalIgnoreCase);
-            Dictionary<string, string> aliases =
+            Dictionary<string, string> variables =
                 new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (KeyValuePair<string, string> parameter in
                      parameters ?? new Dictionary<string, string>())
-                values[parameter.Key] = parameter.Value;
+                variables[parameter.Key] = parameter.Value;
+            variables["size"] = size;
 
-            bool failed = false;
-            string substituted = OutVolumeTokenPattern.Replace(expression ?? "", match =>
+            if (!KMathExpr.TryInterpolateNumber(expression, out double result,
+                    out error, variables))
+                return false;
+            if (result <= 0.0)
             {
-                string name = match.Groups[1].Value;
-                string raw = string.Equals(name, "size", StringComparison.OrdinalIgnoreCase)
-                    ? size
-                    : (values.TryGetValue(name, out string value) ? value : null);
-                if (raw == null)
-                {
-                    localError = "[" + name + "] does not refer to size or a defined parameter.";
-                    failed = true;
-                    return "0";
-                }
-
-                if (!TryGetOutputNumberRange(raw, out KMathExpr.ValueRange range,
-                        out string valueError))
-                {
-                    localError = "[" + name + "] uses invalid value \"" + raw + "\": " + valueError;
-                    failed = true;
-                    return "0";
-                }
-                if (!aliases.TryGetValue(name, out string alias))
-                {
-                    alias = "__outVolume" + aliases.Count;
-                    aliases[name] = alias;
-                    ranges[alias] = range;
-                }
-                return alias;
-            });
-            if (failed)
-            {
-                error = localError;
+                error = "the configured value is non-positive.";
                 return false;
             }
-
-            if (!KMathExpr.TryEvaluateRange(substituted,
-                    out KMathExpr.ValueRange result, out string expressionError, ranges))
+            if (result > float.MaxValue)
             {
-                error = expressionError;
-                return false;
-            }
-            if (result.Minimum <= 0.0)
-            {
-                error = "the configured value range can produce a non-positive per-unit volume.";
-                return false;
-            }
-            if (result.Maximum > float.MaxValue)
-            {
-                error = "the configured value range can exceed the supported per-unit volume.";
+                error = "the configured value exceeds the supported per-unit volume.";
                 return false;
             }
             error = null;
             return true;
-        }
-
-        private static bool TryGetOutputNumberRange(string raw,
-            out KMathExpr.ValueRange result,
-            out string error)
-        {
-            error = null;
-            if (double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture,
-                    out double number))
-            {
-                result = new KMathExpr.ValueRange(number, number);
-                if (!double.IsNaN(number) && !double.IsInfinity(number)) return true;
-                error = "the number is not finite.";
-                return false;
-            }
-
-            Match random = RandfValuePattern.Match(raw?.Trim() ?? "");
-            if (!random.Success)
-            {
-                result = new KMathExpr.ValueRange();
-                error = "expected a finite number or randf(min,max,decimalPlaces).";
-                return false;
-            }
-            if (!double.TryParse(random.Groups[1].Value, NumberStyles.Float,
-                    CultureInfo.InvariantCulture, out double minimum)
-                || !double.TryParse(random.Groups[2].Value, NumberStyles.Float,
-                    CultureInfo.InvariantCulture, out double maximum)
-                || double.IsNaN(minimum) || double.IsInfinity(minimum)
-                || double.IsNaN(maximum) || double.IsInfinity(maximum)
-                || !int.TryParse(random.Groups[3].Value, NumberStyles.Integer,
-                    CultureInfo.InvariantCulture, out int decimalPlaces)
-                || decimalPlaces < 0 || decimalPlaces > 15)
-            {
-                result = new KMathExpr.ValueRange();
-                error = "randf bounds must be finite and decimalPlaces must be between 0 and 15.";
-                return false;
-            }
-
-            double low = Math.Round(Math.Min(minimum, maximum), decimalPlaces,
-                MidpointRounding.AwayFromZero);
-            double high = Math.Round(Math.Max(minimum, maximum), decimalPlaces,
-                MidpointRounding.AwayFromZero);
-            result = new KMathExpr.ValueRange(low, high);
-            if (!double.IsNaN(low) && !double.IsInfinity(low)
-                && !double.IsNaN(high) && !double.IsInfinity(high)) return true;
-            error = "the randf range is not finite after rounding.";
-            return false;
         }
 
         /// <summary>
@@ -1041,7 +982,9 @@ namespace Khemistry
             {
                 KhemistryMaterial definition = definitions.FirstOrDefault(material => material.name == output.name);
                 if (!ValidateMaterialReference(definition, output.name,
-                        ContainsInputMaterialValue(output.shape) ? null : output.shape,
+                        ContainsInputMaterialValue(output.shape)
+                            || KMathExpr.ContainsInterpolation(output.shape)
+                            ? null : output.shape,
                         output.parameters?.Keys, "OUTPUT_MATERIAL", context))
                     valid = false;
                 else if (output.parameterAssignments != null)

@@ -53,12 +53,6 @@ namespace Khemistry
             foreach (KhemistryISRURecipe.ResourceOutputMaterial template in
                      templates ?? Enumerable.Empty<KhemistryISRURecipe.ResourceOutputMaterial>())
             {
-                if (!KhemistryISRURecipe.MaterialOutputUsesInputMaterialValues(template))
-                {
-                    resolved.Add(template);
-                    continue;
-                }
-
                 KhemistryISRURecipe.ResourceOutputMaterial output = template;
                 if (!TryResolveInputMaterialReferences(template.shape, inputs, false,
                         template.name + " shape", out output.shape)
@@ -68,13 +62,23 @@ namespace Khemistry
                         template.name + " outVolume", out output.outVolume))
                     return false;
 
+                if (!KMathExpr.TryInterpolate(output.shape, out output.shape,
+                        out string shapeError))
+                {
+                    KShared.LogError("Converter \"" + ConverterName
+                        + "\": OUTPUT_MATERIAL \"" + template.name
+                        + "\" shape could not be resolved: " + shapeError + ".",
+                        "KhemistryISRU/TryResolveInputMaterialOutputs");
+                    return false;
+                }
+
                 if (!string.IsNullOrEmpty(template.amountExpression))
                 {
                     string amountError = null;
                     double amount = 0.0;
                     if (!TryResolveInputMaterialReferences(template.amountExpression, inputs,
                             true, template.name + " amount", out string amountExpression)
-                        || !KMathExpr.TryEvaluate(amountExpression, out amount,
+                        || !KMathExpr.TryInterpolateNumber(amountExpression, out amount,
                             out amountError)
                         || double.IsNaN(amount) || double.IsInfinity(amount)
                         || amount <= 0.0
@@ -103,27 +107,10 @@ namespace Khemistry
                         .OrderBy(pair => pair.Key, StringComparer.Ordinal);
                 foreach (KeyValuePair<string, string> assignment in assignments)
                 {
-                    string value = assignment.Value;
-                    if (KhemistryISRURecipe.ContainsInputMaterialValue(value))
-                    {
-                        string expressionError = null;
-                        double evaluated = 0.0;
-                        if (!TryResolveInputMaterialReferences(value, inputs, true,
-                                template.name + " parameter " + assignment.Key,
-                                out string expression)
-                            || !KMathExpr.TryEvaluate(expression, out evaluated,
-                                out expressionError, output.parameters))
-                        {
-                            KShared.LogError("Converter \"" + ConverterName
-                                + "\": OUTPUT_MATERIAL \"" + template.name
-                                + "\" parameter \"" + assignment.Key
-                                + "\" expression could not be evaluated: "
-                                + (expressionError ?? "invalid input-material reference") + ".",
-                                "KhemistryISRU/TryResolveInputMaterialOutputs");
-                            return false;
-                        }
-                        value = evaluated.ToString("R", CultureInfo.InvariantCulture);
-                    }
+                    if (!TryResolveInputMaterialReferences(assignment.Value, inputs,
+                            false, template.name + " parameter " + assignment.Key,
+                            out string value))
+                        return false;
                     output.parameters[assignment.Key] = value;
                     output.parameterAssignments.Add(new KeyValuePair<string, string>(
                         assignment.Key, value));
@@ -141,7 +128,8 @@ namespace Khemistry
                 }
 
                 output.usesParams = output.parameters.Count > 0;
-                output.inputMaterialResolved = true;
+                output.inputMaterialResolved =
+                    KhemistryISRURecipe.MaterialOutputUsesInputMaterialValues(template);
                 resolved.Add(output);
             }
             return true;
@@ -166,7 +154,9 @@ namespace Khemistry
                 KhemistryISRURecipe.InputMaterialValueReference reference = references[index];
                 string replacement = GetInputMaterialValue(reference, inputs,
                     outputLocation);
-                if (numeric && (!double.TryParse(replacement, NumberStyles.Float,
+                bool referenceMustBeNumeric = numeric
+                    || IsInsideInterpolation(value, reference.start);
+                if (referenceMustBeNumeric && (!double.TryParse(replacement, NumberStyles.Float,
                             CultureInfo.InvariantCulture, out double number)
                         || double.IsNaN(number) || double.IsInfinity(number)))
                 {
@@ -182,6 +172,16 @@ namespace Khemistry
                     .Insert(reference.start, replacement);
             }
             return true;
+        }
+
+        private static bool IsInsideInterpolation(string value, int position)
+        {
+            if (string.IsNullOrEmpty(value) || position < 0 || position > value.Length)
+                return false;
+            int opening = value.LastIndexOf('[', Math.Max(0, position - 1));
+            if (opening < 0) return false;
+            int closing = value.IndexOf(']', opening + 1);
+            return closing >= position;
         }
 
         private string GetInputMaterialValue(
@@ -251,9 +251,8 @@ namespace Khemistry
                     return false;
                 if (KhemistryISRURecipe.ContainsInputMaterialValue(parameter.Value))
                 {
-                    if (!double.TryParse(savedValue, NumberStyles.Float,
-                            CultureInfo.InvariantCulture, out double number)
-                        || double.IsNaN(number) || double.IsInfinity(number))
+                    if (string.IsNullOrWhiteSpace(savedValue)
+                        || KhemistryISRURecipe.ContainsInputMaterialValue(savedValue))
                         return false;
                 }
                 else if (!ParallaxTemplateValueMatches(parameter.Value, savedValue))
@@ -273,9 +272,8 @@ namespace Khemistry
                     return false;
                 if (KhemistryISRURecipe.ContainsInputMaterialValue(expected.Value))
                 {
-                    if (!double.TryParse(actual.Value, NumberStyles.Float,
-                            CultureInfo.InvariantCulture, out double number)
-                        || double.IsNaN(number) || double.IsInfinity(number))
+                    if (string.IsNullOrWhiteSpace(actual.Value)
+                        || KhemistryISRURecipe.ContainsInputMaterialValue(actual.Value))
                         return false;
                 }
                 else if (!ParallaxTemplateValueMatches(expected.Value, actual.Value))

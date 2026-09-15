@@ -84,16 +84,13 @@ namespace Khemistry
         }
 
         /// <summary>
-        /// Evaluates an OUTPUT_MATERIAL outVolume expression: plain numbers, +, -, *, /,
-        /// parentheses, the constant PI, the function Pow(a,b), and [name] tokens referring to
-        /// either "size" or a defined material parameter (matched case-insensitively and
-        /// substituted with its numeric value before evaluation). Logs a specific error and
-        /// returns false on any failure — a
-        /// reserved "size" parameter name, an unknown [name], a non-numeric substituted value,
-        /// or a malformed expression.
+        /// Resolves an OUTPUT_MATERIAL outVolume template. Every bracketed segment is a
+        /// KMathExpr; size and all material parameters are available as variables. The
+        /// interpolated string must be a finite number.
         /// </summary>
         public static bool TryEvaluateOutVolumeExpression(string rawExpr, string sizeValue,
-            Dictionary<string, string> parameters, string logContext, out double result)
+            Dictionary<string, string> parameters, string logContext, out double result,
+            Func<double, double, double> randomFunction = null)
         {
             result = 0.0;
             if (string.IsNullOrEmpty(rawExpr)) return false;
@@ -122,37 +119,12 @@ namespace Khemistry
                 return false;
             }
 
-            string substituted = rawExpr;
-            foreach (System.Text.RegularExpressions.Match m in
-                     System.Text.RegularExpressions.Regex.Matches(rawExpr, @"\[([A-Za-z_][A-Za-z0-9_]*)\]"))
+            parameterLookup["size"] = sizeValue;
+            if (!KMathExpr.TryInterpolateNumber(rawExpr, out result,
+                    out string err, parameterLookup, randomFunction))
             {
-                string name = m.Groups[1].Value;
-                if (!substituted.Contains("[" + name + "]")) continue;  // already substituted
-
-                string raw = string.Equals(name, "size", StringComparison.OrdinalIgnoreCase) ? sizeValue
-                    : (parameterLookup.TryGetValue(name, out string pv) ? pv : null);
-
-                if (raw == null)
-                {
-                    LogError("outVolume expression \"" + rawExpr + "\": \"" + name
-                        + "\" is not \"size\" and no parameter with that name is defined.", logContext);
-                    return false;
-                }
-
-                if (!double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out double numeric)
-                    || double.IsNaN(numeric) || double.IsInfinity(numeric))
-                {
-                    LogError("outVolume expression \"" + rawExpr + "\": \"" + name + "\" = \"" + raw
-                        + "\" is not a number.", logContext);
-                    return false;
-                }
-
-                substituted = substituted.Replace("[" + name + "]", numeric.ToString(CultureInfo.InvariantCulture));
-            }
-
-            if (!KMathExpr.TryEvaluate(substituted, out result, out string err))
-            {
-                LogError("outVolume expression \"" + rawExpr + "\" failed to evaluate: " + err, logContext);
+                LogError("outVolume value \"" + rawExpr
+                    + "\" failed to resolve: " + err, logContext);
                 return false;
             }
 

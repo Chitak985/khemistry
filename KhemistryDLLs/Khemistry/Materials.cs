@@ -23,7 +23,8 @@ namespace Khemistry
         /// <summary>
         /// List of parameters of the material.
         /// The value is either a default value or the equation to derive it from.
-        /// The derivation equation must start with DER and it is a KMathExpr.
+        /// A derived value starts with DER. Each bracketed segment after DER is a KMathExpr
+        /// whose result is inserted into the surrounding string.
         /// </summary>
         public Dictionary<string, string> parameters = new Dictionary<string, string>();
         public readonly List<string> parameterOrder = new List<string>();
@@ -31,11 +32,13 @@ namespace Khemistry
         /// <summary>
         /// List of equations to merge parameters of the material.
         /// If one isn't loaded for a numeric parameter, it defaults to a weighted average by amount.
-        /// The merge equation is a KMathExpr and can include the current variables and the other
-        /// material's variables with an O suffix.
+        /// Each bracketed segment in a merge value is a KMathExpr and can include the current
+        /// variables and the other material's variables with an O suffix.
         /// </summary>
         public Dictionary<string, string> parameterMergers = new Dictionary<string, string>();
         public readonly List<string> parameterMergeOrder = new List<string>();
+        public readonly HashSet<string> explicitParameterMergers =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>
         /// Construct the material from a ConfigNode.
@@ -190,6 +193,7 @@ namespace Khemistry
 
                     parameterMergers[key] = expression;
                     parameterMergeOrder.Add(key);
+                    explicitParameterMergers.Add(key);
                 }
             }
 
@@ -198,16 +202,29 @@ namespace Khemistry
             foreach (string param in parameterOrder)
                 if (!IsDerivedParameter(param) && !parameterMergers.ContainsKey(param))
                 {
-                    parameterMergers.Add(param, $"(({param}*amount)+({param}O*amountO))/(amount+amountO)");
+                    parameterMergers.Add(param, $"[(({param}*amount)+({param}O*amountO))/(amount+amountO)]");
                     parameterMergeOrder.Add(param);
                 }
 
             Dictionary<string, string> syntaxVariables = BuildExpressionValidationVariables(parameterOrder);
             foreach (string parameterName in parameterOrder)
             {
-                if (!IsDerivedParameter(parameterName)) continue;
+                if (!IsDerivedParameter(parameterName))
+                {
+                    string configuredValue = parameters[parameterName];
+                    if (!KMathExpr.ContainsInterpolation(configuredValue)
+                        || KMathExpr.TryInterpolate(configuredValue, out _,
+                            out string defaultExpressionError, syntaxVariables))
+                        continue;
+                    KShared.LogError("Material \"" + name
+                        + "\": default value for parameter \"" + parameterName
+                        + "\" is invalid: " + defaultExpressionError,
+                        "KhemistryMaterial/constructor");
+                    configurationError = true;
+                    continue;
+                }
                 string expression = GetDerivationExpression(parameterName);
-                if (KMathExpr.TryEvaluate(expression, out _, out string expressionError,
+                if (KMathExpr.TryInterpolate(expression, out _, out string expressionError,
                         syntaxVariables))
                     continue;
 
@@ -223,7 +240,7 @@ namespace Khemistry
                         StringComparison.OrdinalIgnoreCase))
                     continue;
 
-                if (KMathExpr.TryEvaluate(expression, out _,
+                if (KMathExpr.TryInterpolate(expression, out _,
                         out string expressionError, syntaxVariables))
                     continue;
 
@@ -339,7 +356,7 @@ namespace Khemistry
             this.size = size;
             this.volume = volume;
 
-            // Apply default parameters
+            // Apply default parameters.
             this.parameters = new Dictionary<string, string>(material.parameters);  // Dict constructor makes a copy instead of a reference
 
             // Check shape validity
@@ -352,6 +369,23 @@ namespace Khemistry
                     this.parameters[key] = parameters[key];
                 else
                     KShared.LogError("Material instance of material " + material.name + " has an invalid parameter " + key + " with value " + parameters[key] + "!", "KhemistryMaterialInstance/constructor");
+
+            // Non-derived defaults and supplied values may contain embedded expressions.
+            // Resolve them from top to bottom so later parameters see earlier results.
+            foreach (string parameterName in material.parameterOrder)
+            {
+                if (material.IsDerivedParameter(parameterName)) continue;
+                string configured = this.parameters[parameterName];
+                if (!KMathExpr.ContainsInterpolation(configured)) continue;
+                if (KMathExpr.TryInterpolate(configured, out string resolved,
+                        out string interpolationError,
+                        BuildVariableList(this.parameters, amount)))
+                    this.parameters[parameterName] = resolved;
+                else
+                    KShared.LogError("Could not evaluate default parameter \""
+                        + parameterName + "\": " + interpolationError,
+                        "KhemistryMaterialInstance/constructor");
+            }
 
             // Derive derivable parameters
             UpdateParams("KhemistryMaterialInstance/constructor");
@@ -381,7 +415,7 @@ namespace Khemistry
         /// <list type="bullet">Any additional ones provided in the argument</list>
         /// </summary>
         /// <param name="additional"></param>
-        /// <returns>The list of variables to use in <see cref="KMathExpr.TryEvaluate(string, out double, out string, Dictionary{string, string})"/>.</returns>
+        /// <returns>The variables available to embedded KMathExpr expressions.</returns>
         public Dictionary<string, string> GetVariableList(Dictionary<string, string> additional = null)
         {
             return BuildVariableList(parameters, amount, additional);
@@ -443,16 +477,15 @@ namespace Khemistry
             Dictionary<string, string> variables =
                 new Dictionary<string, string>(sourceParameters);
             variables.Remove(canonicalName);
-            if (!KMathExpr.TryEvaluate(material.GetDerivationExpression(canonicalName),
-                    out double value, out string evaluationError,
+            if (!KMathExpr.TryInterpolate(material.GetDerivationExpression(canonicalName),
+                    out string value, out string evaluationError,
                     BuildVariableList(variables, sourceAmount)))
             {
                 error = canonicalName + ": " + evaluationError;
                 return false;
             }
 
-            sourceParameters[canonicalName] = value.ToString("R",
-                CultureInfo.InvariantCulture);
+            sourceParameters[canonicalName] = value;
             return true;
         }
 
@@ -462,7 +495,8 @@ namespace Khemistry
         /// All derived parameters are refreshed once more after the ordered pass.
         /// </summary>
         public bool ApplyParameterValuesInOrder(
-            IEnumerable<KeyValuePair<string, string>> assignments, string location)
+            IEnumerable<KeyValuePair<string, string>> assignments, string location,
+            Func<double, double, double> randomFunction = null)
         {
             foreach (KeyValuePair<string, string> assignment in
                      assignments ?? Enumerable.Empty<KeyValuePair<string, string>>())
@@ -487,8 +521,16 @@ namespace Khemistry
                         return false;
                     }
                 }
+                else if (!KMathExpr.TryInterpolate(assignment.Value,
+                             out string resolvedValue, out string interpolationError,
+                             BuildVariableList(parameters, amount), randomFunction))
+                {
+                    KShared.LogError("Could not apply OUTPUT_MATERIAL parameter \""
+                        + parameterName + "\": " + interpolationError, location);
+                    return false;
+                }
                 else
-                    parameters[parameterName] = assignment.Value;
+                    parameters[parameterName] = resolvedValue;
             }
 
             UpdateParams(location);
@@ -514,14 +556,15 @@ namespace Khemistry
                 foreach (string parameterName in pending.ToList())
                 {
                     string expression = material.GetDerivationExpression(parameterName);
-                    if (!KMathExpr.TryEvaluate(expression, out double value, out string evaluationError,
+                    if (!KMathExpr.TryInterpolate(expression, out string value,
+                            out string evaluationError,
                             BuildVariableList(updated, sourceAmount)))
                     {
                         latestErrors[parameterName] = evaluationError;
                         continue;
                     }
 
-                    updated[parameterName] = value.ToString("R", CultureInfo.InvariantCulture);
+                    updated[parameterName] = value;
                     latestErrors.Remove(parameterName);
                     pending.Remove(parameterName);
                     madeProgress = true;
@@ -742,24 +785,21 @@ namespace Khemistry
                     CultureInfo.InvariantCulture, out _);
                 bool otherNumeric = double.TryParse(otherValue, NumberStyles.Float,
                     CultureInfo.InvariantCulture, out _);
-                if (!currentNumeric && !otherNumeric)
+                if (!currentNumeric && !otherNumeric
+                    && !material.explicitParameterMergers.Contains(parameterName))
                 {
-                    // Equal non-numeric values carry through unchanged; differing ones were
-                    // rejected by CanContaminatedMerge because KMathExpr is numeric-only.
+                    // Equal non-numeric values with no explicit rule carry through unchanged;
+                    // differing ones were rejected by CanContaminatedMerge.
                     mergedParameters[parameterName] = currentValue;
                     continue;
                 }
 
                 Dictionary<string, string> mergeVariables = BuildVariableList(
                     mergedParameters, amount, otherVariables);
-                if (!KMathExpr.TryEvaluate(expression, out double mergedValue, out string mergeError,
-                        mergeVariables))
+                if (!KMathExpr.TryInterpolate(expression, out string mergedValue,
+                        out string mergeError, mergeVariables))
                     return FailContaminatedMerge("Parameter \"" + parameterName + "\": " + mergeError);
-                if (double.IsNaN(mergedValue) || double.IsInfinity(mergedValue))
-                    return FailContaminatedMerge("Parameter \"" + parameterName
-                        + "\" produced a non-finite value.");
-
-                mergedParameters[parameterName] = mergedValue.ToString("R", CultureInfo.InvariantCulture);
+                mergedParameters[parameterName] = mergedValue;
             }
 
             bool derivationComplete = TryCalculateDerivedParameters(mergedParameters,

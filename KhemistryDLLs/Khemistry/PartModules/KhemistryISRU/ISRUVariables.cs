@@ -208,9 +208,5 @@ namespace Khemistry
         private bool _loadedAuthoritativePersistentState = false;
         private int _completedOnLoadCount = 0;
 
-        private static readonly System.Text.RegularExpressions.Regex _randfPattern =
-           new System.Text.RegularExpressions.Regex(
-               @"^randf\(\s*([+-]?[0-9]*\.?[0-9]+(?:[eE][+-]?[0-9]+)?)\s*,\s*([+-]?[0-9]*\.?[0-9]+(?:[eE][+-]?[0-9]+)?)\s*,\s*([+-]?[0-9]+)\s*\)$",
-               System.Text.RegularExpressions.RegexOptions.Compiled);
     }
 }
