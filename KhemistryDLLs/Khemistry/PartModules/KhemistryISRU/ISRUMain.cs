@@ -849,7 +849,9 @@ namespace Khemistry
         private void RollBackPassiveInputStep(IList<double> timersBefore,
             IList<double> consumedBefore)
         {
-            if (_activeRecipe != null)
+            if (_passiveStepTransfers != null)
+                KhemistryResourceNetwork.Rollback(_passiveStepTransfers);
+            else if (_activeRecipe != null)
             {
                 int count = Math.Min(_activeRecipe._passiveInputs.Count,
                     Math.Min(_passiveConsumedThisBatch.Count, consumedBefore.Count));
@@ -1383,8 +1385,12 @@ namespace Khemistry
         /// resource was fully satisfied. Refunds all pulled resources if any fall short
         /// (all-or-nothing semantics).
         /// </summary>
+        private List<KhemistryResourceNetwork.Transfer> _lastResourceTransfers;
+        private List<KhemistryResourceNetwork.Transfer> _passiveStepTransfers;
+
         private struct ResourceDraw
         {
+            public List<KhemistryResourceNetwork.Transfer> transfers;
             public string name;
             public double amount;
             public ResourceFlowMode flowMode;
@@ -1452,7 +1458,7 @@ namespace Khemistry
                 }
                 double got = RequestResourceRouted(names[i], needed, flowModes[i]);
                 if (!double.IsNaN(got) && !double.IsInfinity(got) && got > 0.0)
-                    draws.Add(new ResourceDraw { name = names[i], amount = got, flowMode = flowModes[i] });
+                    draws.Add(new ResourceDraw { name = names[i], amount = got, flowMode = flowModes[i], transfers = _lastResourceTransfers });
 
                 if (!WasFullyTransferred(needed, got))
                     allSatisfied = false;
@@ -1477,7 +1483,8 @@ namespace Khemistry
         private void RefundResourceDraws(IEnumerable<ResourceDraw> draws)
         {
             foreach (ResourceDraw draw in draws.Reverse())
-                RequestResourceRouted(draw.name, -draw.amount, draw.flowMode);
+                if (draw.transfers != null) KhemistryResourceNetwork.Rollback(draw.transfers);
+                else RequestResourceRouted(draw.name, -draw.amount, draw.flowMode);
         }
 
         /// <summary>
@@ -1942,6 +1949,8 @@ namespace Khemistry
 
             List<double> timersBefore = new List<double>(_passiveTimers);
             List<double> consumedBefore = new List<double>(_passiveConsumedThisBatch);
+            _passiveStepTransfers = IsEVAModuleType() ? null
+                : new List<KhemistryResourceNetwork.Transfer>();
 
             for (int i = 0; i < _activeRecipe._passiveInputs.Count; i++)
             {
@@ -2007,7 +2016,13 @@ namespace Khemistry
                 double kept = satisfiedOccurrences * perOccurrence;
                 double partial = got - kept;
                 if (partial > perOccurrence * 1e-9)
-                    RequestResourceRouted(pinp.resourceName, -partial, pinp.flowMode);
+                {
+                    if (_lastResourceTransfers != null)
+                        KhemistryResourceNetwork.RollbackAmount(_lastResourceTransfers, partial);
+                    else RequestResourceRouted(pinp.resourceName, -partial, pinp.flowMode);
+                }
+                if (_passiveStepTransfers != null && _lastResourceTransfers != null)
+                    _passiveStepTransfers.AddRange(_lastResourceTransfers);
 
                 if (kept > 0.0 && i < _passiveConsumedThisBatch.Count)
                     _passiveConsumedThisBatch[i] += kept;
@@ -2094,7 +2109,8 @@ namespace Khemistry
         private void RollBackProducedResources(IEnumerable<ResourceDraw> produced)
         {
             foreach (ResourceDraw output in produced.Reverse())
-                RequestResourceRouted(output.name, output.amount, output.flowMode);
+                if (output.transfers != null) KhemistryResourceNetwork.Rollback(output.transfers);
+                else RequestResourceRouted(output.name, output.amount, output.flowMode);
         }
 
         private bool HasRequiredOutputSpace(List<PreparedResourceOutput> outputs)
@@ -2109,7 +2125,8 @@ namespace Khemistry
                     {
                         name = output.name,
                         amount = added,
-                        flowMode = ResourceFlowMode.STAGE_PRIORITY_FLOW
+                        flowMode = ResourceFlowMode.STAGE_PRIORITY_FLOW,
+                        transfers = _lastResourceTransfers
                     });
                 if (!WasFullyTransferred(output.amount, added))
                 {
@@ -2136,7 +2153,8 @@ namespace Khemistry
                     {
                         name = output.name,
                         amount = added,
-                        flowMode = ResourceFlowMode.STAGE_PRIORITY_FLOW
+                        flowMode = ResourceFlowMode.STAGE_PRIORITY_FLOW,
+                        transfers = _lastResourceTransfers
                     });
                 if (!WasFullyTransferred(output.amount, added))
                 {
@@ -2157,12 +2175,15 @@ namespace Khemistry
                     {
                         name = output.name,
                         amount = added,
-                        flowMode = ResourceFlowMode.STAGE_PRIORITY_FLOW
+                        flowMode = ResourceFlowMode.STAGE_PRIORITY_FLOW,
+                        transfers = _lastResourceTransfers
                     });
                 }
                 else if (added > 0.0)
                 {
-                    RequestResourceRouted(output.name, added);
+                    if (_lastResourceTransfers != null)
+                        KhemistryResourceNetwork.Rollback(_lastResourceTransfers);
+                    else RequestResourceRouted(output.name, added);
                 }
             }
             return true;

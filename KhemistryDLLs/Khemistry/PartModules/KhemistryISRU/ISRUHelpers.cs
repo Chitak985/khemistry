@@ -28,13 +28,16 @@
         private double RequestResourceRouted(string name, double amount,
             ResourceFlowMode flowMode = ResourceFlowMode.STAGE_PRIORITY_FLOW)
         {
+            _lastResourceTransfers = null;
             if (moduleType == "kerbalEVA" && _kerbalHost != null)
                 return _kerbalHost.RequestSuitCellResource(name, amount);
             if (moduleType == "partEVA" && _inventorySessionActive
                 && _kerbalHost != null && _inventoryStoredPart != null)
                 return _kerbalHost.RequestInventoryProcessorResource(
                     _inventoryStoredPart, name, amount, useSuitCell);
-            return part.RequestResource(name, amount, flowMode);
+            _lastResourceTransfers = new System.Collections.Generic.List<KhemistryResourceNetwork.Transfer>();
+            return KhemistryResourceNetwork.Request(part, name, amount, flowMode,
+                _lastResourceTransfers);
         }
 
         internal static bool IsPartEVAConfig(ConfigNode moduleNode)

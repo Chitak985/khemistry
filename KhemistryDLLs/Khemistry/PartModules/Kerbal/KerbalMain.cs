@@ -105,6 +105,11 @@ namespace Khemistry
         }
 
         ///<summary>Does the provided <see cref="PartResource"/> have a usable amount?</summary>
+        private static bool HasUsableAmount(KhemistryResourceNetwork.Endpoint resource)
+            => resource != null && KShared.IsFinite(resource.amount) && resource.amount > 0.0;
+        private static bool CanAcceptResource(KhemistryResourceNetwork.Endpoint resource)
+            => resource != null && KShared.IsFinite(resource.space) && resource.space > 0.0;
+
         private static bool HasUsableAmount(PartResource resource)
             => resource != null && KShared.IsFinite(resource.amount) && resource.amount > 0.0;
 
@@ -785,16 +790,15 @@ namespace Khemistry
                 || ReadResourceAmountValue(cell.stored, resourceName) <= 0.0) return;
             float range = ReadTransferDistance(cell.stored.partName);
 
-            var targetParts = new Dictionary<string, Part>();
+            var targetParts = new Dictionary<string, KhemistryResourceNetwork.Endpoint>();
             foreach (Part p in GetPartsInRange(range))
-                foreach (PartResource pr in p.Resources)
+                foreach (var pr in KhemistryResourceNetwork.GetEndpoints(p))
                 {
                     if (pr.resourceName != resourceName) continue;
                     if (!CanAcceptResource(pr)) continue;
                     string lbl = string.Format("{0} / {1}  (space: {2:F1} units)",
                         p.vessel.vesselName, p.partInfo.title, pr.maxAmount - pr.amount);
-                    AddUniqueOption(targetParts, lbl, p);
-                    break;
+                    AddUniqueOption(targetParts, lbl, pr);
                 }
 
             if (targetParts.Count == 0)
@@ -807,12 +811,11 @@ namespace Khemistry
             KShared.Instance.ShowSelector("Send " + resourceName + " to...",
                 targetParts.Keys.ToList(), label =>
                 {
-                    if (!targetParts.TryGetValue(label, out Part target)
+                    if (!targetParts.TryGetValue(label, out var targetResource)
                         || !IsStoredPartCurrent(cell.stored)
-                        || !IsPartCurrentAndInRange(target, range)) return;
+                        || !IsPartCurrentAndInRange(targetResource.part, range)) return;
                     var def = PartResourceLibrary.Instance.GetDefinition(resourceName);
                     if (def == null) return;
-                    PartResource targetResource = target.Resources.Get(def.id);
                     if (!CanAcceptResource(targetResource)) return;
 
                     // Re-read both sides when the player finally clicks. The selector may have
@@ -822,7 +825,10 @@ namespace Khemistry
                     double pushed = Math.Min(available, space);
                     if (pushed <= 1e-9) return;
                     if (!WriteResourceAmount(cell.stored, resourceName, available - pushed)) return;
-                    targetResource.amount += pushed;
+                    double accepted = -targetResource.Request(-pushed);
+                    if (accepted < pushed)
+                        WriteResourceAmount(cell.stored, resourceName, available - accepted);
+                    pushed = accepted;
                     ScreenMessages.PostScreenMessage(new ScreenMessage(
                         string.Format("Transferred {0:F2} units of {1}.", pushed, resourceName),
                         5.0f, ScreenMessageStyle.UPPER_CENTER));
@@ -848,17 +854,17 @@ namespace Khemistry
                 return;
             }
 
-            var optionParts = new Dictionary<string, Part>();
+            var optionParts = new Dictionary<string, KhemistryResourceNetwork.Endpoint>();
             var optionResources = new Dictionary<string, string>();
 
             foreach (Part p in GetPartsInRange(range))
-                foreach (PartResource pr in p.Resources)
+                foreach (var pr in KhemistryResourceNetwork.GetEndpoints(p))
                 {
                     if (!HasUsableAmount(pr)) continue;
                     if (restrictResources && !addable.Contains(pr.resourceName)) continue;
                     string lbl = string.Format("{0} / {1}  ({2}: {3:F1} units)",
                         p.vessel.vesselName, p.partInfo.title, pr.resourceName, pr.amount);
-                    string uniqueLabel = AddUniqueOption(optionParts, lbl, p);
+                    string uniqueLabel = AddUniqueOption(optionParts, lbl, pr);
                     optionResources.Add(uniqueLabel, pr.resourceName);
                 }
 
@@ -875,13 +881,12 @@ namespace Khemistry
             KShared.Log("Calling ShowSelector to take resources from a part.", "KhemistryKerbal/ShowPartSelectorForTake");
             KShared.Instance.ShowSelector("Take resources from...", optionParts.Keys.ToList(), label =>
             {
-                if (!optionParts.TryGetValue(label, out Part source)
+                if (!optionParts.TryGetValue(label, out var sourceResource)
                     || !optionResources.TryGetValue(label, out string resourceName)
                     || !IsStoredPartCurrent(cell.stored)
-                    || !IsPartCurrentAndInRange(source, range)) return;
+                    || !IsPartCurrentAndInRange(sourceResource.part, range)) return;
                 var def = PartResourceLibrary.Instance.GetDefinition(resourceName);
                 if (def == null) return;
-                PartResource sourceResource = source.Resources.Get(def.id);
                 if (!HasUsableAmount(sourceResource)
                     || !IsResourceAllowedForAddition(cell.stored, resourceName)) return;
                 double liveSpace = ReadCellTotalFreeSpace(cell.stored);
@@ -896,8 +901,8 @@ namespace Khemistry
                     0f, maxTake, maxTake, amount =>
                     {
                         if (!IsStoredPartCurrent(cell.stored)
-                            || !IsPartCurrentAndInRange(source, range)) return;
-                        PartResource liveSource = source.Resources.Get(def.id);
+                            || !IsPartCurrentAndInRange(sourceResource.part, range)) return;
+                        var liveSource = sourceResource;
                         if (!HasUsableAmount(liveSource)
                             || !IsResourceAllowedForAddition(cell.stored, resourceName)
                             || float.IsNaN(amount) || float.IsInfinity(amount) || amount <= 0f) return;
@@ -908,7 +913,10 @@ namespace Khemistry
                             cell.stored, resourceName);
                         if (!WriteResourceAmount(cell.stored, resourceName,
                                 currentLogicalAmount + taken)) return;
-                        liveSource.amount -= taken;
+                        double removed = liveSource.Request(taken);
+                        if (removed < taken)
+                            WriteResourceAmount(cell.stored, resourceName, currentLogicalAmount + removed);
+                        taken = removed;
                         ScreenMessages.PostScreenMessage(new ScreenMessage(
                             string.Format("Received {0:F2} units of {1}.", taken, resourceName),
                             5.0f, ScreenMessageStyle.UPPER_CENTER));

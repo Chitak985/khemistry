@@ -111,6 +111,9 @@
     <Compile Include="KShared\KSharedDepositRendering.cs" />
     <Compile Include="KShared\KSharedRandom.cs" />
     <Compile Include="PartModules\AdvancedStorage.cs" />
+    <Compile Include="PartModules\AdvancedStorageResources.cs" />
+    <Compile Include="KhemistryResourceNetwork.cs" />
+    <Compile Include="KhemistryStockResourceBroker.cs" />
     <Compile Include="PartModules\FluidCell.cs" />
     <Compile Include="KEI\KEIData.cs" />
     <Compile Include="KEI\KEILoader.cs" />

@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 
 namespace Khemistry
 {
@@ -8,7 +9,7 @@ namespace Khemistry
     /// A versatile storage system that can be configured to store multiple resources,
 	/// require charging, and have passive consumption.
     /// </summary>
-    public class KhemistryAdvancedStorage : PartModule
+    public partial class KhemistryAdvancedStorage : PartModule
     {
 		/// <summary>Storage type of the AdvancedStorage. Can be single, multi, and multiShared.</summary>
         [KSPField(isPersistant = false)]
@@ -100,10 +101,7 @@ namespace Khemistry
         private ConsequenceConfig _passiveUnsatisfiedResult;
         private ConsequenceConfig _filledUnpoweredResult;
 
-        private readonly Dictionary<string, bool> _savedFlowStates = new Dictionary<string, bool>();
-        private bool _flowBlocked;
-        private bool _overCapacityLogged;
-        private bool _multiConflictLogged;
+
 
         private bool _passiveUnsatisfiedFired = false;
 
@@ -124,42 +122,7 @@ namespace Khemistry
         // calculation finite even if a save contains an extreme timestamp.
         private const double MaximumElapsedSeconds = 1.0e12;
 
-        public override void OnLoad(ConfigNode node)
-        {
-            base.OnLoad(node);
 
-            _savedFlowStates.Clear();
-            _flowBlocked = false;
-            if (node == null) return;
-
-            foreach (ConfigNode savedState in node.GetNodes(SavedFlowStateNodeName))
-            {
-                string resourceName = savedState.GetValue("name")?.Trim();
-                if (string.IsNullOrEmpty(resourceName)
-                    || !bool.TryParse(savedState.GetValue("flowState"), out bool flowState))
-                    continue;
-
-                _savedFlowStates[resourceName] = flowState;
-            }
-        }
-
-        public override void OnSave(ConfigNode node)
-        {
-            base.OnSave(node);
-            if (node == null) return;
-
-            // flowState itself is saved by KSP. Keep the player's pre-blocking value
-            // alongside it so a container saved while Off can restore that value when
-            // it is turned back on after loading.
-            while (node.HasNode(SavedFlowStateNodeName))
-                node.RemoveNode(SavedFlowStateNodeName);
-            foreach (KeyValuePair<string, bool> savedState in _savedFlowStates)
-            {
-                ConfigNode stateNode = node.AddNode(SavedFlowStateNodeName);
-                stateNode.AddValue("name", savedState.Key);
-                stateNode.AddValue("flowState", savedState.Value);
-            }
-        }
 
         [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Enable Charging",
                   groupName = "khemistryadvstorage")]
@@ -210,19 +173,12 @@ namespace Khemistry
         {
             if (storageType != "multi") return;
 
-            if (!string.IsNullOrEmpty(activeResource))
+            if (!CanSwitchActiveResource(""))
             {
-                PartResourceDefinition def = PartResourceLibrary.Instance.GetDefinition(activeResource);
-                if (def != null)
-                {
-                    PartResource pr = part.Resources.Get(def.id);
-                    if (pr != null && pr.amount > 1e-9)
-                    {
-                        ScreenMessages.PostScreenMessage(new ScreenMessage(
-                            "Container must be empty before switching resource.", 5f, ScreenMessageStyle.UPPER_CENTER));
-                        return;
-                    }
-                }
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "Container must be empty before switching resource.", 5f,
+                    ScreenMessageStyle.UPPER_CENTER));
+                return;
             }
 
             if (_supportedResources.Count == 0)
@@ -248,8 +204,8 @@ namespace Khemistry
                 if (label == activeResource) return;
 
                 // The selector is asynchronous: the tank may have been filled while it
-                // was open. Recheck here so changing the selection cannot discard the
-                // newly-added contents when inactive tanks are cleared.
+                // was open. Recheck here so the selected resource remains consistent
+                // with any newly-added contents.
                 if (!CanSwitchActiveResource(label))
                 {
                     ScreenMessages.PostScreenMessage(new ScreenMessage(
@@ -273,14 +229,13 @@ namespace Khemistry
 
             if (_fatalConfigError)
             {
-                RestoreSavedFlowStates();
                 foreach (BaseEvent e in Events) e.active = false;
                 contentsDisplay = "ERROR: see log";
                 return;
             }
 
-            RestoreStaleSavedFlowStates();
-            EnsureResourcesExistOnPart();
+            MigrateLegacyResources();
+            _storageReady = true;
             EnforceCapacity();
             SanitizePersistentState();
             if (HighLogic.LoadedSceneIsFlight)
@@ -292,7 +247,6 @@ namespace Khemistry
                 lastUpdateUniversalTime = -1.0;
                 pendingCatchUpSeconds = 0.0;
             }
-            UpdateTransferBlocking();
             _passiveUnsatisfiedFired = false;
             UpdateUI();
         }
@@ -319,13 +273,11 @@ namespace Khemistry
             else
             {
                 EnforceCapacity();
-                UpdateTransferBlocking();
                 UpdateUI();
                 return;
             }
 
             EnforceCapacity();
-            UpdateTransferBlocking();
             UpdateUI();
         }
 
@@ -441,9 +393,7 @@ namespace Khemistry
                 _fatalConfigError = true;
                 return;
             }
-            if (maxInputRate >= 0f || maxOutputRate >= 0f)
-                KShared.LogWarning("maxInputRate/maxOutputRate are not supported by KSP's stock tank transfer API and will not be enforced.",
-                    "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
+
 
             if (chargingRequired && chargeRate <= 0f)
             {
@@ -618,80 +568,19 @@ namespace Khemistry
             return false;
         }
 
-        private void EnsureResourcesExistOnPart()
-        {
-            foreach (string resName in _supportedResources)
-            {
-                PartResourceDefinition def = PartResourceLibrary.Instance.GetDefinition(resName);
-                if (def == null)
-                {
-                    KShared.LogError("Unknown resource \"" + resName + "\" in SUPPORTED_RESOURCES.",
-                        "KhemistryAdvancedStorage/EnsureResourcesExistOnPart");
-                    continue;
-                }
-
-                PartResource existing = part.Resources.Get(def.id);
-                if (existing == null)
-                {
-                    ConfigNode node = new ConfigNode("RESOURCE");
-                    node.AddValue("name", resName);
-                    node.AddValue("amount", 0.0);
-                    node.AddValue("maxAmount", maximumResources);
-                    part.AddResource(node);
-                }
-                else
-                {
-                    if (!KShared.IsFinite(existing.amount) || existing.amount < 0.0)
-                    {
-                        KShared.LogWarning("Resetting invalid stored amount for resource \"" + resName + "\".",
-                            "KhemistryAdvancedStorage/EnsureResourcesExistOnPart");
-                        existing.amount = 0.0;
-                    }
-                    existing.maxAmount = Math.Max(existing.amount, maximumResources);
-                }
-            }
-
-        }
-
-        private void ReconcileMultiResourceState()
-        {
-            if (storageType != "multi" || part == null) return;
-
-            List<PartResource> filled = new List<PartResource>();
-            foreach (PartResource pr in part.Resources)
-            {
-                if (_supportedResources.Contains(pr.resourceName) && pr.amount > 1e-9)
-                    filled.Add(pr);
-            }
-
-            if (filled.Count == 1 && filled[0].resourceName != activeResource)
-            {
-                KShared.LogWarning("Recovered multi-resource storage selection from its saved contents: "
-                    + filled[0].resourceName + ".", "KhemistryAdvancedStorage/ReconcileMultiResourceState");
-                activeResource = filled[0].resourceName;
-            }
-
-            if (filled.Count > 1)
-            {
-                if (!_multiConflictLogged)
-                {
-                    KShared.LogWarning("Multi-resource storage contains several resources; preserving them and blocking additional non-active input until they are drained.",
-                        "KhemistryAdvancedStorage/ReconcileMultiResourceState");
-                    _multiConflictLogged = true;
-                }
-            }
-            else _multiConflictLogged = false;
-        }
-
         private bool CanSwitchActiveResource(string targetResource)
+            => targetResource == activeResource
+                || (!_resources.Values.Any(amount => amount > 0.0)
+                    && _unreadableContents.Count == 0);
+
+        private void EnforceCapacity()
         {
-            if (targetResource == activeResource) return true;
-
-            foreach (PartResource pr in part.Resources)
-                if (_supportedResources.Contains(pr.resourceName) && pr.amount > 1e-9)
-                    return false;
-
-            return true;
+            // Preserve old overfilled/mixed contents. New additions are checked by the API.
+            if (storageType != "multi") return;
+            string[] filled = _resources.Where(pair => pair.Value > 0.0)
+                .Select(pair => pair.Key).ToArray();
+            if (filled.Length == 1 && _supportedResources.Contains(filled[0]))
+                activeResource = filled[0];
         }
 
         private void SanitizePersistentState()
@@ -1023,11 +912,9 @@ namespace Khemistry
                 case ConsequenceType.Void:
                     KShared.Log("Voiding all stored resources (" + source + ").",
                         "KhemistryAdvancedStorage/ApplyConsequence");
-                    foreach (PartResource pr in part.Resources)
-                    {
-                        if (_supportedResources.Contains(pr.resourceName))
-                            pr.amount = 0.0;
-                    }
+                    _resources.Clear();
+                    _unreadableContents.Clear();
+
                     break;
 
                 case ConsequenceType.Destroy:
@@ -1054,22 +941,13 @@ namespace Khemistry
         {
             if (!KShared.IsFinite(amountPerTick) || amountPerTick <= 0.0) return;
 
-            List<PartResource> filled = new List<PartResource>();
-            double total = 0.0;
-            foreach (PartResource pr in part.Resources)
-            {
-                if (!_supportedResources.Contains(pr.resourceName)) continue;
-                if (pr.amount > 0.0) { filled.Add(pr); total += pr.amount; }
-            }
-            if (filled.Count == 0 || total <= 0.0) return;
-
+            double total = _resources.Values.Sum();
+            if (total <= 0.0) return;
             double toDrain = Math.Min(amountPerTick, total);
+            foreach (string name in _resources.Keys.ToList())
+                _resources[name] = Math.Max(0.0,
+                    _resources[name] - (_resources[name] / total) * toDrain);
 
-            foreach (PartResource pr in filled)
-            {
-                double share = (pr.amount / total) * toDrain;
-                pr.amount = Math.Max(0.0, pr.amount - share);
-            }
 
             KShared.Log(
                 string.Format("Boiloff: drained {0:F4} units ({1}).", toDrain, source),
@@ -1107,6 +985,7 @@ namespace Khemistry
             }
 
             List<double> pulled = new List<double>(names.Count);
+            var transfers = new List<KhemistryResourceNetwork.Transfer>();
             bool allSatisfied = true;
 
             for (int i = 0; i < names.Count; i++)
@@ -1124,7 +1003,8 @@ namespace Khemistry
                 }
 
                 double needed = rate * dt;
-                double got = part.RequestResource(names[i], needed);
+                double got = KhemistryResourceNetwork.Request(part, names[i], needed,
+                    ResourceFlowMode.STAGE_PRIORITY_FLOW, transfers);
                 pulled.Add(got);
 
                 if (!WasFullyTransferred(needed, got))
@@ -1133,9 +1013,7 @@ namespace Khemistry
 
             if (!allSatisfied)
             {
-                for (int i = 0; i < names.Count; i++)
-                    if (KShared.IsFinite(pulled[i]) && pulled[i] > 0.0)
-                        part.RequestResource(names[i], -pulled[i]);
+                KhemistryResourceNetwork.Rollback(transfers);
                 return false;
             }
 
@@ -1146,136 +1024,8 @@ namespace Khemistry
         /// Whether the container has any stored resources.
         /// </summary>
         private bool HasAnyStoredResources()
-        {
-            foreach (PartResource pr in part.Resources)
-                if (_supportedResources.Contains(pr.resourceName) && pr.amount > 0.0)
-                    return true;
-            return false;
-        }
-
-        private void UpdateTransferBlocking()
-        {
-            bool shouldFreeze =
-                (chargingRequired && state != KShared.ChargablePartState.On) ||
-                (!chargingRequired && state == KShared.ChargablePartState.Off);
-
-            if (shouldFreeze)
-            {
-                foreach (PartResource pr in part.Resources)
-                {
-                    if (!_supportedResources.Contains(pr.resourceName)) continue;
-                    if (!_savedFlowStates.ContainsKey(pr.resourceName))
-                        _savedFlowStates[pr.resourceName] = pr.flowState;
-                    pr.flowState = false;
-                }
-            }
-            else if (_flowBlocked || _savedFlowStates.Count > 0)
-            {
-                RestoreSavedFlowStates();
-            }
-            _flowBlocked = shouldFreeze;
-        }
-
-        private void RestoreSavedFlowStates()
-        {
-            if (part != null)
-                foreach (PartResource pr in part.Resources)
-                    if (_savedFlowStates.TryGetValue(pr.resourceName, out bool flowState))
-                        pr.flowState = flowState;
-
-            _savedFlowStates.Clear();
-            _flowBlocked = false;
-        }
-
-        private void RestoreStaleSavedFlowStates()
-        {
-            foreach (string resourceName in new List<string>(_savedFlowStates.Keys))
-            {
-                if (_supportedResources.Contains(resourceName)) continue;
-                if (part != null)
-                    foreach (PartResource resource in part.Resources)
-                        if (resource.resourceName == resourceName)
-                        {
-                            resource.flowState = _savedFlowStates[resourceName];
-                            break;
-                        }
-                _savedFlowStates.Remove(resourceName);
-            }
-        }
-
-        private void EnforceCapacity()
-        {
-            foreach (PartResource pr in part.Resources)
-            {
-                if (!_supportedResources.Contains(pr.resourceName)) continue;
-                if (KShared.IsFinite(pr.amount) && pr.amount >= 0.0) continue;
-
-                KShared.LogWarning("Resetting invalid stored amount for resource \"" + pr.resourceName + "\".",
-                    "KhemistryAdvancedStorage/EnforceCapacity");
-                pr.amount = 0.0;
-            }
-
-            if (storageType == "multiShared")
-            {
-                double total = 0.0;
-                List<PartResource> list = new List<PartResource>();
-                foreach (PartResource pr in part.Resources)
-                {
-                    if (!_supportedResources.Contains(pr.resourceName)) continue;
-                    list.Add(pr);
-                    total += pr.amount;
-                }
-
-                if (total > maximumResources + 1e-9)
-                {
-                    // Do not silently delete resources if several stock transfers overfill
-                    // separate tanks in the same physics tick. Preserve the excess and expose
-                    // no further free capacity until the player drains it.
-                    if (!_overCapacityLogged)
-                    {
-                        KShared.LogWarning("Shared-capacity storage was overfilled by stock resource flow; preserving the excess.",
-                            "KhemistryAdvancedStorage/EnforceCapacity");
-                        _overCapacityLogged = true;
-                    }
-                }
-                else _overCapacityLogged = false;
-
-                double freeCapacity = Math.Max(0.0, maximumResources - total);
-                // The sum of all tank headroom must equal the one shared free-capacity pool.
-                // Giving every tank the full headroom lets simultaneous stock transfers exceed
-                // the container capacity before the next physics update.
-                double unallocated = freeCapacity;
-                for (int i = 0; i < list.Count; i++)
-                {
-                    int tanksRemaining = list.Count - i;
-                    double allocation = tanksRemaining == 1
-                        ? unallocated : unallocated / tanksRemaining;
-                    list[i].maxAmount = Math.Max(list[i].amount,
-                        list[i].amount + allocation);
-                    unallocated = Math.Max(0.0, unallocated - allocation);
-                }
-            }
-            else
-            {
-                ReconcileMultiResourceState();
-                bool overCapacity = false;
-                foreach (PartResource pr in part.Resources)
-                {
-                    if (!_supportedResources.Contains(pr.resourceName)) continue;
-                    pr.amount = Math.Max(pr.amount, 0.0);
-                    if (pr.amount > maximumResources + 1e-9)
-                        overCapacity = true;
-                    pr.maxAmount = storageType == "multi" && pr.resourceName != activeResource
-                        ? pr.amount
-                        : Math.Max(pr.amount, maximumResources);
-                }
-
-                if (overCapacity && !_overCapacityLogged)
-                    KShared.LogWarning("Storage was overfilled by stock resource flow; preserving the excess until it is drained.",
-                        "KhemistryAdvancedStorage/EnforceCapacity");
-                _overCapacityLogged = overCapacity;
-            }
-        }
+            => _resources.Values.Any(amount => amount > 0.0)
+                || _unreadableContents.Count > 0;
 
         private static bool WasFullyTransferred(double requested, double actual)
         {
@@ -1312,14 +1062,11 @@ namespace Khemistry
             double total = 0.0;
             List<string> parts = new List<string>();
 
-            foreach (PartResource pr in part.Resources)
+            foreach (var resource in _resources)
             {
-                if (!_supportedResources.Contains(pr.resourceName)) continue;
-                if (pr.amount > 0.0)
-                {
-                    parts.Add(string.Format("{0}: {1:F2}", pr.resourceName, pr.amount));
-                    total += pr.amount;
-                }
+                if (resource.Value <= 0.0) continue;
+                parts.Add(string.Format("{0}: {1:F2}", resource.Key, resource.Value));
+                total += resource.Value;
             }
 
             contentsDisplay = parts.Count == 0 ? "Empty" : string.Join(", ", parts.ToArray());

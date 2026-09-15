@@ -372,9 +372,9 @@ namespace Khemistry
                 return;
             }
 
-            var options = new Dictionary<string, (Part part, PartResource resource)>();
+            var options = new Dictionary<string, (Part part, KhemistryResourceNetwork.Endpoint resource)>();
             foreach (Part p in GetPartsInRange(_suitCellTransferDistance))
-                foreach (PartResource pr in p.Resources)
+                foreach (var pr in KhemistryResourceNetwork.GetEndpoints(p))
                 {
                     if (!HasUsableAmount(pr)) continue;
                     if (restrictResources && !addable.Contains(pr.resourceName)) continue;
@@ -415,7 +415,7 @@ namespace Khemistry
                         double liveSpace = Math.Max(0.0,
                             _suitCellMaxAmount - GetResourceDictionaryTotal(liveDict));
                         var def = PartResourceLibrary.Instance.GetDefinition(resourceName);
-                        PartResource liveSource = def == null ? null : sourcePart.Resources.Get(def.id);
+                        var liveSource = sourceResource;
                         if (!HasUsableAmount(liveSource) || float.IsNaN(amount)
                             || float.IsInfinity(amount) || amount <= 0f
                             || !CanAddToSuitCell(resourceName, liveDict.Keys)) return;
@@ -425,7 +425,13 @@ namespace Khemistry
                         liveDict.TryGetValue(resourceName, out double existing);
                         liveDict[resourceName] = existing + taken;
                         SetSuitCellFromDict(liveDict);
-                        liveSource.amount -= taken;
+                        double removed = liveSource.Request(taken);
+                        if (removed < taken)
+                        {
+                            liveDict[resourceName] = existing + removed;
+                            SetSuitCellFromDict(liveDict);
+                        }
+                        taken = removed;
                         ScreenMessages.PostScreenMessage(new ScreenMessage(
                             string.Format("Received {0:F2} of {1}.", taken, resourceName),
                             5f, ScreenMessageStyle.UPPER_CENTER));
@@ -465,15 +471,15 @@ namespace Khemistry
 
         private void ShowSuitCellSendTargets(string resourceName)
         {
-            var options = new Dictionary<string, Part>();
+            var options = new Dictionary<string, KhemistryResourceNetwork.Endpoint>();
             foreach (Part p in GetPartsInRange(_suitCellTransferDistance))
-                foreach (PartResource pr in p.Resources)
+                foreach (var pr in KhemistryResourceNetwork.GetEndpoints(p))
                 {
                     if (pr.resourceName != resourceName) continue;
                     if (!CanAcceptResource(pr)) continue;
                     string lbl = string.Format("{0} / {1}  (space: {2:F1})",
                         p.vessel.vesselName, p.partInfo.title, pr.maxAmount - pr.amount);
-                    AddUniqueOption(options, lbl, p);
+                    AddUniqueOption(options, lbl, pr);
                 }
 
             if (options.Count == 0)
@@ -486,12 +492,11 @@ namespace Khemistry
             KShared.Instance.ShowSelector("Send " + resourceName + " to...",
                 new List<string>(options.Keys), label =>
                 {
-                    if (!options.TryGetValue(label, out Part target)
-                        || !IsPartCurrentAndInRange(target,
+                    if (!options.TryGetValue(label, out var targetResource)
+                        || !IsPartCurrentAndInRange(targetResource.part,
                             _suitCellTransferDistance)) return;
                     var def = PartResourceLibrary.Instance.GetDefinition(resourceName);
                     if (def == null) return;
-                    PartResource targetResource = target.Resources.Get(def.id);
                     if (!CanAcceptResource(targetResource)) return;
                     var d = GetSuitCellDict();
                     d.TryGetValue(resourceName, out double existing);
@@ -502,7 +507,13 @@ namespace Khemistry
                     if (remaining < 1e-9) d.Remove(resourceName);
                     else d[resourceName] = remaining;
                     SetSuitCellFromDict(d);
-                    targetResource.amount += pushed;
+                    double accepted = -targetResource.Request(-pushed);
+                    if (accepted < pushed)
+                    {
+                        d[resourceName] = existing - accepted;
+                        SetSuitCellFromDict(d);
+                    }
+                    pushed = accepted;
                     ScreenMessages.PostScreenMessage(new ScreenMessage(
                         string.Format("Transferred {0:F2} of {1}.", pushed, resourceName),
                         5f, ScreenMessageStyle.UPPER_CENTER));

@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="Stubs.cs" />
+    <Compile Include="../../KhemistryDLLs/Khemistry/PartModules/AdvancedStorageResources.cs" Link="AdvancedStorageResources.cs" />
+    <Compile Include="../../KhemistryDLLs/Khemistry/KhemistryResourceNetwork.cs" Link="KhemistryResourceNetwork.cs" />
+    <Compile Include="../../KhemistryDLLs/Khemistry/KhemistryStockResourceBroker.cs" Link="KhemistryStockResourceBroker.cs" />
+  </ItemGroup>
+</Project>
