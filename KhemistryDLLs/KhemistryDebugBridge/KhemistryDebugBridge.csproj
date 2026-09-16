@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{342B15F1-B51F-4D39-AE4B-56ABF32A109B}</ProjectGuid>
+    <OutputType>Library</OutputType>
+    <RootNamespace>Khemistry.DebugBridge</RootNamespace>
+    <AssemblyName>Khemistry.DebugBridge</AssemblyName>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <LangVersion>7.3</LangVersion>
+    <Deterministic>true</Deterministic>
+    <KspRoot Condition=" '$(KspRoot)' == '' ">C:\Users\name\Desktop\v1 test</KspRoot>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="Assembly-CSharp"><HintPath>$(KspRoot)\KSP_x64_Data\Managed\Assembly-CSharp.dll</HintPath></Reference>
+    <Reference Include="Khemistry"><HintPath>..\Khemistry\bin\Release\Khemistry.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="ParallaxContinued"><HintPath>$(KspRoot)\GameData\ParallaxContinued\Plugins\ParallaxContinued.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="Unity.Mathematics"><HintPath>$(KspRoot)\GameData\000_KSPBurst\Plugins\Unity.Mathematics.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="UnityEngine"><HintPath>$(KspRoot)\KSP_x64_Data\Managed\UnityEngine.dll</HintPath></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(KspRoot)\KSP_x64_Data\Managed\UnityEngine.CoreModule.dll</HintPath></Reference>
+    <Reference Include="UnityEngine.ImageConversionModule"><HintPath>$(KspRoot)\KSP_x64_Data\Managed\UnityEngine.ImageConversionModule.dll</HintPath></Reference>
+    <Reference Include="UnityEngine.PhysicsModule"><HintPath>$(KspRoot)\KSP_x64_Data\Managed\UnityEngine.PhysicsModule.dll</HintPath></Reference>
+    <Reference Include="UnityEngine.ScreenCaptureModule"><HintPath>$(KspRoot)\KSP_x64_Data\Managed\UnityEngine.ScreenCaptureModule.dll</HintPath></Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="Bridge.cs" />
+    <Compile Include="JsonWriter.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <PropertyGroup><RunPostBuildEvent>OnBuildSuccess</RunPostBuildEvent></PropertyGroup>
+  <PropertyGroup>
+    <PostBuildEvent>if not exist "$(ProjectDir)..\..\Khemistry\Debug\Plugins" mkdir "$(ProjectDir)..\..\Khemistry\Debug\Plugins"
+copy /Y "$(TargetPath)" "$(ProjectDir)..\..\Khemistry\Debug\Plugins\$(TargetFileName)"
+copy /Y "$(TargetDir)$(TargetName).pdb" "$(ProjectDir)..\..\Khemistry\Debug\Plugins\$(TargetName).pdb"</PostBuildEvent>
+  </PropertyGroup>
+</Project>
