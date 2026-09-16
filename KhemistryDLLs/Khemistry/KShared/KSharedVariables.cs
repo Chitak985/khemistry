@@ -58,6 +58,12 @@ namespace Khemistry
         // representable; float precision loses them at that scale.
         public Dictionary<string, double> ResourceDict = new Dictionary<string, double>();
 
+        // Material instances delivered to the KSC by KhemistryConstructionOverhaul. This is an
+        // unbounded logical ledger, not a PartModule container: the construction add-on persists
+        // it per save and only performs exact (non-contaminating) material merges.
+        public readonly List<KhemistryMaterialInstance> KSCMaterialContents =
+            new List<KhemistryMaterialInstance>();
+
         // KhemistryConstructionOverhaul GUI (public to access from it)
         public List<string> _selectorResources;
         public bool _kcoSelectorVisible = false;

@@ -165,6 +165,8 @@ namespace KhemistryConstructionOverhaul
     {
         // Resource costs for this part, populated from the part config
         public Dictionary<string, double> ResourceDict = new Dictionary<string, double>();
+        public List<KhemistryISRURecipe.ResourceInputMaterial> MaterialCosts =
+            new List<KhemistryISRURecipe.ResourceInputMaterial>();
         public bool CostConfigurationValid { get; private set; }
 
         private KhemistryPart FindCorrespondingPrefabModule()
@@ -188,92 +190,106 @@ namespace KhemistryConstructionOverhaul
 
             KShared.Log("OnLoad triggered", "KhemistryPart/OnLoad");
 
-            if (node == null || !node.HasNode("RESOURCE_COST_NAMES")
-                || !node.HasNode("RESOURCE_COST_AMOUNTS"))
+            bool hasResourceNames = node?.HasNode("RESOURCE_COST_NAMES") == true;
+            bool hasResourceAmounts = node?.HasNode("RESOURCE_COST_AMOUNTS") == true;
+            bool hasMaterialCosts = node?.GetNodes("MATERIAL_COST").Length > 0;
+            if (node == null || (!hasResourceNames && !hasResourceAmounts && !hasMaterialCosts))
             {
                 // Craft/vessel persistence nodes contain only KSPField values. Preserve the
                 // matching prefab module's cost table rather than mistaking persistence data
                 // for a malformed part config. The index matters if a part has several modules.
                 if (CostConfigurationValid) return;
                 KhemistryPart prefabModule = FindCorrespondingPrefabModule();
-                if (prefabModule != null && prefabModule.ResourceDict != null)
+                if (prefabModule != null && prefabModule.ResourceDict != null
+                    && prefabModule.MaterialCosts != null)
                 {
                     ResourceDict = new Dictionary<string, double>(prefabModule.ResourceDict);
+                    MaterialCosts = prefabModule.MaterialCosts
+                        .Select(KhemistryConstructionMaterials.CopyRequirement).ToList();
                     CostConfigurationValid = prefabModule.CostConfigurationValid;
                     if (CostConfigurationValid) return;
                 }
                 KShared.LogError(
-                    "Part \"" + partName + "\" has a KhemistryPart module but is missing " +
-                    "RESOURCE_COST_NAMES and/or RESOURCE_COST_AMOUNTS in its config. " +
+                    "Part \"" + partName + "\" has a KhemistryPart module but defines no " +
+                    "resource or material construction costs in its config. " +
                     "Construction of this part will be blocked.",
                     "KhemistryPart/OnLoad");
                 return;
             }
 
             ResourceDict.Clear();
+            MaterialCosts.Clear();
             CostConfigurationValid = false;
-            string[] names = node.GetNode("RESOURCE_COST_NAMES").GetValues("name");
-            string[] amountsStr = node.GetNode("RESOURCE_COST_AMOUNTS").GetValues("amount");
-            if (names.Length == 0 || names.Length != amountsStr.Length)
+            if (hasResourceNames != hasResourceAmounts)
             {
                 KShared.LogError("Part \"" + partName
-                    + "\" has empty or mismatched RESOURCE_COST_NAMES/RESOURCE_COST_AMOUNTS; construction will be blocked.",
+                    + "\" has only one of RESOURCE_COST_NAMES/RESOURCE_COST_AMOUNTS; construction will be blocked.",
                     "KhemistryPart/OnLoad");
                 return;
             }
 
             Dictionary<string, double> parsedCosts = new Dictionary<string, double>();
-            for (int i = 0; i < names.Length; i++)
+            if (hasResourceNames)
             {
-                string resourceName = names[i]?.Trim();
-                if (string.IsNullOrEmpty(resourceName)
-                    || !double.TryParse(amountsStr[i], NumberStyles.Float, CultureInfo.InvariantCulture,
-                        out double amount)
-                    || double.IsNaN(amount) || double.IsInfinity(amount) || amount < 0d)
+                string[] names = node.GetNode("RESOURCE_COST_NAMES").GetValues("name");
+                string[] amountsStr = node.GetNode("RESOURCE_COST_AMOUNTS").GetValues("amount");
+                if (names.Length == 0 || names.Length != amountsStr.Length)
                 {
-                    KShared.LogError("Part \"" + partName + "\" has invalid construction cost at index "
-                        + i + "; construction will be blocked.", "KhemistryPart/OnLoad");
-                    ResourceDict.Clear();
+                    KShared.LogError("Part \"" + partName
+                        + "\" has empty or mismatched RESOURCE_COST_NAMES/RESOURCE_COST_AMOUNTS; construction will be blocked.",
+                        "KhemistryPart/OnLoad");
                     return;
                 }
 
-                parsedCosts.TryGetValue(resourceName, out double existing);
-                double total = existing + amount;
-                if (double.IsNaN(total) || double.IsInfinity(total))
+                for (int i = 0; i < names.Length; i++)
                 {
-                    KShared.LogError("Part \"" + partName + "\" has construction costs that "
-                        + "overflow for resource " + resourceName + "; construction will be blocked.",
-                        "KhemistryPart/OnLoad");
-                    ResourceDict.Clear();
-                    return;
+                    string resourceName = names[i]?.Trim();
+                    if (string.IsNullOrEmpty(resourceName)
+                        || !double.TryParse(amountsStr[i], NumberStyles.Float,
+                            CultureInfo.InvariantCulture, out double amount)
+                        || double.IsNaN(amount) || double.IsInfinity(amount) || amount < 0d)
+                    {
+                        KShared.LogError("Part \"" + partName
+                            + "\" has invalid construction cost at index " + i
+                            + "; construction will be blocked.", "KhemistryPart/OnLoad");
+                        return;
+                    }
+
+                    parsedCosts.TryGetValue(resourceName, out double existing);
+                    double total = existing + amount;
+                    if (double.IsNaN(total) || double.IsInfinity(total))
+                    {
+                        KShared.LogError("Part \"" + partName
+                            + "\" has construction costs that overflow for resource "
+                            + resourceName + "; construction will be blocked.",
+                            "KhemistryPart/OnLoad");
+                        return;
+                    }
+                    parsedCosts[resourceName] = total;
                 }
-                parsedCosts[resourceName] = total;
             }
+
+            List<KhemistryISRURecipe.ResourceInputMaterial> parsedMaterialCosts =
+                new List<KhemistryISRURecipe.ResourceInputMaterial>();
+            foreach (ConfigNode materialNode in node.GetNodes("MATERIAL_COST"))
+            {
+                if (!KhemistryConstructionMaterials.TryParseCost(materialNode, partName,
+                        out KhemistryISRURecipe.ResourceInputMaterial materialCost))
+                    return;
+                parsedMaterialCosts.Add(materialCost);
+            }
+
             ResourceDict = parsedCosts;
+            MaterialCosts = parsedMaterialCosts;
             CostConfigurationValid = true;
         }
 
         // Returns ("", "1") on success, or (errorMessage, "0") on failure.
         public List<string> BuyCheck()
         {
-            var shared = KShared.Instance;
             var tmp = new List<string>();
 
-            if (shared == null)
-            {
-                tmp.Add("A null reference error occurred! Info: KShared instance is null.");
-                tmp.Add("0");
-                Debug.LogError("KhemistryConstructionOverhaul: KShared instance is null in BuyCheck!");
-                return tmp;
-            }
-            if (shared.ResourceDict == null)
-            {
-                tmp.Add("A null reference error occurred! Info: shared.ResourceDict is null.");
-                tmp.Add("0");
-                KShared.LogError("shared.ResourceDict is null!", "KhemistryPart/BuyCheck");
-                return tmp;
-            }
-            if (ResourceDict == null || !CostConfigurationValid)
+            if (ResourceDict == null || MaterialCosts == null || !CostConfigurationValid)
             {
                 tmp.Add("This part has an invalid Khemistry construction-cost configuration.");
                 tmp.Add("0");
@@ -282,38 +298,12 @@ namespace KhemistryConstructionOverhaul
                 return tmp;
             }
 
-            foreach (KeyValuePair<string, double> cost in ResourceDict)
+            if (!KhemistryResourceCheckManager.TryCheckCosts(ResourceDict, MaterialCosts,
+                    out string error))
             {
-                string resourceName = cost.Key;
-                if (string.IsNullOrWhiteSpace(resourceName) || double.IsNaN(cost.Value)
-                    || double.IsInfinity(cost.Value) || cost.Value < 0d)
-                {
-                    tmp.Add("This part has an invalid Khemistry construction cost.");
-                    tmp.Add("0");
-                    return tmp;
-                }
-                if (!shared.ResourceDict.ContainsKey(resourceName))
-                {
-                    tmp.Add("You have never obtained " + resourceName + "!");
-                    tmp.Add("0");
-                    KShared.Log("Never obtained resource: " + resourceName, "KhemistryPart/BuyCheck");
-                    return tmp;
-                }
-                double available = shared.ResourceDict[resourceName];
-                if (double.IsNaN(available) || double.IsInfinity(available) || available < 0d)
-                {
-                    tmp.Add("The stored " + resourceName + " balance is invalid.");
-                    tmp.Add("0");
-                    return tmp;
-                }
-                if (available < cost.Value)
-                {
-                    double shortfall = cost.Value - available;
-                    tmp.Add("Not enough " + resourceName + "! You need " + shortfall + " more.");
-                    tmp.Add("0");
-                    KShared.Log("Not enough of resource: " + resourceName, "KhemistryPart/BuyCheck");
-                    return tmp;
-                }
+                tmp.Add(error);
+                tmp.Add("0");
+                return tmp;
             }
 
             tmp.Add("");
@@ -325,27 +315,11 @@ namespace KhemistryConstructionOverhaul
         // Deducts resources after a successful BuyCheck.
         public void Buy()
         {
-            var shared = KShared.Instance;
-            if (shared?.ResourceDict == null || ResourceDict == null
-                || !CostConfigurationValid) return;
-
-            foreach (KeyValuePair<string, double> cost in ResourceDict)
-                if (string.IsNullOrWhiteSpace(cost.Key) || double.IsNaN(cost.Value)
-                    || double.IsInfinity(cost.Value) || cost.Value < 0d
-                    || !shared.ResourceDict.TryGetValue(cost.Key, out double available)
-                    || double.IsNaN(available) || double.IsInfinity(available)
-                    || available < cost.Value)
-                {
-                    KShared.LogError("Construction-resource balance changed before Buy; no resources were deducted.",
-                        "KhemistryPart/Buy");
-                    return;
-                }
-
-            foreach (var kvp in ResourceDict)
-            {
-                shared.ResourceDict[kvp.Key] -= kvp.Value;
-                KShared.Log("Deducted " + kvp.Value + " of " + kvp.Key, "KhemistryPart/Buy");
-            }
+            if (ResourceDict == null || MaterialCosts == null || !CostConfigurationValid) return;
+            if (!KhemistryResourceCheckManager.TryCommitCosts(ResourceDict, MaterialCosts,
+                    out string error))
+                KShared.LogError("Construction balances changed before Buy; nothing was "
+                    + "deducted. " + error, "KhemistryPart/Buy");
         }
     }
 
@@ -355,13 +329,19 @@ namespace KhemistryConstructionOverhaul
     {
         private readonly Dictionary<string, double> _loadedResources =
             new Dictionary<string, double>();
-        private bool _loadedLedgerPending;
+        private readonly List<ConfigNode> _loadedMaterialNodes = new List<ConfigNode>();
+        private readonly List<ConfigNode> _opaqueMaterialNodes = new List<ConfigNode>();
+        private bool _loadedResourcesPending;
+        private bool _loadedMaterialsPending;
 
         public override void OnLoad(ConfigNode node)
         {
             base.OnLoad(node);
             _loadedResources.Clear();
-            _loadedLedgerPending = false;
+            _loadedMaterialNodes.Clear();
+            _opaqueMaterialNodes.Clear();
+            _loadedResourcesPending = false;
+            _loadedMaterialsPending = false;
 
             bool initialized = false;
             if (node != null)
@@ -374,7 +354,8 @@ namespace KhemistryConstructionOverhaul
                 foreach (KeyValuePair<string, double> resource in
                     KShared.CreateStartingConstructionResourceLedger())
                     _loadedResources[resource.Key] = resource.Value;
-                _loadedLedgerPending = true;
+                _loadedResourcesPending = true;
+                _loadedMaterialsPending = true;
                 TryApplyLoadedLedger();
                 return;
             }
@@ -404,7 +385,15 @@ namespace KhemistryConstructionOverhaul
                 _loadedResources[resourceName] = total;
             }
 
-            _loadedLedgerPending = true;
+            foreach (ConfigNode materialNode in node.GetNodes("STORED_MATERIAL"))
+            {
+                ConfigNode copy = new ConfigNode("STORED_MATERIAL");
+                materialNode.CopyTo(copy);
+                _loadedMaterialNodes.Add(copy);
+            }
+
+            _loadedResourcesPending = true;
+            _loadedMaterialsPending = true;
             TryApplyLoadedLedger();
         }
 
@@ -413,7 +402,7 @@ namespace KhemistryConstructionOverhaul
             base.OnSave(node);
             if (node == null) return;
 
-            IDictionary<string, double> resources = _loadedLedgerPending
+            IDictionary<string, double> resources = _loadedResourcesPending
                 ? _loadedResources : KShared.Instance?.ResourceDict;
             if (resources == null)
             {
@@ -424,6 +413,7 @@ namespace KhemistryConstructionOverhaul
 
             while (node.HasValue("initialized")) node.RemoveValue("initialized");
             while (node.HasNode("RESOURCE")) node.RemoveNode("RESOURCE");
+            while (node.HasNode("STORED_MATERIAL")) node.RemoveNode("STORED_MATERIAL");
             node.AddValue("initialized", true);
             foreach (KeyValuePair<string, double> resource in resources.OrderBy(kvp => kvp.Key))
             {
@@ -440,23 +430,77 @@ namespace KhemistryConstructionOverhaul
                 resourceNode.AddValue("amount", resource.Value.ToString("R",
                     CultureInfo.InvariantCulture));
             }
+
+            if (_loadedMaterialsPending)
+            {
+                foreach (ConfigNode materialNode in _loadedMaterialNodes)
+                    AddMaterialNodeCopy(node, materialNode);
+                return;
+            }
+
+            foreach (ConfigNode materialNode in _opaqueMaterialNodes)
+                AddMaterialNodeCopy(node, materialNode);
+            foreach (KhemistryMaterialInstance material in
+                KShared.Instance?.KSCMaterialContents ?? new List<KhemistryMaterialInstance>())
+            {
+                if (!KhemistryConstructionMaterials.IsValidInstance(material))
+                {
+                    KShared.LogError("Skipped an invalid KSC material while saving.",
+                        "KhemistryConstructionResourcesScenario/OnSave");
+                    continue;
+                }
+                node.AddNode(material.ToConfigNode("STORED_MATERIAL"));
+            }
         }
 
         public void Update()
         {
-            if (_loadedLedgerPending)
+            if (_loadedResourcesPending || _loadedMaterialsPending)
                 TryApplyLoadedLedger();
         }
 
         private void TryApplyLoadedLedger()
         {
             KShared shared = KShared.Instance;
-            if (!_loadedLedgerPending || shared?.ResourceDict == null) return;
+            if (shared == null) return;
 
-            shared.ResourceDict.Clear();
-            foreach (KeyValuePair<string, double> resource in _loadedResources)
-                shared.ResourceDict[resource.Key] = resource.Value;
-            _loadedLedgerPending = false;
+            if (_loadedResourcesPending && shared.ResourceDict != null)
+            {
+                shared.ResourceDict.Clear();
+                foreach (KeyValuePair<string, double> resource in _loadedResources)
+                    shared.ResourceDict[resource.Key] = resource.Value;
+                _loadedResourcesPending = false;
+            }
+
+            if (!_loadedMaterialsPending) return;
+            if (_loadedMaterialNodes.Count > 0
+                && (shared.materialList == null || shared.materialList.Count == 0))
+                return;
+
+            shared.KSCMaterialContents.Clear();
+            _opaqueMaterialNodes.Clear();
+            foreach (ConfigNode savedNode in _loadedMaterialNodes)
+            {
+                if (KhemistryMaterialInstance.TryFromConfigNode(savedNode,
+                        out KhemistryMaterialInstance material,
+                        "KhemistryConstructionResourcesScenario/TryApplyLoadedLedger")
+                    && KhemistryConstructionMaterials.AddNormal(
+                        shared.KSCMaterialContents, material))
+                    continue;
+
+                ConfigNode copy = new ConfigNode("STORED_MATERIAL");
+                savedNode.CopyTo(copy);
+                _opaqueMaterialNodes.Add(copy);
+            }
+            _loadedMaterialNodes.Clear();
+            _loadedMaterialsPending = false;
+        }
+
+        private static void AddMaterialNodeCopy(ConfigNode parent, ConfigNode materialNode)
+        {
+            ConfigNode copy = new ConfigNode("STORED_MATERIAL");
+            materialNode.CopyTo(copy);
+            parent.AddNode(copy);
         }
     }
 
@@ -521,10 +565,11 @@ namespace KhemistryConstructionOverhaul
 
             ShipConstruct ship = EditorLogic.fetch?.ship;
             if (!TryGetShipCost(ship, out Dictionary<string, double> totalCost,
-                out errorMessage))
+                    out List<KhemistryISRURecipe.ResourceInputMaterial> materialCosts,
+                    out errorMessage))
                 return false;
 
-            if (!TryCheckBalances(totalCost, out errorMessage))
+            if (!TryCheckCosts(totalCost, materialCosts, out errorMessage))
                 return false;
 
             errorMessage = string.Empty;
@@ -533,52 +578,20 @@ namespace KhemistryConstructionOverhaul
 
         internal static bool TryCommitRolloutCost(ShipConstruct ship, out string error)
         {
-            if (!TryGetShipCost(ship, out Dictionary<string, double> totalCost, out error))
+            if (!TryGetShipCost(ship, out Dictionary<string, double> totalCost,
+                    out List<KhemistryISRURecipe.ResourceInputMaterial> materialCosts,
+                    out error))
                 return false;
-            if (!TryCheckBalances(totalCost, out error))
-                return false;
-
-            Dictionary<string, double> balances = KShared.Instance?.ResourceDict;
-            if (balances == null)
-            {
-                error = "Khemistry construction resources are not available.";
-                return false;
-            }
-            Dictionary<string, double> updatedBalances = new Dictionary<string, double>();
-            foreach (KeyValuePair<string, double> cost in totalCost)
-            {
-                if (!balances.TryGetValue(cost.Key, out double current))
-                {
-                    error = "The " + cost.Key + " balance disappeared before rollout.";
-                    return false;
-                }
-
-                double updated = current - cost.Value;
-                if (double.IsNaN(updated) || double.IsInfinity(updated) || updated < 0d)
-                {
-                    error = "The " + cost.Key + " balance changed before rollout.";
-                    return false;
-                }
-                updatedBalances[cost.Key] = updated;
-            }
-
-            // Commit only after every result has been calculated, keeping the ledger unchanged if
-            // any resource fails validation.
-            foreach (KeyValuePair<string, double> balance in updatedBalances)
-            {
-                balances[balance.Key] = balance.Value;
-                KShared.Log("Deducted rollout construction cost for " + balance.Key + ".",
-                    "KhemistryResourceCheckManager/TryCommitRolloutCost");
-            }
-
-            error = string.Empty;
-            return true;
+            return TryCommitCosts(totalCost, materialCosts, out error);
         }
 
         private static bool TryGetShipCost(ShipConstruct ship,
-            out Dictionary<string, double> totalCost, out string error)
+            out Dictionary<string, double> totalCost,
+            out List<KhemistryISRURecipe.ResourceInputMaterial> materialCosts,
+            out string error)
         {
             totalCost = new Dictionary<string, double>();
+            materialCosts = new List<KhemistryISRURecipe.ResourceInputMaterial>();
             if (ship?.parts == null)
             {
                 error = "No editor ship is available.";
@@ -595,7 +608,7 @@ namespace KhemistryConstructionOverhaul
                 foreach (KhemistryPart module in modules)
                 {
                     if (module == null || !module.CostConfigurationValid
-                        || module.ResourceDict == null)
+                        || module.ResourceDict == null || module.MaterialCosts == null)
                     {
                         error = "A part has an invalid Khemistry construction-cost configuration.";
                         return false;
@@ -628,6 +641,16 @@ namespace KhemistryConstructionOverhaul
                         }
                         totalCost[resourceName] = aggregate;
                     }
+
+                    foreach (KhemistryISRURecipe.ResourceInputMaterial materialCost in
+                        module.MaterialCosts)
+                    {
+                        if (!KhemistryConstructionMaterials.TryValidateRequirement(
+                                materialCost, out error))
+                            return false;
+                        materialCosts.Add(
+                            KhemistryConstructionMaterials.CopyRequirement(materialCost));
+                    }
                 }
             }
 
@@ -635,18 +658,79 @@ namespace KhemistryConstructionOverhaul
             return true;
         }
 
-        private static bool TryCheckBalances(Dictionary<string, double> totalCost,
+        internal static bool TryCheckCosts(Dictionary<string, double> resourceCosts,
+            IEnumerable<KhemistryISRURecipe.ResourceInputMaterial> materialCosts,
             out string error)
         {
-            Dictionary<string, double> balances = KShared.Instance?.ResourceDict;
-            if (balances == null)
+            return TryPrepareCosts(resourceCosts, materialCosts, out _, out _, out _, out error);
+        }
+
+        internal static bool TryCommitCosts(Dictionary<string, double> resourceCosts,
+            IEnumerable<KhemistryISRURecipe.ResourceInputMaterial> materialCosts,
+            out string error)
+        {
+            if (!TryPrepareCosts(resourceCosts, materialCosts,
+                    out Dictionary<string, double> updatedBalances,
+                    out List<KhemistryMaterialInstance> remainingMaterials,
+                    out bool commitMaterials, out error))
+                return false;
+
+            KShared shared = KShared.Instance;
+            foreach (KeyValuePair<string, double> balance in updatedBalances)
             {
-                error = "Khemistry construction resources are not available.";
+                shared.ResourceDict[balance.Key] = balance.Value;
+                KShared.Log("Deducted construction cost for " + balance.Key + ".",
+                    "KhemistryResourceCheckManager/TryCommitCosts");
+            }
+            if (commitMaterials)
+            {
+                KhemistryConstructionMaterials.ReplaceContents(
+                    shared.KSCMaterialContents, remainingMaterials);
+                KShared.Log("Deducted material construction costs.",
+                    "KhemistryResourceCheckManager/TryCommitCosts");
+            }
+
+            error = string.Empty;
+            return true;
+        }
+
+        private static bool TryPrepareCosts(Dictionary<string, double> resourceCosts,
+            IEnumerable<KhemistryISRURecipe.ResourceInputMaterial> materialCosts,
+            out Dictionary<string, double> updatedBalances,
+            out List<KhemistryMaterialInstance> remainingMaterials,
+            out bool commitMaterials, out string error)
+        {
+            updatedBalances = new Dictionary<string, double>();
+            remainingMaterials = null;
+            commitMaterials = false;
+            KShared shared = KShared.Instance;
+            Dictionary<string, double> balances = shared?.ResourceDict;
+            if (balances == null || shared.KSCMaterialContents == null)
+            {
+                error = "Khemistry construction resources and materials are not available.";
+                return false;
+            }
+            if (resourceCosts == null)
+            {
+                error = "A part has an invalid Khemistry construction-cost configuration.";
                 return false;
             }
 
-            foreach (KeyValuePair<string, double> cost in totalCost)
+            foreach (KeyValuePair<string, double> cost in resourceCosts)
             {
+                string resourceName = cost.Key?.Trim();
+                if (string.IsNullOrEmpty(resourceName) || double.IsNaN(cost.Value)
+                    || double.IsInfinity(cost.Value) || cost.Value < 0d)
+                {
+                    error = "A part has an invalid Khemistry construction cost.";
+                    return false;
+                }
+                if (PartResourceLibrary.Instance?.GetDefinition(resourceName) == null)
+                {
+                    error = "A part references the unknown construction resource "
+                        + resourceName + ".";
+                    return false;
+                }
                 if (!balances.TryGetValue(cost.Key, out double available)
                     || double.IsNaN(available) || double.IsInfinity(available) || available < 0d)
                 {
@@ -660,7 +744,27 @@ namespace KhemistryConstructionOverhaul
                         + shortfall.ToString("G6", CultureInfo.InvariantCulture) + " more.";
                     return false;
                 }
+
+                double updated = available - cost.Value;
+                if (double.IsNaN(updated) || double.IsInfinity(updated) || updated < 0d)
+                {
+                    error = "The " + cost.Key + " balance changed before construction.";
+                    return false;
+                }
+                updatedBalances[cost.Key] = updated;
             }
+
+            List<KhemistryISRURecipe.ResourceInputMaterial> materialCostList =
+                (materialCosts ?? Enumerable.Empty<KhemistryISRURecipe.ResourceInputMaterial>())
+                .Select(KhemistryConstructionMaterials.CopyRequirement).ToList();
+            commitMaterials = materialCostList.Count > 0;
+            if (commitMaterials
+                && !KhemistryConstructionMaterials.TryConsumeRequirements(
+                    shared.KSCMaterialContents, materialCostList,
+                    out remainingMaterials, out error))
+                return false;
+            if (!commitMaterials)
+                remainingMaterials = new List<KhemistryMaterialInstance>();
 
             error = string.Empty;
             return true;

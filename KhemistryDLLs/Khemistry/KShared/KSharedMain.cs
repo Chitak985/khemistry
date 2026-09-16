@@ -64,6 +64,7 @@ namespace Khemistry
             foreach (KeyValuePair<string, double> resource in
                 CreateStartingConstructionResourceLedger())
                 ResourceDict[resource.Key] = resource.Value;
+            KSCMaterialContents.Clear();
         }
 
         public void OnDestroy()
