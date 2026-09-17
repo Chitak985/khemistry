@@ -6,8 +6,10 @@ using UnityEngine;
 
 namespace Khemistry
 {
-    /// <summary>Stock converter adapter. Engines and arbitrary Part.RequestResource callers
-    /// do not use IResourceBroker and are deliberately outside this integration.</summary>
+    /// <summary>
+    /// Stock converter adapter. Engines and arbitrary Part.RequestResource callers
+    /// do not use IResourceBroker and are deliberately outside this integration.
+    /// </summary>
     public sealed class KhemistryStockResourceBroker : IResourceBroker
     {
         private readonly IResourceBroker stock;
@@ -119,7 +121,11 @@ namespace Khemistry
             try
             {
                 if (BrokerField == null || ProcessorBrokerField == null)
-                    throw new MissingFieldException("KSP converter broker fields are unavailable.");
+                {
+                    KShared.LogError("KSP converter broker fields are unavailable!", "KhemistryStockStorageBridge/FixedUpdate");
+                    failed = true;
+                    return;
+                }
                 foreach (Vessel vessel in FlightGlobals.VesselsLoaded)
                 {
                     if (vessel == null || !vessel.loaded
@@ -142,7 +148,7 @@ namespace Khemistry
             catch (Exception exception)
             {
                 failed = true;
-                KShared.LogError("Stock AdvancedStorage bridge disabled: " + exception,
+                KShared.LogError("Stock AdvancedStorage bridge disabled due to an exception: " + exception,
                     "KhemistryStockStorageBridge");
             }
         }
