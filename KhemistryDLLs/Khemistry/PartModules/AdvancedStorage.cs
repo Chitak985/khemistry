@@ -35,29 +35,37 @@ namespace Khemistry
         [KSPField(isPersistant = false)]
         public float maxOutputRate = -1f;
 
+		/// <summary>Charging rate in percentages, added every charge tick.</summary>
         [KSPField(isPersistant = false)]
         public float chargeRate = 0f;
 
+		/// <summary>Charging decay rate in percentages, subtracted every charge tick if no charging resource.</summary>
         [KSPField(isPersistant = false)]
         public float chargeDecayRate = 0f;
 
+		/// <summary>The current charge as a percentage.</summary>
         [KSPField(isPersistant = true)]
         public float chargePercent = 0f;
 
+		/// <summary>The charging state of the storage.</summary>
         [KSPField(isPersistant = true)]
         public KShared.ChargablePartState state = KShared.ChargablePartState.Off;
 
         [KSPField(isPersistant = true)]
         public string activeResource = "";
 
-        // Universal-time checkpoint used to catch up the per-second storage effects
-        // after a vessel has been unloaded or the scene has changed. A negative value
-        // identifies a legacy/new save that has no checkpoint yet.
+        /// <summary>
+		/// Universal-time checkpoint used to catch up the per-second storage effects
+        /// after a vessel has been unloaded or the scene has changed. A negative value
+        /// identifies a legacy/new save that has no checkpoint yet.
+		/// </summary>
         [KSPField(isPersistant = true)]
         public double lastUpdateUniversalTime = -1.0;
 
-        // Preserve the sub-tick boiloff interval as well. Without this, repeatedly
-        // loading a vessel can indefinitely postpone a consequence with a small rate.
+        /// <summary>
+        /// Preserve the sub-tick boiloff interval as well. Without this, repeatedly
+        /// loading a vessel can indefinitely postpone a consequence with a small rate.
+		/// </summary>
         [KSPField(isPersistant = true)]
         public double filledUnpoweredElapsed = 0.0;
 
@@ -101,13 +109,13 @@ namespace Khemistry
         private ConsequenceConfig _passiveUnsatisfiedResult;
         private ConsequenceConfig _filledUnpoweredResult;
 
-
-
         private bool _passiveUnsatisfiedFired = false;
 
-        // Persist elapsed catch-up work separately from the universal-time checkpoint. A
-        // vessel can be saved again after OnStart but before its first FixedUpdate; keeping
-        // this queue only in memory would lose the entire unloaded interval in that case.
+		/// <summary>
+        /// Persist elapsed catch-up work separately from the universal-time checkpoint. A
+        /// vessel can be saved again after OnStart but before its first FixedUpdate; keeping
+        /// this queue only in memory would lose the entire unloaded interval in that case.
+		/// </summary>
         [KSPField(isPersistant = true)]
         public double pendingCatchUpSeconds = 0.0;
         private bool _universalTimeWarningLogged = false;
@@ -117,12 +125,12 @@ namespace Khemistry
         private const string SavedFlowStateNodeName = "KHEMISTRY_ORIGINAL_FLOW_STATE";
         private const double FilledUnpoweredTickSeconds = 0.1;
 
-        // This is only a corrupt-save/clock safety bound. It is deliberately far
-        // beyond a practical campaign duration, while keeping every rate*time
-        // calculation finite even if a save contains an extreme timestamp.
+		/// <summary>
+        /// This is only a corrupt-save/clock safety bound. It is deliberately far
+        /// beyond a practical campaign duration, while keeping every rate*time
+        /// calculation finite even if a save contains an extreme timestamp.
+		/// </summary>
         private const double MaximumElapsedSeconds = 1.0e12;
-
-
 
         [KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Enable Charging",
                   groupName = "khemistryadvstorage")]
@@ -311,9 +319,9 @@ namespace Khemistry
             _supportedResources.Clear();
             if (!moduleNode.HasNode("SUPPORTED_RESOURCES"))
             {
-                KShared.LogError(
-                    "Part \"" + part.name + "\" has KhemistryAdvancedStorage but no SUPPORTED_RESOURCES node. This module will not load.",
-                    "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
+                KShared.LogNoNode("SUPPORTED_RESOURCES",
+								  "KhemistryAdvancedStorage on part \"" + part.name + "\"",
+								  "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
                 _fatalConfigError = true;
                 return;
             }
@@ -353,8 +361,7 @@ namespace Khemistry
                 KShared.LogError(
                     "Part \"" + part.name + "\" has KhemistryAdvancedStorage with an empty SUPPORTED_RESOURCES node. This module will not load.",
                     "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
-                _fatalConfigError = true;
-                return;
+                _fatalConfigError = true; return;
             }
             if (invalidSupportedResource)
                 KShared.LogWarning("Invalid SUPPORTED_RESOURCES entries were ignored.",
@@ -366,38 +373,60 @@ namespace Khemistry
                 || !TryReadOptionalFloat(moduleNode, "maxInputRate", ref maxInputRate)
                 || !TryReadOptionalFloat(moduleNode, "maxOutputRate", ref maxOutputRate)
                 || !TryReadOptionalFloat(moduleNode, "chargeRate", ref chargeRate)
-                || !TryReadOptionalFloat(moduleNode, "chargeDecayRate", ref chargeDecayRate)
-                || !TryReadOptionalBool(moduleNode, "chargingRequired", ref chargingRequired)
-                || !TryReadOptionalBool(moduleNode, "passiveConsumption", ref passiveConsumption))
+                || !TryReadOptionalFloat(moduleNode, "chargeDecayRate", ref chargeDecayRate))
             {
-                KShared.LogError("Advanced storage has a malformed numeric or Boolean setting.",
+                KShared.LogError("Malformed numeric value!",
+                    "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
+                _fatalConfigError = true;
+                return;
+            }
+            if (!TryReadOptionalBool(moduleNode, "chargingRequired", ref chargingRequired))
+            {
+                KShared.LogError($"Malformed chargingRequired value! ({chargingRequired})",
+                    "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
+                _fatalConfigError = true;
+                return;
+            }
+            if (!TryReadOptionalBool(moduleNode, "passiveConsumption", ref passiveConsumption))
+            {
+                KShared.LogError($"Malformed passiveConsumption value! ({passiveConsumption})",
                     "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
                 _fatalConfigError = true;
                 return;
             }
 
-            if (float.IsNaN(maximumResources) || float.IsInfinity(maximumResources) || maximumResources <= 0f
-                || float.IsNaN(chargeRate) || float.IsInfinity(chargeRate) || chargeRate < 0f
-                || float.IsNaN(chargeDecayRate) || float.IsInfinity(chargeDecayRate) || chargeDecayRate < 0f)
+            if (!KShared.IsFinitePositive(maximumResources))
             {
-                KShared.LogError("Advanced storage has invalid capacity or charge-rate settings.",
+                KShared.LogError($"Invalid maximum resources value! ({maximumResources})",
                     "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
                 _fatalConfigError = true;
                 return;
             }
-            if (float.IsNaN(maxInputRate) || float.IsInfinity(maxInputRate)
-                || float.IsNaN(maxOutputRate) || float.IsInfinity(maxOutputRate))
+            if (!KShared.IsFiniteNonNegative(chargeRate))
             {
-                KShared.LogError("Advanced storage has invalid transfer-rate settings.",
+                KShared.LogError($"Invalid charge rate value! ({chargeRate})",
                     "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
                 _fatalConfigError = true;
                 return;
             }
-
-
-            if (chargingRequired && chargeRate <= 0f)
+            if (!KShared.IsFiniteNonNegative(chargeDecayRate))
             {
-                KShared.LogError("chargingRequired=true requires a finite positive chargeRate.",
+                KShared.LogError($"Invalid charge decay rate value! ({chargeDecayRate})",
+                    "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
+                _fatalConfigError = true;
+                return;
+            }
+			
+            if (!KShared.IsFiniteF(maxInputRate))
+            {
+                KShared.LogError($"Invalid input transfer rate! ({maxInputRate})",
+                    "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
+                _fatalConfigError = true;
+                return;
+            }
+            if (!KShared.IsFiniteF(maxOutputRate))
+            {
+                KShared.LogError($"Invalid output transfer rate! ({maxOutputRate})",
                     "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
                 _fatalConfigError = true;
                 return;
@@ -405,11 +434,20 @@ namespace Khemistry
 
             if (!TryParseConsequence(moduleNode.GetValue("passiveUnsatisfiedResult"),
                     allowBoiloff: false, "passiveUnsatisfiedResult", "off",
-                    out _passiveUnsatisfiedResult)
-                || !TryParseConsequence(moduleNode.GetValue("filledUnpoweredResult"),
-                    allowBoiloff: true, "filledUnpoweredResult", "off",
-                    out _filledUnpoweredResult))
+                    out _passiveUnsatisfiedResult))
             {
+                KShared.LogError("Consequence parsing failed for passiveUnsatisfiedResult!",
+                    "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
+                _fatalConfigError = true;
+                return;
+            }
+
+            if (!TryParseConsequence(moduleNode.GetValue("filledUnpoweredResult"),
+                	allowBoiloff: true, "filledUnpoweredResult", "off",
+                	out _filledUnpoweredResult))
+            {
+                KShared.LogError("Consequence parsing failed for filledUnpoweredResult!",
+                    "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
                 _fatalConfigError = true;
                 return;
             }
@@ -432,7 +470,7 @@ namespace Khemistry
                             || PartResourceLibrary.Instance.GetDefinition(resourceName) == null)
                         {
                             invalidPassiveConfig = true;
-                            KShared.LogError("Unknown passive-consumption resource \"" + resourceName + "\".",
+                            KShared.LogError("Unknown passive consumption resource \"" + resourceName + "\"!",
                                 "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
                             continue;
                         }
@@ -441,17 +479,33 @@ namespace Khemistry
                 if (moduleNode.HasNode("PASSIVE_CON_AMOUNTS"))
                     foreach (string a in moduleNode.GetNode("PASSIVE_CON_AMOUNTS").GetValues("amount"))
                         if (float.TryParse(a, NumberStyles.Float, CultureInfo.InvariantCulture, out float tmp)
-                            && !float.IsNaN(tmp) && !float.IsInfinity(tmp) && tmp > 0f)
+                            && KShared.IsFinitePositive(tmp))
                             _passiveAmounts.Add(tmp);
                         else
                             invalidPassiveConfig = true;
-                if (invalidPassiveConfig || _passiveNames.Count == 0
-                    || _passiveNames.Count != _passiveAmounts.Count)
+                if (invalidPassiveConfig)
                 {
-                    KShared.LogError("PASSIVE_CON_NAMES and PASSIVE_CON_AMOUNTS must contain equal numbers of known, non-empty resource names and finite positive amounts.",
+                    KShared.LogError("An error occured while loading PASSIVE_CON_NAMES and/or PASSIVE_CON_AMOUNTS!",
                         "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
-                    _fatalConfigError = true;
-                    return;
+                    _fatalConfigError = true; return;
+                }
+				if (_passiveNames.Count == 0)
+                {
+                    KShared.LogError("No PASSIVE_CON_NAMES were loaded!",
+                        "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
+                    _fatalConfigError = true; return;
+                }
+				if (_passiveAmounts.Count == 0)
+                {
+                    KShared.LogError("No PASSIVE_CON_AMOUNTS were loaded!",
+                        "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
+                    _fatalConfigError = true; return;
+                }
+				if (_passiveNames.Count != _passiveAmounts.Count)
+                {
+                    KShared.LogError($"PASSIVE_CON_NAMES ({_passiveNames.Count}) and PASSIVE_CON_AMOUNTS ({_passiveAmounts.Count}) don't have the same number of loaded values!",
+                        "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
+                    _fatalConfigError = true; return;
                 }
             }
 
@@ -464,8 +518,7 @@ namespace Khemistry
                 {
                     KShared.LogError("Charging is required but no valid charging resource list was provided.",
                         "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
-                    _fatalConfigError = true;
-                    return;
+                    _fatalConfigError = true; return;
                 }
 
                 foreach (string resourceName in _chargeNames)
@@ -476,8 +529,7 @@ namespace Khemistry
 
                     KShared.LogError("Unknown charging resource \"" + resourceName + "\".",
                         "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
-                    _fatalConfigError = true;
-                    return;
+                    _fatalConfigError = true; return;
                 }
             }
 
@@ -485,13 +537,13 @@ namespace Khemistry
             {
                 KShared.LogError("Unknown storageType \"" + storageType + "\".",
                     "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
-                _fatalConfigError = true;
-                return;
+                _fatalConfigError = true; return;
             }
 
             activeResource = activeResource?.Trim() ?? "";
             if ((storageType == "single" || storageType == "multi") && string.IsNullOrEmpty(activeResource))
-                if (_supportedResources.Count > 0) activeResource = _supportedResources[0];
+                if (_supportedResources.Count > 0)
+					activeResource = _supportedResources[0];
             if ((storageType == "single" || storageType == "multi")
                 && !_supportedResources.Contains(activeResource))
                 activeResource = _supportedResources[0];
