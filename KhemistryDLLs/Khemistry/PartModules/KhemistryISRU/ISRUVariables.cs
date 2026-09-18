@@ -147,6 +147,13 @@ namespace Khemistry
 
         protected KhemistryISRURecipe _activeRecipe = null;
 
+        // Player-selected values are kept per recipe so two recipes may safely reuse the
+        // same SETTING var. These are serialized through RECIPE_SETTING_VALUES.
+        protected readonly Dictionary<string, Dictionary<string, double>>
+            _recipeSettingValues =
+                new Dictionary<string, Dictionary<string, double>>(
+                    System.StringComparer.Ordinal);
+
         // Parallel to _activeRecipe._passiveInputs; serialized through PASSIVE_INPUT_STATE.
         protected readonly List<double> _passiveTimers = new List<double>();
 

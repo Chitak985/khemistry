@@ -1,6 +1,7 @@
 ﻿using KSP.UI.Screens;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using UnityEngine;
 
 namespace Khemistry
@@ -42,11 +43,15 @@ namespace Khemistry
             _selectorVisible = false;
             _kcoSelectorVisible = false;
             _amountVisible = false;
+            _recipeSettingsVisible = false;
             _depositsVisible = false;
             _selectorCallback = null;
             _amountCallback = null;
+            _recipeSettingsCallback = null;
             _selectorOptions = null;
             _selectorResources = null;
+            _recipeSettings.Clear();
+            _recipeSettingWorkingValues.Clear();
             CloseContentsWindows();
         }
 
@@ -200,6 +205,14 @@ namespace Khemistry
                     _selectorTitle,
                     HighLogic.Skin.window);
 
+            if (_recipeSettingsVisible)
+                _recipeSettingsRect = GUILayout.Window(
+                    _recipeSettingsWindowId,
+                    _recipeSettingsRect,
+                    DrawRecipeSettingsWindow,
+                    _recipeSettingsTitle,
+                    HighLogic.Skin.window);
+
             if (_depositsVisible)
                 _depositsRect = GUILayout.Window(
                     _depositsWindowId,
@@ -259,6 +272,105 @@ namespace Khemistry
             GUILayout.EndHorizontal();
             GUI.DragWindow();
         }
+
+        public void ShowRecipeSettings(string title,
+            IEnumerable<KhemistryISRURecipe.RecipeSetting> settings,
+            IDictionary<string, double> values,
+            Action<Dictionary<string, double>> onDone)
+        {
+            _recipeSettingsTitle = title ?? "Recipe Parameters";
+            _recipeSettings = settings == null
+                ? new List<KhemistryISRURecipe.RecipeSetting>()
+                : new List<KhemistryISRURecipe.RecipeSetting>(settings);
+            _recipeSettingWorkingValues =
+                new Dictionary<string, double>(StringComparer.Ordinal);
+            foreach (KhemistryISRURecipe.RecipeSetting setting in _recipeSettings)
+            {
+                double value = setting.defaultValue;
+                if (values != null && values.TryGetValue(setting.variable,
+                        out double supplied))
+                    value = supplied;
+                _recipeSettingWorkingValues[setting.variable] = setting.Clamp(value);
+            }
+            _recipeSettingsCallback = onDone;
+            _recipeSettingsScroll = Vector2.zero;
+            _recipeSettingsRect = new Rect(
+                (Screen.width - _recipeSettingsRect.width) / 2f,
+                (Screen.height - _recipeSettingsRect.height) / 2f,
+                _recipeSettingsRect.width,
+                _recipeSettingsRect.height);
+            _recipeSettingsVisible = true;
+        }
+
+        private void DrawRecipeSettingsWindow(int windowId)
+        {
+            GUIStyle centeredLabel = new GUIStyle(HighLogic.Skin.label)
+            {
+                alignment = TextAnchor.MiddleCenter
+            };
+            _recipeSettingsScroll = GUILayout.BeginScrollView(
+                _recipeSettingsScroll, HighLogic.Skin.scrollView,
+                GUILayout.Height(330f));
+            foreach (KhemistryISRURecipe.RecipeSetting setting in _recipeSettings)
+            {
+                if (!_recipeSettingWorkingValues.TryGetValue(setting.variable,
+                        out double current))
+                    current = setting.defaultValue;
+                GUILayout.BeginHorizontal();
+                DrawRecipeSettingButton(setting, -setting.step * setting.multiplier2,
+                    ref current);
+                DrawRecipeSettingButton(setting, -setting.step * setting.multiplier1,
+                    ref current);
+                DrawRecipeSettingButton(setting, -setting.step, ref current);
+                GUILayout.FlexibleSpace();
+                GUILayout.Label(setting.name + ": " + FormatRecipeSettingNumber(current),
+                    centeredLabel, GUILayout.Width(220f));
+                GUILayout.FlexibleSpace();
+                DrawRecipeSettingButton(setting, setting.step, ref current);
+                DrawRecipeSettingButton(setting, setting.step * setting.multiplier1,
+                    ref current);
+                DrawRecipeSettingButton(setting, setting.step * setting.multiplier2,
+                    ref current);
+                GUILayout.EndHorizontal();
+                _recipeSettingWorkingValues[setting.variable] = current;
+            }
+            GUILayout.EndScrollView();
+
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Done", HighLogic.Skin.button))
+            {
+                _recipeSettingsVisible = false;
+                Action<Dictionary<string, double>> callback = _recipeSettingsCallback;
+                _recipeSettingsCallback = null;
+                callback?.Invoke(new Dictionary<string, double>(
+                    _recipeSettingWorkingValues, StringComparer.Ordinal));
+            }
+            if (GUILayout.Button("Cancel", HighLogic.Skin.button))
+            {
+                _recipeSettingsVisible = false;
+                _recipeSettingsCallback = null;
+            }
+            GUILayout.EndHorizontal();
+            GUI.DragWindow();
+        }
+
+        private static void DrawRecipeSettingButton(
+            KhemistryISRURecipe.RecipeSetting setting, double delta,
+            ref double current)
+        {
+            string label = delta < 0.0
+                ? "-" + FormatRecipeSettingNumber(Math.Abs(delta))
+                : "+" + FormatRecipeSettingNumber(delta);
+            if (!GUILayout.Button(label, HighLogic.Skin.button, GUILayout.Width(72f)))
+                return;
+            double changed = current + delta;
+            if (double.IsPositiveInfinity(changed)) changed = setting.max;
+            else if (double.IsNegativeInfinity(changed)) changed = setting.min;
+            current = setting.Clamp(changed);
+        }
+
+        private static string FormatRecipeSettingNumber(double value)
+            => value.ToString("G12", CultureInfo.InvariantCulture);
 
         private void DrawSelectorWindow(int windowId)
         {

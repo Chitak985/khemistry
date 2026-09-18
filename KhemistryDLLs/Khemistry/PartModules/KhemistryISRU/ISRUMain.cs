@@ -246,7 +246,9 @@ namespace Khemistry
             ///// Module type /////
             moduleType = IsPartEVAConfig(moduleNode)
                 ? "partEVA"
-                : KShared.GetStrValueFromCFG(moduleNode, "moduleType", "normal");
+                : IsKerbalEVAConfig(moduleNode)
+                    ? "kerbalEVA"
+                    : KShared.GetStrValueFromCFG(moduleNode, "moduleType", "normal");
             useSuitCell = bool.TryParse(KShared.GetStrValueFromCFG(moduleNode,
                 "useSuitCell", "false"), out bool useSuit) && useSuit;
 
@@ -522,6 +524,11 @@ namespace Khemistry
         protected void ApplyRecipe(KhemistryISRURecipe recipe, bool resetProgress = true)
         {
             _activeRecipe = recipe;
+            // A top-level recipe may opt a partEVA converter into the kerbal's suit cells.
+            // A MODULE-level value is merged into every loaded recipe and therefore remains
+            // the convenient way to set the same policy for the whole converter.
+            useSuitCell = moduleType == "partEVA" && recipe._useSuitCell;
+            EnsureRecipeSettingValues(recipe);
             ClearParallaxTargetCache();
             activeRecipeName = recipe._name;
             if (resetProgress || double.IsNaN(batchProgress) || double.IsInfinity(batchProgress)
@@ -719,8 +726,10 @@ namespace Khemistry
                 || node.HasNode("PASSIVE_INPUT_STATE")
                 || node.HasNode("PENDING_PASSIVE_REFUND")
                 || node.HasNode("ORPHANED_LEGACY_PASSIVE_STATE")
+                || node.HasNode("RECIPE_SETTING_VALUES")
                 || node.HasNode("MATERIAL_OUTPUT_BUFFER")))
                 _loadedAuthoritativePersistentState = true;
+            LoadRecipeSettingValues(node);
             _loadedPassiveStates.Clear();
             _opaquePassiveInputNodes.Clear();
             _pendingPassiveRefunds.Clear();
@@ -876,6 +885,8 @@ namespace Khemistry
         {
             base.OnSave(node);
             if (node == null) return;
+
+            SaveRecipeSettingValues(node);
 
             while (node.HasNode("PASSIVE_INPUT_STATE"))
                 node.RemoveNode("PASSIVE_INPUT_STATE");
@@ -1254,7 +1265,9 @@ namespace Khemistry
             ConfigNode precheckNode = KShared.FindModuleConfigNode(part, ConverterName, "KhemistryISRU");
             moduleType = IsPartEVAConfig(precheckNode)
                 ? "partEVA"
-                : KShared.GetStrValueFromCFG(precheckNode, "moduleType", "normal");
+                : IsKerbalEVAConfig(precheckNode)
+                    ? "kerbalEVA"
+                    : KShared.GetStrValueFromCFG(precheckNode, "moduleType", "normal");
 
             if (moduleType == "partEVA")
             {
@@ -1378,6 +1391,12 @@ namespace Khemistry
             ApplyShowRule(Events["SwitchRecipe"],
                 showPAW: !isRunning && recipes.Count > 1 && _controlsShowPAW,
                 showEVA: !isRunning && recipes.Count > 1 && _controlsShowEVA);
+
+            ApplyShowRule(Events["ChangeRecipeParameters"],
+                showPAW: !isRunning && _activeRecipe != null
+                    && _activeRecipe._settings.Count > 0 && _controlsShowPAW,
+                showEVA: !isRunning && _activeRecipe != null
+                    && _activeRecipe._settings.Count > 0 && _controlsShowEVA);
         }
 
         /// <summary>
@@ -1737,19 +1756,24 @@ namespace Khemistry
         /// </summary>
         protected bool RunBatchCycle(double dt)
         {
-            // Reflects pre-tick progress for every early-return branch below (converter is
-            // "on" but may be paused this tick); recomputed again once progress actually advances.
-            progressDisplay = FormatProgress(batchProgress,
-                resolvedRecipeTime > 0.0 ? resolvedRecipeTime : _activeRecipe._recipeTime);
-
             KhemistryISRUBiomeConfig biomeConfig = _activeRecipe.GetBiomeConfig(_runtimeData.planet, _runtimeData.biome);
             if (biomeConfig == null)
             {
+                progressDisplay = FormatProgress(batchProgress,
+                    resolvedRecipeTime > 0.0
+                        ? resolvedRecipeTime : _activeRecipe._recipeTime);
                 statusDisplay = "ERROR, please report this to the dev with the KSP.log.";
                 KShared.LogError($"Biome config is null for recipe \"{_activeRecipe._name}\" on planet \"{_runtimeData.planet}\" in biome \"{_runtimeData.biome}\"!",
                     "KhemistryISRU/RunBatchCycle");
                 return false;
             }
+
+            // Reflect pre-tick progress for every early-return branch below (converter is
+            // "on" but may be paused this tick). speedMul is a duration multiplier, so it
+            // must also be reflected before the timing loop advances.
+            double previewRecipeTime = (resolvedRecipeTime > 0.0
+                ? resolvedRecipeTime : _activeRecipe._recipeTime) * biomeConfig.speedMul;
+            progressDisplay = FormatProgress(batchProgress, previewRecipeTime);
 
             if (CheckBiomeConfig(biomeConfig))
                 return false;
@@ -1829,10 +1853,12 @@ namespace Khemistry
                 }
                 resolvedRecipeTime = newlyResolvedTime;
             }
-            double effectiveRecipeTime = resolvedRecipeTime;
-            double speed = biomeConfig.speedMul;
+            double recipeTimeMultiplier = biomeConfig.speedMul;
+            double effectiveRecipeTime = resolvedRecipeTime * recipeTimeMultiplier;
             if (double.IsNaN(dt) || double.IsInfinity(dt) || dt <= 0.0
-                || double.IsNaN(speed) || double.IsInfinity(speed) || speed <= 0.0
+                || double.IsNaN(recipeTimeMultiplier)
+                || double.IsInfinity(recipeTimeMultiplier)
+                || recipeTimeMultiplier <= 0.0
                 || double.IsNaN(effectiveRecipeTime) || double.IsInfinity(effectiveRecipeTime)
                 || effectiveRecipeTime <= 0.0)
             {
@@ -1879,18 +1905,29 @@ namespace Khemistry
                     if (remainingDt > 0.0)
                     {
                         if (!TryResolveRecipeTime(biomeConfig,
-                                out effectiveRecipeTime))
+                                out double newlyResolvedTime))
                         {
                             statusDisplay = "Recipe time inputs unavailable";
                             progressDisplay = "0%";
                             return performedWork;
                         }
-                        resolvedRecipeTime = effectiveRecipeTime;
+                        resolvedRecipeTime = newlyResolvedTime;
+                        effectiveRecipeTime = newlyResolvedTime * recipeTimeMultiplier;
+                        if (double.IsNaN(effectiveRecipeTime)
+                            || double.IsInfinity(effectiveRecipeTime)
+                            || effectiveRecipeTime <= 0.0)
+                        {
+                            statusDisplay = "ERROR: invalid recipe timing, see log";
+                            KShared.LogError("Converter \"" + ConverterName
+                                + "\": recipeTime multiplied by speedMul is non-finite or non-positive.",
+                                "KhemistryISRU/RunBatchCycle");
+                            return performedWork;
+                        }
                     }
                     continue;
                 }
 
-                double secondsToBoundary = (effectiveRecipeTime - batchProgress) / speed;
+                double secondsToBoundary = effectiveRecipeTime - batchProgress;
                 if (double.IsNaN(secondsToBoundary) || double.IsInfinity(secondsToBoundary)
                     || secondsToBoundary <= 0.0)
                 {
@@ -1908,7 +1945,7 @@ namespace Khemistry
 
                 batchProgress = reachesBoundary
                     ? effectiveRecipeTime
-                    : batchProgress + step * speed;
+                    : batchProgress + step;
                 if (step > 0.0) performedWork = true;
                 if (batchProgress > effectiveRecipeTime) batchProgress = effectiveRecipeTime;
                 remainingDt -= step;

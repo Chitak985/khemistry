@@ -195,16 +195,19 @@ namespace Khemistry
             
             foreach (ConfigNode supportedSNode in node.GetNodes("SUPPORTED_RESOURCES_SINGULAR"))
             {
-                var tmp = new HashSet<string>(StringComparer.Ordinal);
                 foreach (string name in supportedSNode.GetValues("name"))
                 {
                     string trimmed = name?.Trim();
                     if (!string.IsNullOrEmpty(trimmed))
                     {
-                        tmp.Clear();
-                        tmp.Add(trimmed);
-                        _supportedResourceGroups.Add(tmp);
-                        SupportedResources.UnionWith(tmp);
+                        // Each entry must be a different set. Reusing and clearing one set
+                        // made all earlier groups change along with the final entry.
+                        var singularGroup = new HashSet<string>(StringComparer.Ordinal)
+                        {
+                            trimmed
+                        };
+                        _supportedResourceGroups.Add(singularGroup);
+                        SupportedResources.UnionWith(singularGroup);
                     }
                 }
             }

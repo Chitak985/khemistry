@@ -174,7 +174,8 @@ namespace Khemistry
                 output.usesParams = output.parameters.Count > 0;
                 output.inputMaterialResolved =
                     KhemistryISRURecipe.MaterialOutputUsesInputMaterialValues(template)
-                    || KhemistryISRURecipe.MaterialOutputUsesOutputMaterialValues(template);
+                    || KhemistryISRURecipe.MaterialOutputUsesOutputMaterialValues(template)
+                    || KhemistryISRURecipe.MaterialOutputUsesSettingValues(template);
                 if (!string.IsNullOrEmpty(output.id))
                 {
                     if (!TryCreateOutputMaterialReferenceValue(output, definition,
@@ -257,6 +258,8 @@ namespace Khemistry
             recipeTime = 0.0;
             if (_activeRecipe == null) return false;
             string expression = _activeRecipe._recipeTimeExpression;
+            if (!TryResolveSettingReferences(expression, "recipeTime", out expression))
+                return false;
             if (!KhemistryISRURecipe.ContainsInputMaterialValue(expression)
                 && !KhemistryISRURecipe.ContainsOutputMaterialValue(expression))
                 return KMathExpr.TryInterpolateNumber(expression, out recipeTime,
@@ -318,7 +321,31 @@ namespace Khemistry
             return TryResolveInputMaterialReferences(value, inputs, numeric, location,
                     out resolved)
                 && TryResolveOutputMaterialReferences(resolved, outputs, numeric, location,
-                    out resolved);
+                    out resolved)
+                && TryResolveSettingReferences(resolved, location, out resolved);
+        }
+
+        private bool TryResolveSettingReferences(string value, string location,
+            out string resolved)
+        {
+            resolved = value;
+            if (!_activeRecipe.TryGetSettingValueReferences(value,
+                    out List<KhemistryISRURecipe.SettingValueReference> references,
+                    out string referenceError))
+            {
+                KShared.LogError("Converter \"" + ConverterName + "\": "
+                    + referenceError, "KhemistryISRU/TryResolveSettingReferences");
+                return false;
+            }
+            for (int index = references.Count - 1; index >= 0; index--)
+            {
+                KhemistryISRURecipe.SettingValueReference reference = references[index];
+                string replacement = GetActiveRecipeSettingValue(reference.setting)
+                    .ToString("R", CultureInfo.InvariantCulture);
+                resolved = resolved.Remove(reference.start, reference.length)
+                    .Insert(reference.start, replacement);
+            }
+            return true;
         }
 
         private bool TryResolveOutputMaterialReferences(string value,
@@ -523,7 +550,8 @@ namespace Khemistry
         {
             if (!saved.inputMaterialResolved
                 || !(KhemistryISRURecipe.MaterialOutputUsesInputMaterialValues(template)
-                    || KhemistryISRURecipe.MaterialOutputUsesOutputMaterialValues(template))
+                    || KhemistryISRURecipe.MaterialOutputUsesOutputMaterialValues(template)
+                    || KhemistryISRURecipe.MaterialOutputUsesSettingValues(template))
                 || saved.name != template.name
                 || !InputMaterialTemplateStringMatches(template.shape, saved.shape)
                 || !InputMaterialTemplateStringMatches(template.size, saved.size)
@@ -593,6 +621,7 @@ namespace Khemistry
 
         private static bool ContainsAnyMaterialValue(string value)
             => KhemistryISRURecipe.ContainsInputMaterialValue(value)
-                || KhemistryISRURecipe.ContainsOutputMaterialValue(value);
+                || KhemistryISRURecipe.ContainsOutputMaterialValue(value)
+                || KhemistryISRURecipe.ContainsSettingValue(value);
     }
 }

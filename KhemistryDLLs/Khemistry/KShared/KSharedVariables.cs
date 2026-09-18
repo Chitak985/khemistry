@@ -31,6 +31,18 @@ namespace Khemistry
         private Rect _amountRect = new Rect(0, 0, 320, 130);
         private int _amountWindowId;
 
+        // Recipe settings selector GUI
+        private bool _recipeSettingsVisible = false;
+        private Vector2 _recipeSettingsScroll = Vector2.zero;
+        private string _recipeSettingsTitle = "";
+        private List<KhemistryISRURecipe.RecipeSetting> _recipeSettings =
+            new List<KhemistryISRURecipe.RecipeSetting>();
+        private Dictionary<string, double> _recipeSettingWorkingValues =
+            new Dictionary<string, double>(StringComparer.Ordinal);
+        private Action<Dictionary<string, double>> _recipeSettingsCallback;
+        private Rect _recipeSettingsRect = new Rect(0, 0, 820, 430);
+        private int _recipeSettingsWindowId;
+
         // Nearby deposits toolbar GUI
         private bool _depositsVisible = false;
         private Rect _depositsRect = new Rect(0, 0, 380, 420);
@@ -74,7 +86,18 @@ namespace Khemistry
         // Enumerators
         public enum SituationCondition
         {
-            Any, Landed, Splashed, FlyingLow, FlyingHigh, SpaceLow, SpaceHigh, SubOrbital
+            Any,
+            Landed,
+            Splashed,
+            // KSP calls this Vessel.Situations.SPLASHED, but the public recipe syntax has
+            // always documented the more descriptive name SplashedDown. Keep both spellings
+            // as aliases so existing configs using Splashed continue to work.
+            SplashedDown = Splashed,
+            FlyingLow,
+            FlyingHigh,
+            SpaceLow,
+            SpaceHigh,
+            SubOrbital
         }
 
         /// <summary>

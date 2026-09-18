@@ -54,6 +54,20 @@
             return false;
         }
 
+        internal static bool IsKerbalEVAConfig(ConfigNode moduleNode)
+        {
+            if (moduleNode == null) return false;
+            string configuredModuleType = moduleNode.GetValue("moduleType")?.Trim();
+            if (string.Equals(configuredModuleType, "kerbalEVA",
+                    System.StringComparison.OrdinalIgnoreCase))
+                return true;
+            foreach (string value in moduleNode.GetValues("recipeType"))
+                if (string.Equals(value?.Trim(), "kerbalEVA",
+                        System.StringComparison.OrdinalIgnoreCase))
+                    return true;
+            return false;
+        }
+
         private bool IsEVAModuleType()
             => moduleType == "kerbalEVA" || moduleType == "partEVA";
 
@@ -76,6 +90,7 @@
             Events["StopConverter"].unfocusedRange = _maxInteractionDistance;
             Events["PerformMaintenance"].unfocusedRange = _maxInteractionDistance;
             Events["SwitchRecipe"].unfocusedRange = _maxInteractionDistance;
+            Events["ChangeRecipeParameters"].unfocusedRange = _maxInteractionDistance;
         }
 
         /// <summary>

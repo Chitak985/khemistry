@@ -62,6 +62,25 @@ namespace Khemistry
             public string scatterName;
         }
 
+        public struct RecipeSetting
+        {
+            public string name;
+            public string variable;
+            public double min;
+            public double max;
+            public double multiplier1;
+            public double multiplier2;
+            public double defaultValue;
+            public double step;
+
+            public double Clamp(double value)
+            {
+                if (double.IsNaN(value) || double.IsInfinity(value))
+                    return defaultValue;
+                return Math.Max(min, Math.Min(max, value));
+            }
+        }
+
         public struct ResourceInputMaterial
         {
             public string id;
@@ -84,6 +103,7 @@ namespace Khemistry
         private readonly List<string> _declaredOutputMaterialIds = new List<string>();
         public readonly List<ParallaxScatterRequirement> _parallaxScatters =
             new List<ParallaxScatterRequirement>();
+        public readonly List<RecipeSetting> _settings = new List<RecipeSetting>();
         public double _recipeTime = 0;  // in seconds
         public string _recipeTimeExpression = "0";
         public double _biomeResourceScale = 1.0;
@@ -115,6 +135,7 @@ namespace Khemistry
         ///// Controls /////
         public bool _controlsShowPAW = true;
         public bool _controlsShowEVA = false;
+        public bool _useSuitCell = false;
 
         public ConfigNode mainNode = new ConfigNode();
 
@@ -131,17 +152,18 @@ namespace Khemistry
             {
                 bool configurationError = false;
 
-                _name = KShared.GetStrValueFromCFG(node, "name", ConverterName)?.Trim();
+                _name = node?.GetValue("name")?.Trim();
                 if (string.IsNullOrEmpty(_name))
                 {
                     _name = "Invalid recipe";
                     configurationError = true;
-                    KShared.LogError("A KhemistryISRU recipe has an empty name.",
+                    KShared.LogError("A KhemistryISRU recipe is missing its required name.",
                         "KhemistryISRURecipe/constructor");
                 }
 
                 _recipeTypes.Clear();
                 AddTrimmedDistinct(_recipeTypes, node.GetValues("recipeType"));
+                if (_recipeTypes.Count == 0) _recipeTypes.Add("NONE");
                 _recipeSubtypes.Clear();
                 AddTrimmedDistinct(_recipeSubtypes, node.GetValues("recipeSubtype"));
                 if (_recipeSubtypes.Count == 0 && node.HasValue("recipeSubype"))
@@ -151,8 +173,10 @@ namespace Khemistry
                         + "\" uses legacy misspelling \"recipeSubype\"; use \"recipeSubtype\".",
                         "KhemistryISRURecipe/constructor");
                 }
+                if (_recipeSubtypes.Count == 0) _recipeSubtypes.Add("NONE");
                 _recipeSubsubtypes.Clear();
                 AddTrimmedDistinct(_recipeSubsubtypes, node.GetValues("recipeSubsubtype"));
+                if (_recipeSubsubtypes.Count == 0) _recipeSubsubtypes.Add("NONE");
                 _depositConditions.Clear();
                 foreach (string condition in node.GetValues("depositCondition"))
                 {
@@ -179,6 +203,62 @@ namespace Khemistry
                     _parallaxScatters.Add(new ParallaxScatterRequirement
                     {
                         scatterName = scatterName
+                    });
+                }
+
+                ///// Player-adjustable recipe settings /////
+                _settings.Clear();
+                HashSet<string> settingVariables = new HashSet<string>(StringComparer.Ordinal);
+                foreach (ConfigNode settingNode in node.GetNodes("SETTING"))
+                {
+                    string settingName = settingNode.GetValue("name")?.Trim();
+                    string variable = settingNode.GetValue("var")?.Trim();
+                    double min = 0.0;
+                    double max = 100.0;
+                    double multiplier1 = 10.0;
+                    double multiplier2 = 100.0;
+                    double step = 1.0;
+                    bool validNumbers = TryReadOptionalDouble(settingNode, "min", 0.0,
+                            out min)
+                        && TryReadOptionalDouble(settingNode, "max", 100.0,
+                            out max)
+                        && TryReadOptionalDouble(settingNode, "mul1", 10.0,
+                            out multiplier1)
+                        && TryReadOptionalDouble(settingNode, "mul2", 100.0,
+                            out multiplier2)
+                        && TryReadOptionalDouble(settingNode, "step", 1.0,
+                            out step);
+                    double defaultValue = min;
+                    validNumbers = validNumbers
+                        && TryReadOptionalDouble(settingNode, "default", min,
+                            out defaultValue);
+                    bool valid = !string.IsNullOrEmpty(settingName)
+                        && !string.IsNullOrEmpty(variable)
+                        && Regex.IsMatch(variable, "^[A-Za-z0-9]+$")
+                        && settingVariables.Add(variable)
+                        && validNumbers && max >= min && step > 0.0
+                        && multiplier1 > 0.0 && multiplier2 > 0.0
+                        && defaultValue >= min && defaultValue <= max;
+                    if (!valid)
+                    {
+                        configurationError = true;
+                        KShared.LogError("Recipe \"" + _name
+                            + "\": SETTING requires a non-empty name, a unique alphanumeric var, "
+                            + "finite min/max/default values with min <= default <= max, and "
+                            + "finite positive step/mul1/mul2 values; entry skipped.",
+                            "KhemistryISRURecipe/constructor");
+                        continue;
+                    }
+                    _settings.Add(new RecipeSetting
+                    {
+                        name = settingName,
+                        variable = variable,
+                        min = min,
+                        max = max,
+                        multiplier1 = multiplier1,
+                        multiplier2 = multiplier2,
+                        defaultValue = defaultValue,
+                        step = step
                     });
                 }
 
@@ -254,10 +334,12 @@ namespace Khemistry
                         string planetName = KShared.GetStrValueFromCFG(planetNode, "name", "ALL")?.Trim();
                         if (string.IsNullOrEmpty(planetName)) planetName = "ALL";
 
-                        if (!planetNode.HasNode("BIOME_CONFIG"))
+                        ConfigNode[] biomeNodes = planetNode.GetNodes("BIOME_CONFIG");
+                        if (biomeNodes.Length == 0)
                         {
-                            KShared.LogNoNode("BIOME_CONFIG", "Converter \"" + ConverterName + "\": Recipe \"" + _name + "\" ", "KhemistryISRURecipe/constructor");
-                            continue;
+                            ConfigNode defaultBiome = new ConfigNode("BIOME_CONFIG");
+                            defaultBiome.AddValue("name", "ALL");
+                            biomeNodes = new[] { defaultBiome };
                         }
 
                         if (!_planetConfigs.TryGetValue(planetName, out Dictionary<string, KhemistryISRUBiomeConfig> biomeDict))
@@ -266,7 +348,7 @@ namespace Khemistry
                             _planetConfigs.Add(planetName, biomeDict);
                         }
 
-                        foreach (ConfigNode biomeNode in planetNode.GetNodes("BIOME_CONFIG"))
+                        foreach (ConfigNode biomeNode in biomeNodes)
                         {
                             KhemistryISRUBiomeConfig biomeConfig = new KhemistryISRUBiomeConfig(
                                 biomeNode, ConverterName, _name);
@@ -564,6 +646,7 @@ namespace Khemistry
                         ? matNode.GetValue("amount")?.Trim() : "1";
                     bool amountIsExpression = ContainsInputMaterialValue(amountExpression)
                         || ContainsOutputMaterialValue(amountExpression)
+                        || ContainsSettingValue(amountExpression)
                         || KMathExpr.ContainsInterpolation(amountExpression);
                     bool validOutputAmount;
                     double amount = 1.0;
@@ -671,6 +754,15 @@ namespace Khemistry
                             KShared.LogError("Recipe \"" + _name + "\": OUTPUT_MATERIAL \""
                                 + matName + "\" has an invalid output-material reference: "
                                 + outputReferenceError, "KhemistryISRURecipe/constructor");
+                        }
+                        if (ContainsSettingValue(referencedValue)
+                            && !TryGetSettingValueReferences(referencedValue, out _,
+                                out string settingReferenceError))
+                        {
+                            validMaterialReferences = false;
+                            KShared.LogError("Recipe \"" + _name + "\": OUTPUT_MATERIAL \""
+                                + matName + "\" has an invalid setting reference: "
+                                + settingReferenceError, "KhemistryISRURecipe/constructor");
                         }
                     }
                     if (!validMaterialReferences)
@@ -798,6 +890,18 @@ namespace Khemistry
                 KShared.ParseShowRule(
                     KShared.GetStrValueFromCFG(node, "controlRules", "PAW"),
                     out _controlsShowPAW, out _controlsShowEVA, "controlRules", _name);
+
+                string useSuitCellValue = node.GetValue("useSuitCell");
+                if (!string.IsNullOrEmpty(useSuitCellValue)
+                    && !bool.TryParse(useSuitCellValue.Trim(), out _useSuitCell))
+                {
+                    configurationError = true;
+                    _useSuitCell = false;
+                    KShared.LogError("Recipe \"" + _name
+                        + "\" has an invalid useSuitCell value \""
+                        + useSuitCellValue + "\".",
+                        "KhemistryISRURecipe/constructor");
+                }
 
                 ///// Workers /////
                 _workersEngineers = (uint)Math.Max(0, KShared.GetIntValueFromCFG(node, "workersEngineers", 0));
@@ -1029,6 +1133,7 @@ namespace Khemistry
                 if (!ValidateMaterialReference(definition, output.name,
                         ContainsInputMaterialValue(output.shape)
                             || ContainsOutputMaterialValue(output.shape)
+                            || ContainsSettingValue(output.shape)
                             || KMathExpr.ContainsInterpolation(output.shape)
                             ? null : output.shape,
                         output.parameters?.Keys, "OUTPUT_MATERIAL", context))
@@ -1231,6 +1336,7 @@ namespace Khemistry
             copy._recipeSubsubtypes = _recipeSubsubtypes;
             copy._depositConditions.AddRange(_depositConditions);
             copy._parallaxScatters.AddRange(_parallaxScatters);
+            copy._settings.AddRange(_settings);
             copy._declaredOutputMaterialIds.AddRange(_declaredOutputMaterialIds);
             copy._chargingRequired = _chargingRequired;
             copy._chargeRate = _chargeRate;
@@ -1239,6 +1345,7 @@ namespace Khemistry
             copy._chargeAmounts.AddRange(_chargeAmounts);
             copy._controlsShowPAW = _controlsShowPAW;
             copy._controlsShowEVA = _controlsShowEVA;
+            copy._useSuitCell = _useSuitCell;
             copy._planetConfigs = _planetConfigs;
             copy._recipeTime = _recipeTime;
             copy._recipeTimeExpression = _recipeTimeExpression;
@@ -1529,13 +1636,91 @@ namespace Khemistry
             return true;
         }
 
+        internal sealed class SettingValueReference
+        {
+            internal int start;
+            internal int length;
+            internal RecipeSetting setting;
+        }
+
+        internal static bool ContainsSettingValue(string value)
+            => value?.IndexOf("(SETTING:", StringComparison.OrdinalIgnoreCase) >= 0;
+
+        internal bool TryGetSettingValueReferences(string value,
+            out List<SettingValueReference> references, out string error)
+        {
+            references = new List<SettingValueReference>();
+            error = null;
+            if (string.IsNullOrEmpty(value)) return true;
+
+            int searchStart = 0;
+            while (true)
+            {
+                int tokenStart = value.IndexOf("(SETTING:", searchStart,
+                    StringComparison.OrdinalIgnoreCase);
+                if (tokenStart < 0) return true;
+                int variableStart = tokenStart + "(SETTING:".Length;
+                int tokenEnd = value.IndexOf(')', variableStart);
+                if (tokenEnd < 0)
+                {
+                    error = "Setting reference beginning at position " + tokenStart
+                        + " has no closing ')'.";
+                    return false;
+                }
+
+                string variable = value.Substring(variableStart,
+                    tokenEnd - variableStart).Trim();
+                RecipeSetting? matched = null;
+                foreach (RecipeSetting setting in _settings)
+                    if (string.Equals(setting.variable, variable,
+                            StringComparison.Ordinal))
+                    {
+                        matched = setting;
+                        break;
+                    }
+                if (!matched.HasValue)
+                {
+                    error = "(SETTING:" + variable
+                        + ") does not name a SETTING var defined by this recipe.";
+                    return false;
+                }
+
+                references.Add(new SettingValueReference
+                {
+                    start = tokenStart,
+                    length = tokenEnd - tokenStart + 1,
+                    setting = matched.Value
+                });
+                searchStart = tokenEnd + 1;
+            }
+        }
+
+        internal bool TryReplaceSettingValuesForValidation(string value,
+            out string resolved, out string error)
+        {
+            resolved = value;
+            if (!TryGetSettingValueReferences(value,
+                    out List<SettingValueReference> references, out error))
+                return false;
+            for (int index = references.Count - 1; index >= 0; index--)
+            {
+                SettingValueReference reference = references[index];
+                resolved = resolved.Remove(reference.start, reference.length)
+                    .Insert(reference.start, reference.setting.defaultValue.ToString(
+                        "R", CultureInfo.InvariantCulture));
+            }
+            return true;
+        }
+
         internal bool TryReplaceMaterialValuesForValidation(string value,
             out string resolved, out string error)
         {
             if (!TryReplaceInputMaterialValuesForValidation(value, out resolved, out error))
                 return false;
-            return TryReplaceOutputMaterialValuesForValidation(resolved, out resolved,
-                out error);
+            if (!TryReplaceOutputMaterialValuesForValidation(resolved, out resolved,
+                    out error))
+                return false;
+            return TryReplaceSettingValuesForValidation(resolved, out resolved, out error);
         }
 
         internal static bool IsBuiltInOutputMaterialField(string field)
@@ -1596,6 +1781,19 @@ namespace Khemistry
                     .Any(pair => ContainsOutputMaterialValue(pair.Value));
         }
 
+        internal static bool MaterialOutputUsesSettingValues(
+            ResourceOutputMaterial output)
+        {
+            return ContainsSettingValue(output.shape)
+                || ContainsSettingValue(output.size)
+                || ContainsSettingValue(output.amountExpression)
+                || ContainsSettingValue(output.outVolume)
+                || ((IEnumerable<KeyValuePair<string, string>>)output.parameterAssignments
+                        ?? output.parameters
+                        ?? new Dictionary<string, string>())
+                    .Any(pair => ContainsSettingValue(pair.Value));
+        }
+
         internal static string ReplaceParallaxNumericValues(string value, string replacement)
         {
             if (value == null) return null;
@@ -1621,7 +1819,7 @@ namespace Khemistry
         private static readonly HashSet<string> _moduleOnlyValueKeys = new HashSet<string>
         {
             "name", "ConverterName", "StartActionName", "StopActionName",
-            "moduleType", "useSuitCell",
+            "moduleType",
             "recipeType", "recipeSubtype", "recipeSubype", "recipeSubsubtype",
             "recipeMultiplier", "maxInteractionDistance", "maxDisplayDistance",
             "workersCrewSamePart"
@@ -1637,7 +1835,7 @@ namespace Khemistry
         private static readonly HashSet<string> _keyedByNameNodeKeys = new HashSet<string>
         {
             "INPUT_RESOURCE", "OUTPUT_RESOURCE", "PINPUT_RESOURCE", "INPUT_MATERIAL", "OUTPUT_MATERIAL",
-            "PARALLAX_SCATTER"
+            "PARALLAX_SCATTER", "SETTING"
         };
 
         // Node types that hold a single node full of repeated values (e.g. CHARGE_CON_NAMES holding
@@ -1709,6 +1907,8 @@ namespace Khemistry
         {
             if (nodeName == "PARALLAX_SCATTER")
                 return node.GetValue("scatter") ?? node.GetValue("name");
+            if (nodeName == "SETTING")
+                return node.GetValue("var");
             return node.GetValue("name");
         }
 

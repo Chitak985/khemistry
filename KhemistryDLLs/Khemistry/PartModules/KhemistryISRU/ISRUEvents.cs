@@ -141,12 +141,28 @@ namespace Khemistry
                     state = KShared.ChargablePartState.On;
                 UpdateEventVisibility();
                 UpdateUI();
+                ShowRecipeSettings(_activeRecipe);
 
                 ScreenMessages.PostScreenMessage(new ScreenMessage(
                     "Switched to recipe \"" + _activeRecipe._name + "\".", 5f, ScreenMessageStyle.UPPER_CENTER));
                 KShared.Log("Converter \"" + ConverterName + "\" switched active recipe to \"" + _activeRecipe._name + "\".",
                     "KhemistryISRU/SwitchRecipe");
             });
+        }
+
+        [KSPEvent(guiActive = false, guiActiveEditor = false,
+                  guiName = "See/Change Parameters", groupName = "khemistryisru")]
+        public void ChangeRecipeParameters()
+        {
+            if (isRunning)
+            {
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "Converter \"" + ConverterName
+                    + "\": Stop the converter before changing recipe parameters.",
+                    5f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+            ShowRecipeSettings(_activeRecipe);
         }
 
         [KSPEvent(guiActive = false, guiActiveEditor = false, guiName = "Perform Maintenance",

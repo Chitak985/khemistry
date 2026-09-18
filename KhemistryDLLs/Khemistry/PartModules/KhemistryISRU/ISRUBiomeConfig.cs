@@ -26,11 +26,11 @@ namespace Khemistry
         /// <summary>Maximum operational G-force.</summary>
         public double maxOperatingG = double.MaxValue;
         /// <summary>Minimum operational G-force.</summary>
-        public double minOperatingG = double.MinValue;
+        public double minOperatingG = 0.0;
         /// <summary>Maximum survivable G-force.</summary>
         public double maxG = double.MaxValue;
         /// <summary>Minimum survivable G-force.</summary>
-        public double minG = double.MinValue;
+        public double minG = 0.0;
 
         /// <summary>Conditions where the recipe can operate in.</summary>
         public List<KShared.SituationCondition> situationOperating = new List<KShared.SituationCondition>();
@@ -45,11 +45,11 @@ namespace Khemistry
         /// <summary>Maximum operational pressure in kPa.</summary>
         public double maxOperatingPressure = double.MaxValue;
         /// <summary>Minimum operational pressure in kPa.</summary>
-        public double minOperatingPressure = double.MinValue;
+        public double minOperatingPressure = 0.0;
         /// <summary>Maximum survivable pressure in kPa.</summary>
         public double maxPressure = double.MaxValue;
         /// <summary>Minimum survivable pressure in kPa.</summary>
-        public double minPressure = double.MinValue;
+        public double minPressure = 0.0;
 
         /// <summary>How much to multiply passive consumption resource amounts by.</summary>
         public double passiveMultiplier = 1.0;
@@ -68,7 +68,7 @@ namespace Khemistry
         /// <summary>How much to output resource amounts by.</summary>
         public double outputMultiplier = 1.0;
 
-        /// <summary>How much to multiply recipe speed by.</summary>
+        /// <summary>How much to multiply recipeTime by.</summary>
         public double speedMul = 1.0;
 
         /// <summary>How much to multiply amount of pilot workers by.</summary>
@@ -102,9 +102,10 @@ namespace Khemistry
         public KhemistryISRUBiomeConfig(ConfigNode node, string ConverterName = "UNKNOWN",
             string recipeName = "UNKNOWN")
         {
-            if (node != null && node.HasValue("name"))
+            if (node != null)
             {
-                biomeName = node.GetValue("name")?.Trim();
+                biomeName = KShared.GetStrValueFromCFG(node, "name", "ALL")?.Trim();
+                if (string.IsNullOrEmpty(biomeName)) biomeName = "ALL";
 
                 // "disabled" is the documented/configured key. Keep "disable" as a
                 // backwards-compatible alias for older third-party recipes.
@@ -172,6 +173,21 @@ namespace Khemistry
                 maxOperatingPressure = KShared.GetDoubleValueFromCFG(node, "maxOperatingPressure", maxOperatingPressure);
                 minPressure = KShared.GetDoubleValueFromCFG(node, "minPressure", minPressure);
                 maxPressure = KShared.GetDoubleValueFromCFG(node, "maxPressure", maxPressure);
+
+                minOperatingG = ValidateNonNegative(minOperatingG, "minOperatingG",
+                    ConverterName);
+                maxOperatingG = ValidateNonNegative(maxOperatingG, "maxOperatingG",
+                    ConverterName);
+                minG = ValidateNonNegative(minG, "minG", ConverterName);
+                maxG = ValidateNonNegative(maxG, "maxG", ConverterName);
+                minOperatingPressure = ValidateNonNegative(minOperatingPressure,
+                    "minOperatingPressure", ConverterName);
+                maxOperatingPressure = ValidateNonNegative(maxOperatingPressure,
+                    "maxOperatingPressure", ConverterName);
+                minPressure = ValidateNonNegative(minPressure, "minPressure",
+                    ConverterName);
+                maxPressure = ValidateNonNegative(maxPressure, "maxPressure",
+                    ConverterName);
 
 
                 // Passive multipliers
@@ -250,9 +266,25 @@ namespace Khemistry
             }
             else
             {
-                KShared.LogNoValueInNode("BIOME_CONFIG", "name", "Converter \"" + ConverterName + "\": Recipe ", "KhemistryISRUBiomeConfig/constructor");
+                biomeName = "ALL";
+                KShared.LogError("Converter \"" + ConverterName
+                    + "\": Cannot load a null BIOME_CONFIG.",
+                    "KhemistryISRUBiomeConfig/constructor");
                 return;
             }
+        }
+
+        private double ValidateNonNegative(double value, string fieldName,
+            string converterName)
+        {
+            if (!double.IsNaN(value) && !double.IsInfinity(value) && value >= 0.0)
+                return value;
+
+            KShared.LogError(
+                "Converter \"" + converterName + "\": Biome config \"" + biomeName
+                + "\": " + fieldName + " cannot be negative; using 0.",
+                "KhemistryISRUBiomeConfig/constructor");
+            return 0.0;
         }
 
         private double ValidateMultiplier(double value, string fieldName, bool allowZero, string converterName)

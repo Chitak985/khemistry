@@ -29,6 +29,10 @@ namespace Khemistry
             public float chargePercent;
             public KShared.ChargablePartState state;
             public readonly List<string> recipeNames = new List<string>();
+            public readonly List<KhemistryISRURecipe.RecipeSetting> recipeSettings =
+                new List<KhemistryISRURecipe.RecipeSetting>();
+            public readonly Dictionary<string, double> recipeSettingValues =
+                new Dictionary<string, double>(StringComparer.Ordinal);
         }
 
         private void ResetInventoryPersistentState()
@@ -233,6 +237,10 @@ namespace Khemistry
                     state = state
                 };
                 info.recipeNames.AddRange(recipes.Select(recipe => recipe._name));
+                info.recipeSettings.AddRange(_activeRecipe._settings);
+                foreach (KeyValuePair<string, double> setting in
+                         GetRecipeSettingValuesSnapshot(_activeRecipe))
+                    info.recipeSettingValues[setting.Key] = setting.Value;
                 return info;
             }
             finally
@@ -303,6 +311,21 @@ namespace Khemistry
                         return true;
                 }
                 return false;
+            }
+            finally
+            {
+                EndInventorySession(snapshot);
+            }
+        }
+
+        internal bool SetInventoryRecipeSettings(KhemistryKerbal host,
+            StoredPart stored, ProtoPartModuleSnapshot snapshot, ConfigNode config,
+            IDictionary<string, double> values)
+        {
+            if (!BeginInventorySession(host, stored, snapshot, config)) return false;
+            try
+            {
+                return ApplyRecipeSettingValues(_activeRecipe, values);
             }
             finally
             {

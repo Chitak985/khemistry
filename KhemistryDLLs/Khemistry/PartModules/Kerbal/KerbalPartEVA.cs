@@ -181,6 +181,8 @@ namespace Khemistry
                 actions.Add("Start Converter");
             if (!info.isRunning && info.recipeNames.Count > 1)
                 actions.Add("Switch Recipe");
+            if (!info.isRunning && info.recipeSettings.Count > 0)
+                actions.Add("See/Change Parameters");
 
             string title = (info.converterName ?? "Converter") + " — "
                 + (info.activeRecipeName ?? "No recipe") + " — "
@@ -200,9 +202,17 @@ namespace Khemistry
                 KShared.Instance?.ShowSelector("Select recipe", choices, recipe =>
                 {
                     if (IsStoredPartCurrent(processor.stored))
-                        RunPartEVAProcessorAction(processor,
+                    {
+                        bool switched = RunPartEVAProcessorAction(processor,
                             KhemistryISRU.InventoryAction.SwitchRecipe, recipe);
+                        if (switched) ShowPartEVARecipeSettings(processor);
+                    }
                 });
+                return;
+            }
+            if (action == "See/Change Parameters")
+            {
+                ShowPartEVARecipeSettings(processor, info);
                 return;
             }
 
@@ -227,7 +237,7 @@ namespace Khemistry
             RunPartEVAProcessorAction(processor, selected);
         }
 
-        private void RunPartEVAProcessorAction(HeldPartEVAProcessor processor,
+        private bool RunPartEVAProcessorAction(HeldPartEVAProcessor processor,
             KhemistryISRU.InventoryAction action, string recipeName = null)
         {
             bool succeeded = processor.prefab.ExecuteInventoryAction(this,
@@ -237,6 +247,37 @@ namespace Khemistry
                 succeeded ? "Held converter updated."
                     : "That converter action is not available right now.",
                 4f, ScreenMessageStyle.UPPER_CENTER));
+            return succeeded;
+        }
+
+        private void ShowPartEVARecipeSettings(HeldPartEVAProcessor processor,
+            KhemistryISRU.InventoryProcessorInfo info = null)
+        {
+            if (!IsStoredPartCurrent(processor.stored)) return;
+            if (info == null)
+                info = processor.prefab.ReadInventoryInfo(this, processor.stored,
+                    processor.snapshot, processor.config);
+            if (info == null || info.recipeSettings.Count == 0) return;
+            string expectedRecipe = info.activeRecipeName;
+            KShared.Instance?.ShowRecipeSettings(
+                (expectedRecipe ?? "Recipe") + " Parameters",
+                info.recipeSettings, info.recipeSettingValues, values =>
+                {
+                    if (!IsStoredPartCurrent(processor.stored)) return;
+                    KhemistryISRU.InventoryProcessorInfo current = processor.prefab
+                        .ReadInventoryInfo(this, processor.stored,
+                            processor.snapshot, processor.config);
+                    bool saved = current != null && !current.isRunning
+                        && string.Equals(current.activeRecipeName, expectedRecipe,
+                            StringComparison.Ordinal)
+                        && processor.prefab.SetInventoryRecipeSettings(this,
+                            processor.stored, processor.snapshot, processor.config,
+                            values);
+                    ScreenMessages.PostScreenMessage(new ScreenMessage(
+                        saved ? "Held converter parameters saved."
+                            : "Those converter parameters could not be saved.",
+                        4f, ScreenMessageStyle.UPPER_CENTER));
+                });
         }
     }
 }

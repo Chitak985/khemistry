@@ -436,7 +436,7 @@ namespace Khemistry
         {
             SkipWhitespace(s, ref pos);
             if (pos >= s.Length)
-                KShared.LogError($"Unexpected end of expression! String: \"{s}\", position: {pos}", "KMathExpr/ParseRangePrimary");
+                throw new FormatException($"Unexpected end of expression at position {pos}.");
 
             if (s[pos] == '(')
             {
@@ -444,7 +444,7 @@ namespace Khemistry
                 ValueRange value = ParseRangeExpr(s, ref pos, vars);
                 SkipWhitespace(s, ref pos);
                 if (pos >= s.Length || s[pos] != ')')
-                    KShared.LogError($"Expected a closing ')'! String: \"{s}\", position: {pos}", "KMathExpr/ParseRangePrimary");
+                    throw new FormatException($"Expected a closing ')' at position {pos}.");
                 pos++;
                 return value;
             }
@@ -460,7 +460,7 @@ namespace Khemistry
                     int exponentStart = pos;
                     while (pos < s.Length && char.IsDigit(s[pos])) pos++;
                     if (pos == exponentStart)
-                        KShared.LogError($"Expected digits after exponent marker! String: \"{s}\", position: {pos}", "KMathExpr/ParseRangePrimary");
+                        throw new FormatException($"Expected digits after exponent marker at position {pos}.");
                 }
                 double number = double.Parse(s.Substring(start, pos - start),
                     CultureInfo.InvariantCulture);
@@ -479,27 +479,29 @@ namespace Khemistry
                 {
                     SkipWhitespace(s, ref pos);
                     if (pos >= s.Length || s[pos] != '(')
-                        KShared.LogError($"Expected '(' after Pow! String: \"{s}\", position: {pos}", "KMathExpr/ParseRangePrimary");
+                        throw new FormatException($"Expected '(' after Pow at position {pos}.");
                     pos++;
                     ValueRange baseRange = ParseRangeExpr(s, ref pos, vars);
                     SkipWhitespace(s, ref pos);
                     if (pos >= s.Length || s[pos] != ',')
-                        KShared.LogError($"Expected ',' in Pow(...)! String: \"{s}\", position: {pos}", "KMathExpr/ParseRangePrimary");
+                        throw new FormatException($"Expected ',' in Pow(...) at position {pos}.");
                     pos++;
                     ValueRange exponentRange = ParseRangeExpr(s, ref pos, vars);
                     SkipWhitespace(s, ref pos);
                     if (pos >= s.Length || s[pos] != ')')
-                        KShared.LogError($"Expected ')' to close Pow(...)! String: \"{s}\", position: {pos}", "KMathExpr/ParseRangePrimary");
+                        throw new FormatException($"Expected ')' to close Pow(...) at position {pos}.");
                     pos++;
                     return PowRange(baseRange, exponentRange);
                 }
 
                 if (vars.TryGetValue(identifier, out ValueRange variableValue))
                     return variableValue;
-                KShared.LogError($"Unknown identifier \"" + identifier + "\"! String: \"{s}\", position: {pos}.", "KMathExpr/ParseRangePrimary");
+                throw new FormatException("Unknown identifier \"" + identifier
+                    + "\" at position " + pos + ".");
             }
 
-            KShared.LogError($"Unexpected character '" + s[pos] + "' at position " + pos + "! String: \"{s}\".", "KMathExpr/ParseRangePrimary");
+            throw new FormatException("Unexpected character '" + s[pos]
+                + "' at position " + pos + ".");
         }
 
         private static ValueRange MultiplyRanges(ValueRange left, ValueRange right)
@@ -509,7 +511,7 @@ namespace Khemistry
             double c = left.Maximum * right.Minimum;
             double d = left.Maximum * right.Maximum;
             if (!KShared.IsFinite(a) || !KShared.IsFinite(b) || !KShared.IsFinite(c) || !KShared.IsFinite(d))
-                KShared.LogError($"Expression range overflowed! String: \"{s}\", position: {pos}.", "KMathExpr/MultiplyRanges");
+                throw new FormatException("Expression range overflowed.");
             return new ValueRange(Math.Min(Math.Min(a, b), Math.Min(c, d)),
                 Math.Max(Math.Max(a, b), Math.Max(c, d)));
         }
@@ -517,7 +519,7 @@ namespace Khemistry
         private static ValueRange DivideRanges(ValueRange numerator, ValueRange denominator)
         {
             if (denominator.Minimum <= 0.0 && denominator.Maximum >= 0.0)
-                KShared.LogError($"Expression can divide by zero! String: \"{s}\", position: {pos}.", "KMathExpr/DivideRanges");
+                throw new FormatException("Expression can divide by zero.");
             ValueRange reciprocal = MakeRange(1.0 / denominator.Maximum,
                 1.0 / denominator.Minimum);
             return MultiplyRanges(numerator, reciprocal);
@@ -529,25 +531,28 @@ namespace Khemistry
                 Math.Max(Math.Abs(exponentRange.Minimum), Math.Abs(exponentRange.Maximum)));
             if (Math.Abs(exponentRange.Maximum - exponentRange.Minimum)
                 > exponentScale * 1e-12)
-                KShared.LogError($"Pow with a variable exponent cannot be safely bounded! String: \"{s}\", position: {pos}.", "KMathExpr/PowRange");
+                throw new FormatException(
+                    "Pow with a variable exponent cannot be safely bounded.");
 
             double exponent = (exponentRange.Minimum + exponentRange.Maximum) * 0.5;
             if (!KShared.IsFinite(exponent))
-                KShared.LogError($"Pow exponent is not finite! String: \"{s}\", position: {pos}.", "KMathExpr/PowRange");
+                throw new FormatException("Pow exponent is not finite.");
             if (exponent == 0.0) return MakeRange(1.0, 1.0);
 
             double roundedExponent = Math.Round(exponent);
             bool integerExponent = exponent == roundedExponent;
             if (!integerExponent && baseRange.Minimum < 0.0)
-                KShared.LogError($"Pow can receive a negative base with a non-integer exponent! String: \"{s}\", position: {pos}.", "KMathExpr/PowRange");
+                throw new FormatException(
+                    "Pow can receive a negative base with a non-integer exponent.");
             if (exponent < 0.0 && baseRange.Minimum <= 0.0
                 && baseRange.Maximum >= 0.0)
-                KShared.LogError($"Pow can divide by zero for a negative exponent! String: \"{s}\", position: {pos}.", "KMathExpr/PowRange");
+                throw new FormatException(
+                    "Pow can divide by zero for a negative exponent.");
 
             double first = Math.Pow(baseRange.Minimum, exponent);
             double second = Math.Pow(baseRange.Maximum, exponent);
             if (!KShared.IsFinite(first) || !KShared.IsFinite(second))
-                KShared.LogError($"Pow range is not finite! String: \"{s}\", position: {pos}.", "KMathExpr/PowRange");
+                throw new FormatException("Pow range is not finite.");
 
             double minimum = Math.Min(first, second);
             double maximum = Math.Max(first, second);
@@ -561,7 +566,7 @@ namespace Khemistry
         private static ValueRange MakeRange(double first, double second)
         {
             if (!KShared.IsFinite(first) || !KShared.IsFinite(second))
-                KShared.LogError($"Expression range is not finite! String: \"{s}\", position: {pos}.", "KMathExpr/MakeRange");
+                throw new FormatException("Expression range is not finite.");
             return new ValueRange(Math.Min(first, second), Math.Max(first, second));
         }
     }
