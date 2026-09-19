@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Khemistry;
 
-static class Program
+static partial class Program
 {
     static int assertions;
     static void Equal(double expected, double actual, string message)
@@ -25,6 +25,16 @@ static class Program
         return (part, storage, converter);
     }
     static void Main()
+    {
+        // Report failures through the console without an unhandled-exception dialog.
+        try { Run(); }
+        catch (Exception exception)
+        {
+            Console.Error.WriteLine(exception);
+            Environment.ExitCode = 1;
+        }
+    }
+    static void Run()
     {
         PartResourceLibrary.Instance.definitions.Add(new PartResourceDefinition { name = "A", id = 1 });
         PartResourceLibrary.Instance.definitions.Add(new PartResourceDefinition { name = "B", id = 2 });
@@ -149,6 +159,7 @@ static class Program
         Equal(1, ReferenceEquals(converter.ResBroker, converter.ResConverter.Broker) ? 1 : 0, "processor bound to same broker");
         new KhemistryStockStorageBridge().FixedUpdate();
         Equal(1, converter.ResBroker is KhemistryStockResourceBroker ? 1 : 0, "bridge idempotent");
+        PassiveTests();
         Console.WriteLine(assertions + " assertions passed.");
     }
 }

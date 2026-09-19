@@ -226,6 +226,15 @@ namespace Khemistry
             return amount > 0.0 ? moved : -moved;
         }
 
+        internal double GetProcessorResourceAmount(StoredPart stored, string name, bool allowSuit)
+        {
+            double amount = stored != null && IsStoredPartCurrent(stored)
+                && GetCellModuleSnapshot(stored) != null ? ReadResourceAmountValue(stored, name) : 0;
+            if (allowSuit && HasFluidSuitCell && GetSuitCellDict().TryGetValue(name, out double suit))
+                amount += suit;
+            return amount;
+        }
+
         private void LoadConfigFromPartInfo()
         {
             KShared.Log("Called!", "KhemistryKerbal/LoadConfigFromPartInfo");

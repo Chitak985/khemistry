@@ -183,10 +183,14 @@ namespace Khemistry
                 actions.Add("Switch Recipe");
             if (!info.isRunning && info.recipeSettings.Count > 0)
                 actions.Add("See/Change Parameters");
+            if (info.hasRepairableMaintenance) actions.Add("Fix maintenance");
+            if (info.hasMaintenance) actions.Add("Auto maintenance fixing: "
+                + (info.autoMaintenanceFixing ? "On" : "Off"));
 
             string title = (info.converterName ?? "Converter") + " — "
                 + (info.activeRecipeName ?? "No recipe") + " — "
-                + (info.status ?? "Stopped") + " — " + info.progress;
+                + (info.status ?? "Stopped") + " — " + info.progress
+                + (info.hasMaintenance ? " — " + info.maintenance : "");
             KShared.Instance?.ShowSelector(title, actions, action =>
                 ExecutePartEVAProcessorAction(processor, info, action));
         }
@@ -219,6 +223,11 @@ namespace Khemistry
             KhemistryISRU.InventoryAction selected;
             switch (action)
             {
+                case "Fix maintenance":
+                    selected = KhemistryISRU.InventoryAction.FixMaintenance; break;
+                case "Auto maintenance fixing: On":
+                case "Auto maintenance fixing: Off":
+                    selected = KhemistryISRU.InventoryAction.ToggleAutoMaintenanceFixing; break;
                 case "Enable Charging":
                     selected = KhemistryISRU.InventoryAction.EnableCharging; break;
                 case "Disable Charging":

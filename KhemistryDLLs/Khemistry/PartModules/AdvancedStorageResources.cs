@@ -32,6 +32,7 @@ namespace Khemistry
         public override void OnLoad(ConfigNode node)
         {
             base.OnLoad(node);
+            LoadStoragePassiveState(node);
             _storageReady = false;
             _resources.Clear();
             _unreadableContents.Clear();
@@ -58,6 +59,7 @@ namespace Khemistry
         {
             base.OnSave(node);
             if (node == null) return;
+            SaveStoragePassiveState(node);
             node.RemoveNodes("STORED_RESOURCE");
             node.RemoveNodes(SavedFlowStateNodeName);
             foreach (var resource in _resources)
@@ -80,7 +82,8 @@ namespace Khemistry
         public double GetStoredAmount(string name)
             => name != null && _resources.TryGetValue(name, out double amount) ? amount : 0.0;
         public bool TransfersEnabled => _storageReady && !_fatalConfigError
-            && state == KShared.ChargablePartState.On;
+            && state == KShared.ChargablePartState.On
+            && !_passiveNeedsMaintenance && (!_passivePaused || _processingPassive);
 
         private void RefreshRateBudget()
         {

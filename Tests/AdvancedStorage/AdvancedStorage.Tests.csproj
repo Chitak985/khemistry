@@ -7,6 +7,9 @@
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="Stubs.cs" />
+    <Compile Include="PassiveTests.cs" />
+    <Compile Include="../../KhemistryDLLs/Khemistry/PartModules/AdvancedStoragePassive.cs" Link="AdvancedStoragePassive.cs" />
+    <Compile Include="../../KhemistryDLLs/Khemistry/PartModules/KhemistryISRU/ISRUPassiveInputConfig.cs" Link="ISRUPassiveInputConfig.cs" />
     <Compile Include="../../KhemistryDLLs/Khemistry/PartModules/AdvancedStorageResources.cs" Link="AdvancedStorageResources.cs" />
     <Compile Include="../../KhemistryDLLs/Khemistry/KhemistryResourceNetwork.cs" Link="KhemistryResourceNetwork.cs" />
     <Compile Include="../../KhemistryDLLs/Khemistry/KhemistryStockResourceBroker.cs" Link="KhemistryStockResourceBroker.cs" />

@@ -14,7 +14,9 @@ namespace Khemistry
             TurnOff,
             Start,
             Stop,
-            SwitchRecipe
+            SwitchRecipe,
+            FixMaintenance,
+            ToggleAutoMaintenanceFixing
         }
 
         internal sealed class InventoryProcessorInfo
@@ -25,6 +27,8 @@ namespace Khemistry
             public string progress;
             public bool isRunning;
             public bool needsMaintenance;
+            public string maintenance;
+            public bool hasMaintenance, hasRepairableMaintenance, autoMaintenanceFixing;
             public bool chargingRequired;
             public float chargePercent;
             public KShared.ChargablePartState state;
@@ -39,6 +43,9 @@ namespace Khemistry
         {
             isRunning = false;
             needsMaintenance = false;
+            autoMaintenanceFixing = false;
+            _maintenanceStates.Clear();
+            _maintenanceRuntime = 0;
             state = KShared.ChargablePartState.Off;
             chargePercent = 0f;
             activeRecipeName = null;
@@ -186,6 +193,8 @@ namespace Khemistry
                 if (double.IsNaN(dt) || double.IsInfinity(dt) || dt <= 0.0)
                     return false;
 
+                _maintenanceRuntime = 0;
+
                 HandleCharging(dt);
                 ProcessPendingPassiveRefunds();
                 TryTransferMaterialOutputBuffer();
@@ -198,10 +207,13 @@ namespace Khemistry
                         ? "Needs maintenance"
                         : (!isRunning ? "Stopped" : "Not ready");
                     progressDisplay = "Off";
+                    TickMaintenance(dt);
                     return false;
                 }
 
-                return RunBatchCycle(dt);
+                bool worked = RunBatchCycle(dt);
+                TickMaintenance(dt);
+                return worked;
             }
             finally
             {
@@ -217,6 +229,7 @@ namespace Khemistry
 
             try
             {
+                UpdateMaintenanceDisplay();
                 var info = new InventoryProcessorInfo
                 {
                     converterName = ConverterName,
@@ -232,6 +245,10 @@ namespace Khemistry
                             : (_activeRecipe?._recipeTime ?? 0.0)),
                     isRunning = isRunning,
                     needsMaintenance = needsMaintenance,
+                    maintenance = maintenanceDisplay,
+                    hasMaintenance = ActiveMaintenance.Any(),
+                    hasRepairableMaintenance = HasRepairableMaintenance,
+                    autoMaintenanceFixing = autoMaintenanceFixing,
                     chargingRequired = chargingRequired,
                     chargePercent = chargePercent,
                     state = state
@@ -260,6 +277,11 @@ namespace Khemistry
             {
                 switch (action)
                 {
+                    case InventoryAction.FixMaintenance:
+                        return BeginMaintenanceRepairs();
+                    case InventoryAction.ToggleAutoMaintenanceFixing:
+                        autoMaintenanceFixing = !autoMaintenanceFixing;
+                        return true;
                     case InventoryAction.EnableCharging:
                         if (!chargingRequired || state == KShared.ChargablePartState.On)
                             return false;
@@ -284,8 +306,7 @@ namespace Khemistry
                     case InventoryAction.Start:
                         if (needsMaintenance || state != KShared.ChargablePartState.On)
                             return false;
-                        KhemistryISRUBiomeConfig biomeConfig = _activeRecipe.GetBiomeConfig(
-                            _runtimeData.planet, _runtimeData.biome);
+                        KhemistryISRUBiomeConfig biomeConfig = GetEffectiveBiomeConfig();
                         if (GetRequiredDepositConditions(biomeConfig).Count > 0
                             && !IsAtRequiredDeposit(biomeConfig))
                             return false;

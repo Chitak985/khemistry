@@ -61,7 +61,7 @@ namespace Khemistry
             if (state != KShared.ChargablePartState.On) return;
 
             KhemistryISRUBiomeConfig biomeConfig = _activeRecipe != null && _runtimeData != null
-                ? _activeRecipe.GetBiomeConfig(_runtimeData.planet, _runtimeData.biome)
+                ? GetEffectiveBiomeConfig()
                 : null;
             List<string> depositConditions = GetRequiredDepositConditions(biomeConfig);
             if (depositConditions.Count > 0 && !IsAtRequiredDeposit(biomeConfig))

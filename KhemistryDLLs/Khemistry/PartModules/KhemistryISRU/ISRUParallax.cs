@@ -57,8 +57,7 @@ namespace Khemistry
             double distance = EvaParallaxInteractionDistance;
             if (_activeRecipe != null && _runtimeData != null)
             {
-                KhemistryISRUBiomeConfig biome = _activeRecipe.GetBiomeConfig(
-                    _runtimeData.planet, _runtimeData.biome);
+                KhemistryISRUBiomeConfig biome = GetEffectiveBiomeConfig();
                 if (biome != null)
                     distance *= biome.maxInteractionDistanceMultiplier;
             }

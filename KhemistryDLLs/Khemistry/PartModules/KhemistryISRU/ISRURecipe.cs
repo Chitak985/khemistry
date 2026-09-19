@@ -10,7 +10,7 @@ namespace Khemistry
     /// A recipe for <see cref="KhemistryISRU"/>.
     /// Contains inputs, outputs and multiple <see cref="KhemistryISRUBiomeConfig"/> to use.
     /// </summary>
-    public class KhemistryISRURecipe
+    public partial class KhemistryISRURecipe
     {
         public bool IsValid { get; private set; }
 
@@ -466,134 +466,9 @@ namespace Khemistry
                 _passiveInputs.Clear();
                 foreach (ConfigNode pinputNode in node.GetNodes("PINPUT_RESOURCE"))
                 {
-                    string resName = pinputNode.GetValue("name")?.Trim();
-                    if (string.IsNullOrEmpty(resName))
-                    {
-                        configurationError = true;
-                        KShared.LogNoValueInNode("PINPUT_RESOURCE", "name", "Recipe \"" + _name + "\" ", "KhemistryISRURecipe/constructor");
-                        continue;
-                    }
-
-                    double amount = KShared.GetDoubleValueFromCFG(pinputNode, "amount", 0.0);
-                    double period = 1.0;
-                    bool validPeriod = pinputNode.HasValue("period")
-                        ? TryReadRequiredDouble(pinputNode, "period", out period)
-                        : (!pinputNode.HasValue("peirod")
-                            || TryReadRequiredDouble(pinputNode, "peirod", out period));
-                    if (!pinputNode.HasValue("period") && pinputNode.HasValue("peirod"))
-                        KShared.LogWarning("Recipe \"" + _name
-                            + "\": PINPUT_RESOURCE uses legacy misspelling \"peirod\"; use \"period\".",
-                            "KhemistryISRURecipe/constructor");
-                    if (double.IsNaN(amount) || double.IsInfinity(amount) || amount <= 0.0)
-                    {
-                        configurationError = true;
-                        KShared.LogError("Recipe \"" + _name + "\": PINPUT_RESOURCE \""
-                            + resName + "\" has an invalid amount and was skipped.",
-                            "KhemistryISRURecipe/constructor");
-                        continue;
-                    }
-                    if (!validPeriod || double.IsNaN(period) || double.IsInfinity(period)
-                        || period <= 0.0)
-                    {
-                        configurationError = true;
-                        KShared.LogError("Recipe \"" + _name + "\": PINPUT_RESOURCE \""
-                            + resName + "\" has an invalid period and was skipped.",
-                            "KhemistryISRURecipe/constructor");
-                        continue;
-                    }
-
-                    ResourceFlowMode flowMode = ResourceFlowMode.STAGE_PRIORITY_FLOW;
-                    string pFlowStr = pinputNode.GetValue("flowmode");
-                    if (!string.IsNullOrEmpty(pFlowStr))
-                    {
-                        if (Enum.TryParse(pFlowStr.Trim(), true, out ResourceFlowMode pParsed)
-                            && Enum.IsDefined(typeof(ResourceFlowMode), pParsed))
-                            flowMode = pParsed;
-                        else
-                            KShared.LogError(
-                                "Recipe \"" + _name + "\": Unknown flowmode \"" + pFlowStr + "\" for PINPUT_RESOURCE " + resName + ", defaulting to STAGE_PRIORITY_FLOW.",
-                                "KhemistryISRURecipe/constructor");
-                    }
-
-                    bool ignorePowerfail = false;
-                    string ignorePowerfailRaw = pinputNode.GetValue("ignorePowerfail");
-                    if (!string.IsNullOrEmpty(ignorePowerfailRaw)
-                        && !bool.TryParse(ignorePowerfailRaw.Trim(), out ignorePowerfail))
-                    {
-                        configurationError = true;
-                        KShared.LogError("Recipe \"" + _name + "\": PINPUT_RESOURCE \""
-                            + resName + "\" has an invalid ignorePowerfail value \""
-                            + ignorePowerfailRaw + "\" and was skipped.",
-                            "KhemistryISRURecipe/constructor");
-                        continue;
-                    }
-
-                    // Accept both spellings: "powerfail" (correct, used in actual configs) and
-                    // "powefail" (the original literal spec) — the former takes precedence.
-                    PowerfailResult powerfail = PowerfailResult.Pause;
-                    double explosionRadius = 0.0;
-                    double explosionTemperature = 0.0;
-                    string pfRaw = pinputNode.GetValue("powerfail") ?? pinputNode.GetValue("powefail");
-                    if (!string.IsNullOrEmpty(pfRaw))
-                    {
-                        string pf = pfRaw.Trim().Trim('"').ToUpperInvariant();
-                        if (pf == "PAUSE")
-                        {
-                            powerfail = PowerfailResult.Pause;
-                        }
-                        else if (pf == "STOP")
-                        {
-                            powerfail = PowerfailResult.Stop;
-                        }
-                        else if (pf == "VOID")
-                        {
-                            powerfail = PowerfailResult.Void;
-                        }
-                        else if (pf == "MAINT")
-                        {
-                            powerfail = PowerfailResult.Maint;
-                        }
-                        else if (pf.StartsWith("EXPLODE,"))
-                        {
-                            string[] parts = pf.Substring(8).Split(',');
-                            if (parts.Length == 2
-                                && double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out double radius)
-                                && double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out double tempC)
-                                && radius > 0.0 && !double.IsNaN(radius) && !double.IsInfinity(radius)
-                                && !double.IsNaN(tempC) && !double.IsInfinity(tempC))
-                            {
-                                powerfail = PowerfailResult.Explode;
-                                explosionRadius = radius;
-                                explosionTemperature = tempC;
-                            }
-                            else
-                            {
-                                KShared.LogError(
-                                    "Recipe \"" + _name + "\": Could not parse EXPLODE radius/temperature \"" + pfRaw + "\" for PINPUT_RESOURCE " + resName + " (expected EXPLODE,radiusMeters,tempCelsius) — defaulting to PAUSE.",
-                                    "KhemistryISRURecipe/constructor");
-                                powerfail = PowerfailResult.Pause;
-                            }
-                        }
-                        else
-                        {
-                            KShared.LogError(
-                                "Recipe \"" + _name + "\": Unknown powefail \"" + pfRaw + "\" for PINPUT_RESOURCE " + resName + " — defaulting to PAUSE.",
-                                "KhemistryISRURecipe/constructor");
-                            powerfail = PowerfailResult.Pause;
-                        }
-                    }
-
-                    _passiveInputs.Add(new PassiveResourceInput
-                    {
-                        resourceName = resName,
-                        amount = amount,
-                        period = period,
-                        powerfail = powerfail,
-                        powerfailExplosionRadius = explosionRadius,
-                        powerfailExplosionTemperature = explosionTemperature,
-                        flowMode = flowMode,
-                        ignorePowerfail = ignorePowerfail
-                    });
+                    if (TryParsePassiveInput(pinputNode, _name, out PassiveResourceInput input))
+                        _passiveInputs.Add(input);
+                    else configurationError = true;
                 }
 
                 ///// Outputs /////
@@ -924,6 +799,7 @@ namespace Khemistry
                         break;
                 }
 
+                if (!LoadMaintenance(node)) configurationError = true;
                 mainNode = new ConfigNode();
                 node.CopyTo(mainNode);
                 IsValid = !configurationError && _recipeTime > 0.0 && !double.IsNaN(_recipeTime)
@@ -1107,7 +983,9 @@ namespace Khemistry
                 foreach (string resourceName in _inputs.Select(input => input.resourceName)
                     .Concat(_passiveInputs.Select(input => input.resourceName))
                     .Concat(_outputs.Select(output => output.resourceName))
-                    .Concat(_chargeNames).Distinct())
+                    .Concat(_chargeNames)
+                    .Concat(maintenance.SelectMany(m => m.stages)
+                        .SelectMany(s => s.resources.Keys.Concat(s.tools.Keys))).Distinct())
                 {
                     if (resourceLibrary.GetDefinition(resourceName) != null) continue;
                     valid = false;
@@ -1331,6 +1209,7 @@ namespace Khemistry
         {
             KhemistryISRURecipe copy = new KhemistryISRURecipe();
             copy._name = _name;
+            copy.maintenance.AddRange(maintenance);
             copy._recipeTypes = _recipeTypes;
             copy._recipeSubtypes = _recipeSubtypes;
             copy._recipeSubsubtypes = _recipeSubsubtypes;
@@ -1835,7 +1714,7 @@ namespace Khemistry
         private static readonly HashSet<string> _keyedByNameNodeKeys = new HashSet<string>
         {
             "INPUT_RESOURCE", "OUTPUT_RESOURCE", "PINPUT_RESOURCE", "INPUT_MATERIAL", "OUTPUT_MATERIAL",
-            "PARALLAX_SCATTER", "SETTING"
+            "PARALLAX_SCATTER", "SETTING", "MAINTENANCE"
         };
 
         // Node types that hold a single node full of repeated values (e.g. CHARGE_CON_NAMES holding

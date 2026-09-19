@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="Stubs.cs" />
+    <Compile Include="../../KhemistryDLLs/Khemistry/PartModules/KhemistryISRU/MaintenanceState.cs" Link="MaintenanceState.cs" />
+    <Compile Include="../../KhemistryDLLs/Khemistry/PartModules/KhemistryISRU/ISRUMaintenanceConfig.cs" Link="ISRUMaintenanceConfig.cs" />
+    <Compile Include="../../KhemistryDLLs/Khemistry/PartModules/KhemistryISRU/ISRUMaintenance.cs" Link="ISRUMaintenance.cs" />
+    <Compile Include="../../KhemistryDLLs/Khemistry/PartModules/KhemistryISRU/ISRUBiomeConfig.cs" Link="ISRUBiomeConfig.cs" />
+  </ItemGroup>
+</Project>

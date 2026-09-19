@@ -9,13 +9,15 @@ public interface IPartMassModifier { float GetModuleMass(float mass, ModifierSta
 public interface IPartCostModifier { float GetModuleCost(float cost, ModifierStagingSituation situation); ModifierChangeWhen GetModuleCostChangeWhen(); }
 public class ConfigNode
 {
-    public ConfigNode(string name = "") { }
+    public string name;
+    public ConfigNode(string name = "") { this.name = name; }
     private Dictionary<string, string> values = new Dictionary<string, string>();
     private List<(string, ConfigNode)> nodes = new List<(string, ConfigNode)>();
     public string GetValue(string key) => values.TryGetValue(key, out string v) ? v : null;
+    public bool HasValue(string key) => values.ContainsKey(key);
     public void AddValue(string key, object value) => values[key] = value.ToString();
     public ConfigNode AddNode(string name) { var n = new ConfigNode(name); nodes.Add((name, n)); return n; }
-    public void AddNode(ConfigNode node) => nodes.Add(("STORED_RESOURCE", node));
+    public void AddNode(ConfigNode node) => nodes.Add((node.name, node));
     public ConfigNode[] GetNodes(string name) => nodes.Where(n => n.Item1 == name).Select(n => n.Item2).ToArray();
     public void RemoveNodes(string name) => nodes.RemoveAll(n => n.Item1 == name);
     public void CopyTo(ConfigNode node) { node.values = new Dictionary<string, string>(values); node.nodes = new List<(string, ConfigNode)>(nodes); }
@@ -61,8 +63,28 @@ public class Part
         return moved;
     }
 }
-public class Vessel { public bool loaded = true; public List<Part> parts = new List<Part>(); }
-public static class FlightGlobals { public static List<Vessel> VesselsLoaded = new List<Vessel>(); }
+public class ProtoCrewMember { public string trait; }
+public class Vessel
+{
+    public bool loaded = true;
+    public List<Part> parts = new List<Part>();
+    public List<ProtoCrewMember> crew = new List<ProtoCrewMember>();
+    public List<ProtoCrewMember> GetVesselCrew() => crew;
+}
+public static class FlightGlobals
+{
+    public static Vessel ActiveVessel;
+    public static List<Vessel> VesselsLoaded = new List<Vessel>();
+}
+public class KSPEvent : Attribute
+{
+    public bool guiActive, guiActiveEditor, externalToEVAOnly, guiActiveUnfocused;
+    public string guiName, groupName;
+    public float unfocusedRange;
+}
+public enum ScreenMessageStyle { UPPER_CENTER }
+public class ScreenMessage { public ScreenMessage(string message, float duration, ScreenMessageStyle style) { } }
+public static class ScreenMessages { public static void PostScreenMessage(ScreenMessage message) { } }
 public static class TimeWarp { public static float fixedDeltaTime = 1; }
 public class KSPAddon : Attribute { public enum Startup { Flight } public KSPAddon(Startup startup, bool once) { } }
 namespace UnityEngine
@@ -115,7 +137,16 @@ namespace Khemistry
     {
         public enum ChargablePartState { Off, On, Charging }
         public static bool IsFinite(double value) => !double.IsInfinity(value) && !double.IsNaN(value);
-        public static void LogError(string message, string context) => throw new Exception(context + ": " + message);
+        public static readonly List<string> Errors = new List<string>();
+        public static void LogError(string message, string context) => Errors.Add(context + ": " + message);
+        public static void LogWarning(string message, string context) { }
+        public static void LogNoValueInNode(string node, string value, string message, string context)
+            => LogError(message + node + "." + value, context);
+        public static double GetDoubleValueFromCFG(ConfigNode node, string key, double fallback)
+            => double.TryParse(node.GetValue(key), System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out double value) ? value : fallback;
+        public static int Explosions;
+        public static void TriggerExplosionWithHeat(Part part, float radius, float temperature) => Explosions++;
     }
     public partial class KhemistryAdvancedStorage : PartModule
     {
@@ -127,6 +158,28 @@ namespace Khemistry
         public KShared.ChargablePartState state = KShared.ChargablePartState.On;
         public void Ready() { _storageReady = true; _supportedResources.AddRange(new[] { "A", "B" }); }
         public void Migrate() => MigrateLegacyResources();
+        private void UpdateUI() { }
+        private bool HasAnyStoredResources() => _resources.Values.Any(v => v > 0.0) || _unreadableContents.Count > 0;
+        public bool ConfigurePassive(ConfigNode node) => LoadPassiveInputs(node);
+        public void TickPassive(double dt = 1, double? poweredDt = null)
+            => ProcessStoragePassiveInputs(dt, poweredDt ?? (state == KShared.ChargablePartState.On ? dt : 0));
+        public bool Paused => _passivePaused;
+        public bool Maintenance => _passiveNeedsMaintenance;
+    }
+    public partial class KhemistryISRURecipe
+    {
+        public enum PowerfailResult { Pause, Stop, Explode, Maint, Void }
+        public struct PassiveResourceInput
+        {
+            public string resourceName;
+            public double amount, period, powerfailExplosionRadius, powerfailExplosionTemperature;
+            public PowerfailResult powerfail;
+            public ResourceFlowMode flowMode;
+            public bool ignorePowerfail;
+        }
+        private static bool TryReadRequiredDouble(ConfigNode node, string key, out double value)
+            => double.TryParse(node.GetValue(key), System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out value) && KShared.IsFinite(value);
     }
     public class KhemistryFluidCell : PartModule
     {

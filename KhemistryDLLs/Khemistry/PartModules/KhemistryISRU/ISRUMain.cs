@@ -727,9 +727,11 @@ namespace Khemistry
                 || node.HasNode("PENDING_PASSIVE_REFUND")
                 || node.HasNode("ORPHANED_LEGACY_PASSIVE_STATE")
                 || node.HasNode("RECIPE_SETTING_VALUES")
+                || node.HasNode("MAINTENANCE_STATE")
                 || node.HasNode("MATERIAL_OUTPUT_BUFFER")))
                 _loadedAuthoritativePersistentState = true;
             LoadRecipeSettingValues(node);
+            LoadMaintenanceState(node);
             _loadedPassiveStates.Clear();
             _opaquePassiveInputNodes.Clear();
             _pendingPassiveRefunds.Clear();
@@ -887,6 +889,7 @@ namespace Khemistry
             if (node == null) return;
 
             SaveRecipeSettingValues(node);
+            SaveMaintenanceState(node);
 
             while (node.HasNode("PASSIVE_INPUT_STATE"))
                 node.RemoveNode("PASSIVE_INPUT_STATE");
@@ -1362,8 +1365,7 @@ namespace Khemistry
             _maxDisplayDistance = _configMaxDisplayDistance;
             if (_activeRecipe != null && _runtimeData != null)
             {
-                KhemistryISRUBiomeConfig currentBiome = _activeRecipe.GetBiomeConfig(
-                    _runtimeData.planet, _runtimeData.biome);
+                KhemistryISRUBiomeConfig currentBiome = GetEffectiveBiomeConfig();
                 if (currentBiome != null)
                 {
                     double interaction = _configMaxInteractionDistance
@@ -1397,6 +1399,7 @@ namespace Khemistry
                     && _activeRecipe._settings.Count > 0 && _controlsShowPAW,
                 showEVA: !isRunning && _activeRecipe != null
                     && _activeRecipe._settings.Count > 0 && _controlsShowEVA);
+            UpdateMaintenanceDisplay();
         }
 
         /// <summary>
@@ -1601,7 +1604,7 @@ namespace Khemistry
             if (double.IsNaN(dt) || double.IsInfinity(dt) || dt <= 0.0) return;
 
             KhemistryISRUBiomeConfig biomeConfig = _activeRecipe != null && _runtimeData != null
-                ? _activeRecipe.GetBiomeConfig(_runtimeData.planet, _runtimeData.biome)
+                ? GetEffectiveBiomeConfig()
                 : null;
             double decayMultiplier = biomeConfig?.chargeDecayMultiplier ?? 1.0;
             double rateMultiplier = biomeConfig?.chargeRateMultiplier ?? 1.0;
@@ -1694,6 +1697,7 @@ namespace Khemistry
 
             double dt = TimeWarp.fixedDeltaTime;
             if (double.IsNaN(dt) || double.IsInfinity(dt) || dt <= 0.0) return;
+            _maintenanceRuntime = 0;
             HandleCharging(dt);
             UpdateUI();
             ProcessPendingPassiveRefunds();
@@ -1705,10 +1709,12 @@ namespace Khemistry
                 statusDisplay = needsMaintenance ? "Needs maintenance" : (!isRunning ? "Stopped" : "Not ready");
                 progressDisplay = "Off";
                 SetActiveAnimationPlaying(false);
+                TickMaintenance(dt);
                 return;
             }
 
             SetActiveAnimationPlaying(RunBatchCycle(dt));
+            TickMaintenance(dt);
         }
 
         /// <summary>
@@ -1756,7 +1762,7 @@ namespace Khemistry
         /// </summary>
         protected bool RunBatchCycle(double dt)
         {
-            KhemistryISRUBiomeConfig biomeConfig = _activeRecipe.GetBiomeConfig(_runtimeData.planet, _runtimeData.biome);
+            KhemistryISRUBiomeConfig biomeConfig = GetEffectiveBiomeConfig();
             if (biomeConfig == null)
             {
                 progressDisplay = FormatProgress(batchProgress,
@@ -1946,6 +1952,7 @@ namespace Khemistry
                 batchProgress = reachesBoundary
                     ? effectiveRecipeTime
                     : batchProgress + step;
+                _maintenanceRuntime += step;
                 if (step > 0.0) performedWork = true;
                 if (batchProgress > effectiveRecipeTime) batchProgress = effectiveRecipeTime;
                 remainingDt -= step;

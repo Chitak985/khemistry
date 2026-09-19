@@ -112,6 +112,8 @@
     <Compile Include="KShared\KSharedRandom.cs" />
     <Compile Include="PartModules\AdvancedStorage.cs" />
     <Compile Include="PartModules\AdvancedStorageResources.cs" />
+    <Compile Include="PartModules\AdvancedStoragePassive.cs" />
+    <Compile Include="PartModules\KhemistryISRU\ISRUPassiveInputConfig.cs" />
     <Compile Include="KhemistryResourceNetwork.cs" />
     <Compile Include="KhemistryStockResourceBroker.cs" />
     <Compile Include="PartModules\FluidCell.cs" />
@@ -141,6 +143,9 @@
     <Compile Include="PartModules\KhemistryISRU\ISRUParallax.cs" />
     <Compile Include="PartModules\KhemistryISRU\ISRURecipe.cs" />
     <Compile Include="PartModules\KhemistryISRU\ISRUSettings.cs" />
+    <Compile Include="PartModules\KhemistryISRU\MaintenanceState.cs" />
+    <Compile Include="PartModules\KhemistryISRU\ISRUMaintenanceConfig.cs" />
+    <Compile Include="PartModules\KhemistryISRU\ISRUMaintenance.cs" />
     <Compile Include="PartModules\KhemistryISRU\ISRUVariables.cs" />
     <Compile Include="PartModules\MaterialStorage.cs" />
     <Compile Include="PartModules\OBSOLETE.cs" />

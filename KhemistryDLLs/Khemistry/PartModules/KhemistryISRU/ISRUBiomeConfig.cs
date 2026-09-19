@@ -71,6 +71,42 @@ namespace Khemistry
         /// <summary>How much to multiply recipeTime by.</summary>
         public double speedMul = 1.0;
 
+        // Explicit allowlist shared by maintenance parsing and multiplier composition.
+        internal static readonly Dictionary<string, string> MultiplierFields =
+            new Dictionary<string, string>
+            {
+                { "passiveMul", nameof(passiveMultiplier) },
+                { "inMul", nameof(inputMultiplier) },
+                { "outMul", nameof(outputMultiplier) },
+                { "speedMul", nameof(speedMul) },
+                { "chargeRateMul", nameof(chargeRateMultiplier) },
+                { "chargeDecayMul", nameof(chargeDecayMultiplier) },
+                { "chargeConMul", nameof(chargeConsumptionMultiplier) },
+                { "passivePeriodMul", nameof(passivePeriodMultiplier) },
+                { "workersEngineersMul", nameof(workersEngineersMultiplier) },
+                { "workersPilotsMul", nameof(workersPilotsMultiplier) },
+                { "workersScientistsMul", nameof(workersScientistsMultiplier) },
+                { "maxInteractionDistanceMul", nameof(maxInteractionDistanceMultiplier) },
+                { "maxDisplayDistanceMul", nameof(maxDisplayDistanceMultiplier) }
+            };
+
+        public KhemistryISRUBiomeConfig WithMaintenance(IEnumerable<MaintenanceStage> stages)
+        {
+            var copy = (KhemistryISRUBiomeConfig)MemberwiseClone();
+            foreach (MaintenanceStage stage in stages)
+                foreach (var mapping in MultiplierFields)
+                {
+                    if (!stage.multipliers.TryGetValue(mapping.Key, out double multiplier)) continue;
+                    var field = typeof(KhemistryISRUBiomeConfig).GetField(mapping.Value);
+                    double value = (double)field.GetValue(copy) * multiplier;
+                    if (double.IsInfinity(value)) value = double.MaxValue;
+                    if (mapping.Key == "speedMul" || mapping.Key == "passivePeriodMul")
+                        value = Math.Max(double.Epsilon, value);
+                    field.SetValue(copy, value);
+                }
+            return copy;
+        }
+
         /// <summary>How much to multiply amount of pilot workers by.</summary>
         public double workersPilotsMultiplier = 1.0;
         /// <summary>How much to multiply amount of engineer workers by.</summary>
