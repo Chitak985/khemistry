@@ -12,15 +12,18 @@ public class ConfigNode
     public string name;
     public ConfigNode(string name = "") { this.name = name; }
     private Dictionary<string, string> values = new Dictionary<string, string>();
+    private List<(string, string)> repeatedValues = new List<(string, string)>();
     private List<(string, ConfigNode)> nodes = new List<(string, ConfigNode)>();
     public string GetValue(string key) => values.TryGetValue(key, out string v) ? v : null;
     public bool HasValue(string key) => values.ContainsKey(key);
-    public void AddValue(string key, object value) => values[key] = value.ToString();
+    public void AddValue(string key, object value) { values[key] = value.ToString(); repeatedValues.Add((key, value.ToString())); }
+    public string[] GetValues(string key) => repeatedValues.Where(v => v.Item1 == key).Select(v => v.Item2).ToArray();
+    public ConfigNode GetNode(string name) => GetNodes(name).FirstOrDefault();
     public ConfigNode AddNode(string name) { var n = new ConfigNode(name); nodes.Add((name, n)); return n; }
     public void AddNode(ConfigNode node) => nodes.Add((node.name, node));
     public ConfigNode[] GetNodes(string name) => nodes.Where(n => n.Item1 == name).Select(n => n.Item2).ToArray();
     public void RemoveNodes(string name) => nodes.RemoveAll(n => n.Item1 == name);
-    public void CopyTo(ConfigNode node) { node.values = new Dictionary<string, string>(values); node.nodes = new List<(string, ConfigNode)>(nodes); }
+    public void CopyTo(ConfigNode node) { node.values = new Dictionary<string, string>(values); node.repeatedValues = new List<(string, string)>(repeatedValues); node.nodes = new List<(string, ConfigNode)>(nodes); }
 }
 public class PartModule
 {
@@ -139,7 +142,8 @@ namespace Khemistry
         public static bool IsFinite(double value) => !double.IsInfinity(value) && !double.IsNaN(value);
         public static readonly List<string> Errors = new List<string>();
         public static void LogError(string message, string context) => Errors.Add(context + ": " + message);
-        public static void LogWarning(string message, string context) { }
+        public static readonly List<string> Warnings = new List<string>();
+        public static void LogWarning(string message, string context) => Warnings.Add(context + ": " + message);
         public static void LogNoValueInNode(string node, string value, string message, string context)
             => LogError(message + node + "." + value, context);
         public static double GetDoubleValueFromCFG(ConfigNode node, string key, double fallback)
@@ -158,6 +162,7 @@ namespace Khemistry
         public KShared.ChargablePartState state = KShared.ChargablePartState.On;
         public void Ready() { _storageReady = true; _supportedResources.AddRange(new[] { "A", "B" }); }
         public void Migrate() => MigrateLegacyResources();
+        public bool ConfigureSupported(ConfigNode node) => LoadSupportedResources(node);
         private void UpdateUI() { }
         private bool HasAnyStoredResources() => _resources.Values.Any(v => v > 0.0) || _unreadableContents.Count > 0;
         public bool ConfigurePassive(ConfigNode node) => LoadPassiveInputs(node);

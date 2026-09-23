@@ -160,6 +160,7 @@ static partial class Program
         new KhemistryStockStorageBridge().FixedUpdate();
         Equal(1, converter.ResBroker is KhemistryStockResourceBroker ? 1 : 0, "bridge idempotent");
         PassiveTests();
+        CapacityTests();
         Console.WriteLine(assertions + " assertions passed.");
     }
 }

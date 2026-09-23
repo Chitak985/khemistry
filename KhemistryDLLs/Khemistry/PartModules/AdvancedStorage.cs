@@ -286,56 +286,6 @@ namespace Khemistry
                 return;
             }
 
-            _supportedResources.Clear();
-            if (!moduleNode.HasNode("SUPPORTED_RESOURCES"))
-            {
-                KShared.LogNoNode("SUPPORTED_RESOURCES",
-								  "KhemistryAdvancedStorage on part \"" + part.name + "\"",
-								  "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
-                _fatalConfigError = true;
-                return;
-            }
-            bool invalidSupportedResource = false;
-            HashSet<string> seenSupportedResources = new HashSet<string>(StringComparer.Ordinal);
-            foreach (string n in moduleNode.GetNode("SUPPORTED_RESOURCES").GetValues("name"))
-            {
-                string resourceName = n?.Trim();
-                if (string.IsNullOrEmpty(resourceName))
-                {
-                    invalidSupportedResource = true;
-                    KShared.LogError("SUPPORTED_RESOURCES contains an empty resource name.",
-                        "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
-                    continue;
-                }
-
-                if (!seenSupportedResources.Add(resourceName))
-                {
-                    KShared.LogWarning("Ignoring duplicate supported resource \"" + resourceName + "\".",
-                        "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
-                    continue;
-                }
-
-                if (PartResourceLibrary.Instance == null
-                    || PartResourceLibrary.Instance.GetDefinition(resourceName) == null)
-                {
-                    invalidSupportedResource = true;
-                    KShared.LogError("Unknown resource \"" + resourceName + "\" in SUPPORTED_RESOURCES.",
-                        "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
-                    continue;
-                }
-
-                _supportedResources.Add(resourceName);
-            }
-            if (_supportedResources.Count == 0)
-            {
-                KShared.LogError(
-                    "Part \"" + part.name + "\" has KhemistryAdvancedStorage with an empty SUPPORTED_RESOURCES node. This module will not load.",
-                    "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
-                _fatalConfigError = true; return;
-            }
-            if (invalidSupportedResource)
-                KShared.LogWarning("Invalid SUPPORTED_RESOURCES entries were ignored.",
-                    "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
 
             storageType = (moduleNode.GetValue("storageType") ?? moduleNode.GetValue("type") ?? "single").Trim();
 
@@ -429,6 +379,12 @@ namespace Khemistry
                 KShared.LogError("Unknown storageType \"" + storageType + "\".",
                     "KhemistryAdvancedStorage/LoadConfigFromPartInfo");
                 _fatalConfigError = true; return;
+            }
+
+            if (!LoadSupportedResources(moduleNode))
+            {
+                _fatalConfigError = true;
+                return;
             }
 
             activeResource = activeResource?.Trim() ?? "";
@@ -785,7 +741,8 @@ namespace Khemistry
             }
 
             contentsDisplay = parts.Count == 0 ? "Empty" : string.Join(", ", parts.ToArray());
-            volumeDisplay = string.Format("{0:F2} / {1:F2}", total, maximumResources);
+            volumeDisplay = string.Format("{0:F2} / {1:F2}", total,
+                storageType == "multi" ? GetResourceCapacity(activeResource) : maximumResources);
 
             chargeDisplay = chargingRequired
                 ? string.Format("{0:F1}%", chargePercent)

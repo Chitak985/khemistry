@@ -8,6 +8,8 @@
     <Compile Include="Program.cs" />
     <Compile Include="Stubs.cs" />
     <Compile Include="PassiveTests.cs" />
+    <Compile Include="CapacityTests.cs" />
+    <Compile Include="../../KhemistryDLLs/Khemistry/PartModules/AdvancedStorageConfig.cs" Link="AdvancedStorageConfig.cs" />
     <Compile Include="../../KhemistryDLLs/Khemistry/PartModules/AdvancedStoragePassive.cs" Link="AdvancedStoragePassive.cs" />
     <Compile Include="../../KhemistryDLLs/Khemistry/PartModules/KhemistryISRU/ISRUPassiveInputConfig.cs" Link="ISRUPassiveInputConfig.cs" />
     <Compile Include="../../KhemistryDLLs/Khemistry/PartModules/AdvancedStorageResources.cs" Link="AdvancedStorageResources.cs" />

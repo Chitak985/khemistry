@@ -112,6 +112,7 @@
     <Compile Include="KShared\KSharedRandom.cs" />
     <Compile Include="PartModules\AdvancedStorage.cs" />
     <Compile Include="PartModules\AdvancedStorageResources.cs" />
+    <Compile Include="PartModules\AdvancedStorageConfig.cs" />
     <Compile Include="PartModules\AdvancedStoragePassive.cs" />
     <Compile Include="PartModules\KhemistryISRU\ISRUPassiveInputConfig.cs" />
     <Compile Include="KhemistryResourceNetwork.cs" />
