@@ -327,6 +327,9 @@ namespace KhemistryConstructionOverhaul
         GameScenes.EDITOR, GameScenes.FLIGHT, GameScenes.TRACKSTATION)]
     public class KhemistryConstructionResourcesScenario : ScenarioModule
     {
+        public static KhemistryConstructionResourcesScenario Instance { get; private set; }
+        public bool LedgerReady => !_loadedResourcesPending && !_loadedMaterialsPending;
+        public void OnDestroy() { if (Instance == this) Instance = null; }
         private readonly Dictionary<string, double> _loadedResources =
             new Dictionary<string, double>();
         private readonly List<ConfigNode> _loadedMaterialNodes = new List<ConfigNode>();
@@ -338,6 +341,7 @@ namespace KhemistryConstructionOverhaul
         {
             base.OnLoad(node);
             _loadedResources.Clear();
+            Instance = this;
             _loadedMaterialNodes.Clear();
             _opaqueMaterialNodes.Clear();
             _loadedResourcesPending = false;
