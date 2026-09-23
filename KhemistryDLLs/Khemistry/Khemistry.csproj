@@ -85,6 +85,9 @@
     <Reference Include="UnityEngine.ImageConversionModule">
       <HintPath>$(KspRoot)\KSP_x64_Data\Managed\UnityEngine.ImageConversionModule.dll</HintPath>
     </Reference>
+    <Reference Include="UnityEngine.JSONSerializeModule">
+      <HintPath>$(KspRoot)\KSP_x64_Data\Managed\UnityEngine.JSONSerializeModule.dll</HintPath>
+    </Reference>
     <Reference Include="UnityEngine.IMGUIModule">
       <HintPath>$(KspRoot)\KSP_x64_Data\Managed\UnityEngine.IMGUIModule.dll</HintPath>
     </Reference>
@@ -103,6 +106,8 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Deposits.cs" />
+    <Compile Include="Discord\DiscordRpcClient.cs" />
+    <Compile Include="Discord\KhemistryDiscordPresence.cs" />
     <Compile Include="Persistance\DepositPersistence.cs" />
     <Compile Include="Persistance\KerbalSuitPersistence.cs" />
     <Compile Include="Persistance\ParallaxScatterPersistence.cs" />
