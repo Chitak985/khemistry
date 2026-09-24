@@ -7,8 +7,10 @@ namespace Khemistry
 {
     public partial class KhemistryISRURecipe
     {
+        /// <summary>List of maintenance definitions used by the recipe.</summary>
         public readonly List<MaintenanceDefinition> maintenance = new List<MaintenanceDefinition>();
 
+        /// <summary>Load all MAINTENANCE nodes in a <see cref="ConfigNode"/></summary>
         private bool LoadMaintenance(ConfigNode node)
         {
             bool valid = true;
@@ -73,16 +75,16 @@ namespace Khemistry
                             .Concat(stage.requiredOrdersOR.SelectMany(group => group))
                             .Concat(stage.requiredOrderNOT))
                             if (!orders.Contains(required))
-                                throw new FormatException("STAGE " + stage.order
-                                    + " refers to undefined order " + required + " in this MAINTENANCE type");
+                                throw new FormatException($"STAGE {stage.order} refers to an undefined order {required} in this MAINTENANCE type");  // Ignore, caught in LoadMaintenance
                     definition.stages.Sort((a, b) => b.order.CompareTo(a.order));
                     maintenance.Add(definition);
                 }
                 catch (FormatException ex)
                 {
                     valid = false;
-                    KShared.LogError("Recipe \"" + _name + "\": invalid MAINTENANCE \""
-                        + entry.GetValue("name") + "\": " + ex.Message, "KhemistryISRURecipe/LoadMaintenance");
+                    KShared.LogError($"Recipe \"{_name}\": invalid MAINTENANCE \"" +
+                                     entry.GetValue("name") +
+                                     "\": {ex.Message}", "KhemistryISRURecipe/LoadMaintenance");
                 }
             }
             return valid;
@@ -91,14 +93,15 @@ namespace Khemistry
         private static string RequiredMaintenanceText(ConfigNode node, string key)
         {
             string value = node.GetValue(key)?.Trim();
-            if (string.IsNullOrEmpty(value)) throw new FormatException(key + " is required");
+            if (string.IsNullOrEmpty(value))
+                throw new FormatException(key + " is required");  // Ignore, caught in LoadMaintenance
             return value;
         }
 
         private static int ReadRequiredOrder(string value, string key)
         {
             if (!int.TryParse(value?.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int order))
-                throw new FormatException(key + " requires a single integer stage order; got \"" + value + "\"");
+                throw new FormatException(key + " requires a single integer stage order; got \"" + value + "\"");  // Ignore, caught in LoadMaintenance
             return order;
         }
 
@@ -111,21 +114,23 @@ namespace Khemistry
             if (!node.HasValue(key) && fallback.HasValue) return fallback.Value;
             if (!double.TryParse(node.GetValue(key), NumberStyles.Float, CultureInfo.InvariantCulture,
                     out double value) || !MaintenanceState.Finite(value) || value < min || value > max)
-                throw new FormatException(key + " must be a finite number in [" + min + ", " + max + "]");
+                throw new FormatException(key + " must be a finite number in [" + min + ", " + max + "]");  // Ignore, caught in LoadMaintenance
             return value;
         }
 
         private static bool MaintenanceBool(ConfigNode node, string key, bool fallback)
         {
             if (!node.HasValue(key)) return fallback;
-            if (!bool.TryParse(node.GetValue(key), out bool value)) throw new FormatException(key + " must be true or false");
+            if (!bool.TryParse(node.GetValue(key), out bool value))
+                throw new FormatException(key + " must be true or false");  // Ignore, caught in LoadMaintenance
             return value;
         }
 
         private static int MaintenanceCount(ConfigNode node, string key)
         {
             double count = MaintenanceNumber(node, key, 0, 0, int.MaxValue);
-            if (count != Math.Truncate(count)) throw new FormatException(key + " must be an integer");
+            if (count != Math.Truncate(count))
+                throw new FormatException(key + " must be an integer");  // Ignore, caught in LoadMaintenance
             return (int)count;
         }
 
@@ -136,7 +141,8 @@ namespace Khemistry
                 string name = RequiredMaintenanceText(resource, "name");
                 double amount = MaintenanceNumber(resource, "amount", null, double.Epsilon);
                 target[name] = amount + (target.TryGetValue(name, out double previous) ? previous : 0);
-                if (!MaintenanceState.Finite(target[name])) throw new FormatException(kind + " amount overflows");
+                if (!MaintenanceState.Finite(target[name]))
+                    throw new FormatException(kind + " amount overflows");  // Ignore, caught in LoadMaintenance
             }
         }
     }
