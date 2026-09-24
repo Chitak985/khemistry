@@ -10,16 +10,39 @@ namespace Khemistry
     /// parentheses, unary +/-, the constant PI, and the function Pow(a,b).
     /// Used for parsing mathematical expressions in config values. Config consumers expose
     /// expressions through string interpolation: literal text [expression] literal text.
-    /// The expressions it supports are in its three constant dictionaries: constants, functions1Arg, and functions2Arg.
+    /// The expressions it supports are in its three constant dictionaries at the top:
+    /// constants, functions1Arg, and functions2Arg.
     /// </summary>
     public static class KMathExpr
     {
-        /// <summary>True when a value contains at least one bracketed KMathExpr.</summary>
+        /// <summary>The dictionary of supported constants.</summary>
+        static readonly Dictionary<string, double> constants = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "PI", Math.PI },
+            { "E", Math.E }
+        };
+        /// <summary>The dictionary of supported one-argument functions.</summary>
+        static readonly Dictionary<string, Func<double, double>> functions1Arg = new Dictionary<string, Func<double, double>>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "Sqrt", Math.Sqrt },
+            { "Log", Math.Log },
+            { "Log10", Math.Log10 }
+        };
+        /// <summary>The dictionary of supported two-argument functions.</summary>
+        static readonly Dictionary<string, Func<double, double, double>> functions2Arg = new Dictionary<string, Func<double, double, double>>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "Pow", Math.Pow },
+            { "Min", Math.Min },
+            { "Max", Math.Max },
+            { "randf", KShared.RandomDouble }
+        };
+        
+        /// <summary>True when a value contains at least one bracketed <see cref="KMathExpr"/>.</summary>
         public static bool ContainsInterpolation(string value)
             => !string.IsNullOrEmpty(value) && value.IndexOf('[') >= 0;
 
         /// <summary>
-        /// Evaluates every [KMathExpr] segment and inserts its invariant numeric result into
+        /// Evaluates every <see cref="KMathExpr"/> segment and inserts its invariant numeric result into
         /// the surrounding text. Text outside brackets is preserved verbatim.
         /// </summary>
         public static bool TryInterpolate(string template, out string result,
@@ -87,28 +110,6 @@ namespace Khemistry
             return false;
         }
 
-        /// <summary>The dictionary of supported constants.</summary>
-        static readonly Dictionary<string, double> constants = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
-        {
-            { "PI", Math.PI },
-            { "E", Math.E }
-        };
-        /// <summary>The dictionary of supported one-argument functions.</summary>
-        static readonly Dictionary<string, Func<double, double>> functions1Arg = new Dictionary<string, Func<double, double>>(StringComparer.OrdinalIgnoreCase)
-        {
-            { "Sqrt", Math.Sqrt },
-            { "Log", Math.Log },
-            { "Log10", Math.Log10 }
-        };
-        /// <summary>The dictionary of supported two-argument functions.</summary>
-        static readonly Dictionary<string, Func<double, double, double>> functions2Arg = new Dictionary<string, Func<double, double, double>>(StringComparer.OrdinalIgnoreCase)
-        {
-            { "Pow", Math.Pow },
-            { "Min", Math.Min },
-            { "Max", Math.Max },
-            { "randf", KShared.RandomDouble }
-        };
-
         /// <summary>A closed range of finite values used for conservative config validation.</summary>
         public struct ValueRange
         {
@@ -121,6 +122,9 @@ namespace Khemistry
                 Maximum = maximum;
             }
         }
+
+        public static bool ValueRangeToString(string name, ValueRange range)
+            => $"{name} is [{range.Minimum}, {range.Maximum}]"
 
         public static bool TryEvaluate(string expr, out double result, out string error,
             Dictionary<string, string> vars=null,
@@ -150,7 +154,7 @@ namespace Khemistry
                 }
                 if (double.IsNaN(result) || double.IsInfinity(result))
                 {
-                    error = "Expression result is not finite.";
+                    error = $"Expression result {result} is not finite.";
                     return false;
                 }
                 return true;
@@ -218,11 +222,13 @@ namespace Khemistry
             if (string.Equals(ident, funcName, StringComparison.OrdinalIgnoreCase))
             {
                 SkipWhitespace(s, ref pos);
-                if (pos >= s.Length || s[pos] != '(') KShared.LogFatalError("Expected ( after " + funcName + " function! String: " + s, "KMathExpr/Parse1ArgFunction");
+                if (pos >= s.Length || s[pos] != '(')
+                    KShared.LogFatalError($"Expected ( after {funcName} function at position {pos}! String: {s}", "KMathExpr/Parse1ArgFunction");
                 pos++;
                 double a = ParseExpr(s, ref pos, vars, randomFunction);
                 SkipWhitespace(s, ref pos);
-                if (pos >= s.Length || s[pos] != ')') KShared.LogFatalError("Expected ) closing the " + funcName + " function! String: " + s, "KMathExpr/Parse1ArgFunction");
+                if (pos >= s.Length || s[pos] != ')')
+                    KShared.LogFatalError($"Expected ) closing the {funcName} function at position {pos}! String: {s}", "KMathExpr/Parse1ArgFunction");
                 pos++;
                 result = functions1Arg[funcName](a);
                 return true;
@@ -237,15 +243,18 @@ namespace Khemistry
             if (string.Equals(ident, funcName, StringComparison.OrdinalIgnoreCase))
             {
                 SkipWhitespace(s, ref pos);
-                if (pos >= s.Length || s[pos] != '(') KShared.LogFatalError("Expected ( after \" + funcName + \" function! String: " + s, "KMathExpr/Parse2ArgFunction");
+                if (pos >= s.Length || s[pos] != '(')
+                    KShared.LogFatalError($"Expected ( after {funcName} function at position {pos}! String: {s}", "KMathExpr/Parse2ArgFunction");
                 pos++;
                 double a = ParseExpr(s, ref pos, vars, randomFunction);
                 SkipWhitespace(s, ref pos);
-                if (pos >= s.Length || s[pos] != ',') KShared.LogFatalError("Expected , to separate arguments in \" + funcName + \" function! String: " + s, "KMathExpr/Parse2ArgFunction");
+                if (pos >= s.Length || s[pos] != ',')
+                    KShared.LogFatalError($"Expected , to separate arguments in {funcName} function at position {pos}! String: {s}", "KMathExpr/Parse2ArgFunction");
                 pos++;
                 double b = ParseExpr(s, ref pos, vars, randomFunction);
                 SkipWhitespace(s, ref pos);
-                if (pos >= s.Length || s[pos] != ')') KShared.LogFatalError("Expected ) closing the \" + funcName + \" function! String: " + s, "KMathExpr/Parse2ArgFunction");
+                if (pos >= s.Length || s[pos] != ')')
+                    KShared.LogFatalError($"Expected ) closing the {funcName} function at position {pos}! String: {s}", "KMathExpr/Parse2ArgFunction");
                 pos++;
                 result = string.Equals(funcName, "randf", StringComparison.OrdinalIgnoreCase)
                     && randomFunction != null
@@ -260,14 +269,16 @@ namespace Khemistry
             Func<double, double, double> randomFunction)
         {
             SkipWhitespace(s, ref pos);
-            if (pos >= s.Length) KShared.LogFatalError("Unexpected end of expression! String: " + s, "KMathExpr/ParsePrimary");
+            if (pos >= s.Length)
+                KShared.LogFatalError($"Unexpected end of expression at position {pos}! String: {s}", "KMathExpr/ParsePrimary");
 
             if (s[pos] == '(')
             {
                 pos++;
                 double val = ParseExpr(s, ref pos, vars, randomFunction);
                 SkipWhitespace(s, ref pos);
-                if (pos >= s.Length || s[pos] != ')') KShared.LogFatalError("Expected closing ) paranthesis! String: " + s, "KMathExpr/ParsePrimary");
+                if (pos >= s.Length || s[pos] != ')')
+                    KShared.LogFatalError($"Expected closing ) paranthesis at position {pos}! String: {s}", "KMathExpr/ParsePrimary");
                 pos++;
                 return val;
             }
@@ -282,7 +293,8 @@ namespace Khemistry
                     if (pos < s.Length && (s[pos] == '+' || s[pos] == '-')) pos++;
                     int exponentStart = pos;
                     while (pos < s.Length && char.IsDigit(s[pos])) pos++;
-                    if (pos == exponentStart) KShared.LogFatalError("Expected digits after exponent marker! String: " + s, "KMathExpr/ParsePrimary");
+                    if (pos == exponentStart)
+                        KShared.LogFatalError($"Expected digits after exponent marker at position {pos}! String: {s}", "KMathExpr/ParsePrimary");
                 }
                 return double.Parse(s.Substring(start, pos - start), CultureInfo.InvariantCulture);
             }
@@ -300,11 +312,13 @@ namespace Khemistry
 
                 // Parse 1 argument functions
                 foreach (string function in functions1Arg.Keys)
-                    if (Parse1ArgFunction(ident, s, ref pos, vars, function, out double result, randomFunction)) return result;
+                    if (Parse1ArgFunction(ident, s, ref pos, vars, function, out double result, randomFunction))
+                        return result;
 
                 // Parse 2 argument functions
                 foreach (string function in functions2Arg.Keys)
-                    if (Parse2ArgFunction(ident, s, ref pos, vars, function, out double result, randomFunction)) return result;
+                    if (Parse2ArgFunction(ident, s, ref pos, vars, function, out double result, randomFunction))
+                        return result;
 
                 // Parse variables
                 if (vars.TryGetValue(ident, out string rawVariableValue))
@@ -436,7 +450,7 @@ namespace Khemistry
         {
             SkipWhitespace(s, ref pos);
             if (pos >= s.Length)
-                throw new FormatException($"Unexpected end of expression at position {pos}.");
+                KShared.LogFatalError($"Unexpected end of expression at position {pos}! String: {s}", "KMathExpr/ParseRangePrimary");
 
             if (s[pos] == '(')
             {
@@ -444,7 +458,7 @@ namespace Khemistry
                 ValueRange value = ParseRangeExpr(s, ref pos, vars);
                 SkipWhitespace(s, ref pos);
                 if (pos >= s.Length || s[pos] != ')')
-                    throw new FormatException($"Expected a closing ')' at position {pos}.");
+                    KShared.LogFatalError($"Expected a closing ')' at position {pos}! String: {s}", "KMathExpr/ParseRangePrimary");
                 pos++;
                 return value;
             }
@@ -460,7 +474,7 @@ namespace Khemistry
                     int exponentStart = pos;
                     while (pos < s.Length && char.IsDigit(s[pos])) pos++;
                     if (pos == exponentStart)
-                        throw new FormatException($"Expected digits after exponent marker at position {pos}.");
+                        KShared.LogFatalError($"Expected digits after exponent marker at position {pos}! String: {s}", "KMathExpr/ParseRangePrimary");
                 }
                 double number = double.Parse(s.Substring(start, pos - start),
                     CultureInfo.InvariantCulture);
@@ -472,36 +486,49 @@ namespace Khemistry
                 int start = pos;
                 while (pos < s.Length && (char.IsLetterOrDigit(s[pos]) || s[pos] == '_')) pos++;
                 string identifier = s.Substring(start, pos - start);
-                if (string.Equals(identifier, "PI", StringComparison.OrdinalIgnoreCase))
-                    return MakeRange(Math.PI, Math.PI);
+
+                // Parse constants
+                foreach (string constant in constants.Keys)
+                    if (string.Equals(identifier, constant, StringComparison.OrdinalIgnoreCase))
+                        return MakeRange(constants[constant], constants[constant]);
+
+                // Parse 1 argument functions
+                //foreach (string function in functions1Arg.Keys)
+                //    if (Parse1ArgFunction(identifier, s, ref pos, vars, function, out double result, randomFunction))
+                //        return result;
+
+                // Parse 2 argument functions
+                //foreach (string function in functions2Arg.Keys)
+                //    if (Parse2ArgFunction(identifier, s, ref pos, vars, function, out double result, randomFunction))
+                //        return result;
 
                 if (string.Equals(identifier, "Pow", StringComparison.OrdinalIgnoreCase))
                 {
                     SkipWhitespace(s, ref pos);
                     if (pos >= s.Length || s[pos] != '(')
-                        throw new FormatException($"Expected '(' after Pow at position {pos}.");
+                        KShared.LogFatalError($"Expected ( after Pow function at position {pos}! String: {s}", "KMathExpr/ParseRangePrimary");
                     pos++;
                     ValueRange baseRange = ParseRangeExpr(s, ref pos, vars);
                     SkipWhitespace(s, ref pos);
                     if (pos >= s.Length || s[pos] != ',')
-                        throw new FormatException($"Expected ',' in Pow(...) at position {pos}.");
+                        KShared.LogFatalError($"Expected , to separate arguments in Pow function at position {pos}! String: {s}", "KMathExpr/ParseRangePrimary");
                     pos++;
                     ValueRange exponentRange = ParseRangeExpr(s, ref pos, vars);
                     SkipWhitespace(s, ref pos);
                     if (pos >= s.Length || s[pos] != ')')
-                        throw new FormatException($"Expected ')' to close Pow(...) at position {pos}.");
+                        KShared.LogFatalError($"Expected ) closing the Pow function at position {pos}! String: {s}", "KMathExpr/ParseRangePrimary");
                     pos++;
                     return PowRange(baseRange, exponentRange);
                 }
 
                 if (vars.TryGetValue(identifier, out ValueRange variableValue))
                     return variableValue;
-                throw new FormatException("Unknown identifier \"" + identifier
-                    + "\" at position " + pos + ".");
+                KShared.LogFatalError("Unknown identifier \"" + identifier
+                    + "\" at position " + pos + "! String: " + s, "KMathExpr/ParseRangePrimary");
             }
 
-            throw new FormatException("Unexpected character '" + s[pos]
-                + "' at position " + pos + ".");
+            KShared.LogFatalError("Unexpected character '" + s[pos]
+                + "' at position " + pos + "! String: " + s, "KMathExpr/ParseRangePrimary");
         }
 
         private static ValueRange MultiplyRanges(ValueRange left, ValueRange right)
@@ -511,7 +538,10 @@ namespace Khemistry
             double c = left.Maximum * right.Minimum;
             double d = left.Maximum * right.Maximum;
             if (!KShared.IsFinite(a) || !KShared.IsFinite(b) || !KShared.IsFinite(c) || !KShared.IsFinite(d))
-                throw new FormatException("Expression range overflowed.");
+                KShared.LogFatalError($"Expression range overflow! " +
+                                      ValueRangeToString("left", left) + ", " +
+                                      ValueRangeToString("right", right),
+                                      "KMathExpr/MultiplyRanges");
             return new ValueRange(Math.Min(Math.Min(a, b), Math.Min(c, d)),
                 Math.Max(Math.Max(a, b), Math.Max(c, d)));
         }
@@ -519,7 +549,10 @@ namespace Khemistry
         private static ValueRange DivideRanges(ValueRange numerator, ValueRange denominator)
         {
             if (denominator.Minimum <= 0.0 && denominator.Maximum >= 0.0)
-                throw new FormatException("Expression can divide by zero.");
+                KShared.LogFatalError("Expression can divide by zero! " +
+                                      ValueRangeToString("numerator", numerator) + ", " +
+                                      ValueRangeToString("denominator", denominator),
+                                      "KMathExpr/DivideRanges");
             ValueRange reciprocal = MakeRange(1.0 / denominator.Maximum,
                 1.0 / denominator.Minimum);
             return MultiplyRanges(numerator, reciprocal);
@@ -531,32 +564,48 @@ namespace Khemistry
                 Math.Max(Math.Abs(exponentRange.Minimum), Math.Abs(exponentRange.Maximum)));
             if (Math.Abs(exponentRange.Maximum - exponentRange.Minimum)
                 > exponentScale * 1e-12)
-                throw new FormatException(
-                    "Pow with a variable exponent cannot be safely bounded.");
+                KShared.LogFatalError("Pow with a variable exponent cannot be safely bounded! " +
+                                      ValueRangeToString("baseRange", baseRange) + ", " +
+                                      ValueRangeToString("exponentRange", exponentRange),
+                                      "KMathExpr/PowRange");
 
             double exponent = (exponentRange.Minimum + exponentRange.Maximum) * 0.5;
             if (!KShared.IsFinite(exponent))
-                throw new FormatException("Pow exponent is not finite.");
+                KShared.LogFatalError("Pow exponent is not finite! " +
+                                      "exponent is " + exponent + ", " +
+                                      ValueRangeToString("baseRange", baseRange) + ", " +
+                                      ValueRangeToString("exponentRange", exponentRange),
+                                      "KMathExpr/PowRange");
             if (exponent == 0.0) return MakeRange(1.0, 1.0);
 
             double roundedExponent = Math.Round(exponent);
-            bool integerExponent = exponent == roundedExponent;
-            if (!integerExponent && baseRange.Minimum < 0.0)
-                throw new FormatException(
-                    "Pow can receive a negative base with a non-integer exponent.");
-            if (exponent < 0.0 && baseRange.Minimum <= 0.0
-                && baseRange.Maximum >= 0.0)
-                throw new FormatException(
-                    "Pow can divide by zero for a negative exponent.");
+            if (!(exponent == roundedExponent) && baseRange.Minimum < 0.0)
+                KShared.LogFatalError("Pow can receive a negative base with a non-integer exponent! " +
+                                      "exponent is " + exponent + ", " +
+                                      "roundedExponent is " + roundedExponent + ", " +
+                                      ValueRangeToString("baseRange", baseRange) + ", " +
+                                      ValueRangeToString("exponentRange", exponentRange),
+                                      "KMathExpr/PowRange");
+            if (exponent < 0.0 && baseRange.Minimum <= 0.0 && baseRange.Maximum >= 0.0)
+                KShared.LogFatalError("Pow can divide by zero for a negative exponent! " +
+                                      "exponent is " + exponent + ", " +
+                                      ValueRangeToString("baseRange", baseRange) + ", " +
+                                      ValueRangeToString("exponentRange", exponentRange),
+                                      "KMathExpr/PowRange");
 
             double first = Math.Pow(baseRange.Minimum, exponent);
             double second = Math.Pow(baseRange.Maximum, exponent);
             if (!KShared.IsFinite(first) || !KShared.IsFinite(second))
-                throw new FormatException("Pow range is not finite.");
+                KShared.LogFatalError("Pow range is not finite! " +
+                                      "first is " + first + ", " +
+                                      "second is " + second + ", " +
+                                      ValueRangeToString("baseRange", baseRange) + ", " +
+                                      ValueRangeToString("exponentRange", exponentRange),
+                                      "KMathExpr/PowRange");
 
             double minimum = Math.Min(first, second);
             double maximum = Math.Max(first, second);
-            if (integerExponent && exponent > 0.0
+            if (exponent == roundedExponent && exponent > 0.0
                 && Math.Abs(roundedExponent % 2.0) < 0.5
                 && baseRange.Minimum <= 0.0 && baseRange.Maximum >= 0.0)
                 minimum = 0.0;
@@ -566,7 +615,10 @@ namespace Khemistry
         private static ValueRange MakeRange(double first, double second)
         {
             if (!KShared.IsFinite(first) || !KShared.IsFinite(second))
-                throw new FormatException("Expression range is not finite.");
+                KShared.LogFatalError("Expression range is not finite! " +
+                                      "first is " + first + ", " +
+                                      "second is " + second,
+                                      "KMathExpr/MakeRange");
             return new ValueRange(Math.Min(first, second), Math.Max(first, second));
         }
     }
