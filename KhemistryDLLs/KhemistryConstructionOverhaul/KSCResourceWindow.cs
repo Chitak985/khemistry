@@ -25,8 +25,8 @@ namespace KhemistryConstructionOverhaul
         private readonly Dictionary<string, Data.Sort> _sorts = new Dictionary<string, Data.Sort>();
         private readonly HashSet<string> _expanded = new HashSet<string>();
         private readonly Dictionary<string, Vector2> _parameterScroll = new Dictionary<string, Vector2>();
-        private List<ResourceRow> _resources = new List<ResourceRow>();
-        private List<Data.MaterialRow> _materials = new List<Data.MaterialRow>();
+        private readonly List<ResourceRow> _resources = new List<ResourceRow>();
+        private readonly List<Data.MaterialRow> _materials = new List<Data.MaterialRow>();
 
         private sealed class ResourceRow
         {
@@ -313,10 +313,10 @@ namespace KhemistryConstructionOverhaul
             _amount = GUILayout.TextField(_amount, 80, HighLogic.Skin.textField);
             bool career = HighLogic.CurrentGame.Mode == Game.Modes.CAREER;
             bool valid = definition != null && LedgerReady && ReferenceEquals(_saleGame, HighLogic.CurrentGame);
-            double remaining = 0, proceeds = 0;
+            double proceeds = 0;
             string validation = "Resource storage is unavailable.";
             if (valid) valid = Data.TrySale(KShared.Instance.ResourceDict, _sellName, _amount, career,
-                definition.unitCost, out remaining, out proceeds, out validation);
+                definition.unitCost, out _, out proceeds, out validation);
             GUILayout.Label(career ? "Funds: " + Data.Number(proceeds)
                 : "Science/Sandbox: resources are removed without payment.", _label);
             if (!string.IsNullOrEmpty(_error)) GUILayout.Label(_error, _label);

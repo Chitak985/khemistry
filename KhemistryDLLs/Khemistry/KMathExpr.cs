@@ -123,8 +123,8 @@ namespace Khemistry
             }
         }
 
-        public static bool ValueRangeToString(string name, ValueRange range)
-            => $"{name} is [{range.Minimum}, {range.Maximum}]"
+        public static string ValueRangeToString(string name, ValueRange range)
+            => $"{name} is [{range.Minimum}, {range.Maximum}]";
 
         public static bool TryEvaluate(string expr, out double result, out string error,
             Dictionary<string, string> vars=null,
@@ -450,7 +450,10 @@ namespace Khemistry
         {
             SkipWhitespace(s, ref pos);
             if (pos >= s.Length)
+            {
                 KShared.LogFatalError($"Unexpected end of expression at position {pos}! String: {s}", "KMathExpr/ParseRangePrimary");
+                throw new OperationCanceledException();
+            }
 
             if (s[pos] == '(')
             {
@@ -458,7 +461,10 @@ namespace Khemistry
                 ValueRange value = ParseRangeExpr(s, ref pos, vars);
                 SkipWhitespace(s, ref pos);
                 if (pos >= s.Length || s[pos] != ')')
+                {
                     KShared.LogFatalError($"Expected a closing ')' at position {pos}! String: {s}", "KMathExpr/ParseRangePrimary");
+                    throw new OperationCanceledException();
+                }
                 pos++;
                 return value;
             }
@@ -474,7 +480,10 @@ namespace Khemistry
                     int exponentStart = pos;
                     while (pos < s.Length && char.IsDigit(s[pos])) pos++;
                     if (pos == exponentStart)
+                    {
                         KShared.LogFatalError($"Expected digits after exponent marker at position {pos}! String: {s}", "KMathExpr/ParseRangePrimary");
+                        throw new OperationCanceledException();
+                    }
                 }
                 double number = double.Parse(s.Substring(start, pos - start),
                     CultureInfo.InvariantCulture);
@@ -506,17 +515,26 @@ namespace Khemistry
                 {
                     SkipWhitespace(s, ref pos);
                     if (pos >= s.Length || s[pos] != '(')
+                    {
                         KShared.LogFatalError($"Expected ( after Pow function at position {pos}! String: {s}", "KMathExpr/ParseRangePrimary");
+                        throw new OperationCanceledException();
+                    }
                     pos++;
                     ValueRange baseRange = ParseRangeExpr(s, ref pos, vars);
                     SkipWhitespace(s, ref pos);
                     if (pos >= s.Length || s[pos] != ',')
+                    {
                         KShared.LogFatalError($"Expected , to separate arguments in Pow function at position {pos}! String: {s}", "KMathExpr/ParseRangePrimary");
+                        throw new OperationCanceledException();
+                    }
                     pos++;
                     ValueRange exponentRange = ParseRangeExpr(s, ref pos, vars);
                     SkipWhitespace(s, ref pos);
                     if (pos >= s.Length || s[pos] != ')')
+                    {
                         KShared.LogFatalError($"Expected ) closing the Pow function at position {pos}! String: {s}", "KMathExpr/ParseRangePrimary");
+                        throw new OperationCanceledException();
+                    }
                     pos++;
                     return PowRange(baseRange, exponentRange);
                 }
@@ -525,10 +543,12 @@ namespace Khemistry
                     return variableValue;
                 KShared.LogFatalError("Unknown identifier \"" + identifier
                     + "\" at position " + pos + "! String: " + s, "KMathExpr/ParseRangePrimary");
+                throw new OperationCanceledException();
             }
 
             KShared.LogFatalError("Unexpected character '" + s[pos]
                 + "' at position " + pos + "! String: " + s, "KMathExpr/ParseRangePrimary");
+            throw new OperationCanceledException();
         }
 
         private static ValueRange MultiplyRanges(ValueRange left, ValueRange right)

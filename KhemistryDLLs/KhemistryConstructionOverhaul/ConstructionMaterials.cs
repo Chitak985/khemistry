@@ -34,7 +34,7 @@ namespace KhemistryConstructionOverhaul
         internal static bool TryParseCost(ConfigNode node, string partName,
             out KhemistryISRURecipe.ResourceInputMaterial requirement)
         {
-            requirement = default(KhemistryISRURecipe.ResourceInputMaterial);
+            requirement = default;
             string context = "KhemistryPart/OnLoad";
             if (node == null)
             {

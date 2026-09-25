@@ -213,15 +213,13 @@ namespace Khemistry
                 {
                     string settingName = settingNode.GetValue("name")?.Trim();
                     string variable = settingNode.GetValue("var")?.Trim();
-                    double min = 0.0;
-                    double max = 100.0;
                     double multiplier1 = 10.0;
                     double multiplier2 = 100.0;
                     double step = 1.0;
                     bool validNumbers = TryReadOptionalDouble(settingNode, "min", 0.0,
-                            out min)
+                            out double min)
                         && TryReadOptionalDouble(settingNode, "max", 100.0,
-                            out max)
+                            out double max)
                         && TryReadOptionalDouble(settingNode, "mul1", 10.0,
                             out multiplier1)
                         && TryReadOptionalDouble(settingNode, "mul2", 100.0,
@@ -236,9 +234,9 @@ namespace Khemistry
                         && !string.IsNullOrEmpty(variable)
                         && Regex.IsMatch(variable, "^[A-Za-z0-9]+$")
                         && settingVariables.Add(variable)
-                        && validNumbers && max >= min && step > 0.0
+                        && validNumbers && (double)100.0 >= min && step > 0.0
                         && multiplier1 > 0.0 && multiplier2 > 0.0
-                        && defaultValue >= min && defaultValue <= max;
+                        && defaultValue >= min && defaultValue <= (double)100.0;
                     if (!valid)
                     {
                         configurationError = true;
@@ -254,7 +252,7 @@ namespace Khemistry
                         name = settingName,
                         variable = variable,
                         min = min,
-                        max = max,
+                        max = 100.0,
                         multiplier1 = multiplier1,
                         multiplier2 = multiplier2,
                         defaultValue = defaultValue,
@@ -527,11 +525,10 @@ namespace Khemistry
                     double amount = 1.0;
                     if (amountIsExpression)
                     {
-                        string amountReferenceError = null;
                         string amountExpressionError = null;
                         validOutputAmount = TryReplaceMaterialValuesForValidation(
                                 amountExpression, out string validationAmount,
-                                out amountReferenceError)
+                                out string amountReferenceError)
                             && KMathExpr.TryInterpolateNumber(validationAmount, out amount,
                                 out amountExpressionError);
                         if (validOutputAmount) amount = 1.0;
@@ -744,11 +741,10 @@ namespace Khemistry
 
                 ///// Timing and control /////
                 _recipeTimeExpression = node.GetValue("recipeTime")?.Trim() ?? "0";
-                string recipeTimeReferenceError = null;
                 string recipeTimeExpressionError = null;
                 bool validRecipeTime = TryReplaceMaterialValuesForValidation(
                         _recipeTimeExpression, out string validationRecipeTime,
-                        out recipeTimeReferenceError)
+                        out string recipeTimeReferenceError)
                     && KMathExpr.TryInterpolateNumber(validationRecipeTime,
                         out _recipeTime, out recipeTimeExpressionError);
                 if (!validRecipeTime || double.IsNaN(_recipeTime)
@@ -1207,35 +1203,37 @@ namespace Khemistry
         /// </summary>
         public KhemistryISRURecipe ScaledCopy(double multiplier)
         {
-            KhemistryISRURecipe copy = new KhemistryISRURecipe();
-            copy._name = _name;
+            KhemistryISRURecipe copy = new KhemistryISRURecipe
+            {
+                _name = _name,
+                _recipeTypes = _recipeTypes,
+                _recipeSubtypes = _recipeSubtypes,
+                _recipeSubsubtypes = _recipeSubsubtypes,
+                _chargingRequired = _chargingRequired,
+                _chargeRate = _chargeRate,
+                _chargeDecay = _chargeDecay,
+                _controlsShowPAW = _controlsShowPAW,
+                _controlsShowEVA = _controlsShowEVA,
+                _useSuitCell = _useSuitCell,
+                _planetConfigs = _planetConfigs,
+                _recipeTime = _recipeTime,
+                _recipeTimeExpression = _recipeTimeExpression,
+                _workersEngineers = _workersEngineers,
+                _workersPilots = _workersPilots,
+                _workersScientists = _workersScientists,
+                _workersEVA = _workersEVA,
+                _workersCREW = _workersCREW,
+                mainNode = mainNode,
+                IsValid = IsValid,
+            };  // get things fall apart
             copy.maintenance.AddRange(maintenance);
-            copy._recipeTypes = _recipeTypes;
-            copy._recipeSubtypes = _recipeSubtypes;
-            copy._recipeSubsubtypes = _recipeSubsubtypes;
             copy._depositConditions.AddRange(_depositConditions);
             copy._parallaxScatters.AddRange(_parallaxScatters);
             copy._settings.AddRange(_settings);
             copy._declaredOutputMaterialIds.AddRange(_declaredOutputMaterialIds);
-            copy._chargingRequired = _chargingRequired;
-            copy._chargeRate = _chargeRate;
-            copy._chargeDecay = _chargeDecay;
             copy._chargeNames.AddRange(_chargeNames);
             copy._chargeAmounts.AddRange(_chargeAmounts);
-            copy._controlsShowPAW = _controlsShowPAW;
-            copy._controlsShowEVA = _controlsShowEVA;
-            copy._useSuitCell = _useSuitCell;
-            copy._planetConfigs = _planetConfigs;
-            copy._recipeTime = _recipeTime;
-            copy._recipeTimeExpression = _recipeTimeExpression;
-            copy._workersEngineers = _workersEngineers;
-            copy._workersPilots = _workersPilots;
-            copy._workersScientists = _workersScientists;
-            copy._workersEVA = _workersEVA;
-            copy._workersCREW = _workersCREW;
-            copy.mainNode = mainNode;
-            copy.IsValid = IsValid;
-
+            
             if (double.IsNaN(multiplier) || double.IsInfinity(multiplier) || multiplier <= 0.0)
                 multiplier = 1.0;
             copy._biomeResourceScale = _biomeResourceScale * multiplier;
