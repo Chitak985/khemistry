@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -165,19 +165,15 @@ namespace Khemistry
                 _recipeTypes.Clear();
                 AddTrimmedDistinct(_recipeTypes, node.GetValues("recipeType"));
                 if (_recipeTypes.Count == 0) _recipeTypes.Add("NONE");
+
                 _recipeSubtypes.Clear();
                 AddTrimmedDistinct(_recipeSubtypes, node.GetValues("recipeSubtype"));
-                if (_recipeSubtypes.Count == 0 && node.HasValue("recipeSubype"))
-                {
-                    AddTrimmedDistinct(_recipeSubtypes, node.GetValues("recipeSubype"));
-                    KShared.LogWarning("Recipe \"" + _name
-                        + "\" uses legacy misspelling \"recipeSubype\"; use \"recipeSubtype\".",
-                        "KhemistryISRURecipe/constructor");
-                }
                 if (_recipeSubtypes.Count == 0) _recipeSubtypes.Add("NONE");
+
                 _recipeSubsubtypes.Clear();
                 AddTrimmedDistinct(_recipeSubsubtypes, node.GetValues("recipeSubsubtype"));
                 if (_recipeSubsubtypes.Count == 0) _recipeSubsubtypes.Add("NONE");
+
                 _depositConditions.Clear();
                 foreach (string condition in node.GetValues("depositCondition"))
                 {
@@ -196,8 +192,8 @@ namespace Khemistry
                     if (string.IsNullOrEmpty(scatterName) || !parallaxScatterNames.Add(scatterName))
                     {
                         configurationError = true;
-                        KShared.LogError("Recipe \"" + _name
-                            + "\": PARALLAX_SCATTER requires a unique, non-empty scatter/name value.",
+                        KShared.LogError($"Recipe \"{_name}\":
+                            PARALLAX_SCATTER requires a unique, non-empty scatter/name value.",
                             "KhemistryISRURecipe/constructor");
                         continue;
                     }
@@ -1243,7 +1239,7 @@ namespace Khemistry
                 _workersCREW = _workersCREW,
                 mainNode = mainNode,
                 IsValid = IsValid,
-            };  // get things fall apart
+            };
             copy.maintenance.AddRange(maintenance);
             copy._depositConditions.AddRange(_depositConditions);
             copy._parallaxScatters.AddRange(_parallaxScatters);
