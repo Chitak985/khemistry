@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.Serialization;
 using Khemistry;
@@ -73,7 +74,7 @@ internal static class Program
         costNode.AddNode("PARAM_REQUIREMENTS").AddValue("grade", "A");
         Assert(KhemistryConstructionMaterials.TryParseCost(costNode, "testPart",
             out KhemistryISRURecipe.ResourceInputMaterial cost), "parse MATERIAL_COST");
-        Assert(cost.id == null && cost.amount == 4 && cost.parameters["grade"] == "A",
+        Assert(cost.id == null && cost.amount == 4 && cost.parameters.Single(p => p.Key == "grade").Value == "A",
             "MATERIAL_COST mirrors INPUT_MATERIAL without id");
 
         Assert(!KhemistryConstructionMaterials.TryConsumeRequirements(contents,

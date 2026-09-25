@@ -25,8 +25,8 @@ namespace KhemistryConstructionOverhaul
                 size = source.size,
                 usesParams = source.usesParams,
                 parameters = source.parameters == null
-                    ? new Dictionary<string, string>()
-                    : new Dictionary<string, string>(source.parameters),
+                    ? new List<KeyValuePair<string, string>>()
+                    : source.parameters.ToList(),
                 amount = source.amount
             };
         }
@@ -123,7 +123,7 @@ namespace KhemistryConstructionOverhaul
                 return false;
             }
             foreach (string parameterName in
-                (requirement.parameters ?? new Dictionary<string, string>()).Keys)
+                (requirement.parameters ?? new Dictionary<string, string>()).Select(condition => condition.Key))
                 if (!definition.parameters.ContainsKey(parameterName))
                 {
                     error = "A part references the unknown parameter " + parameterName

@@ -7,6 +7,11 @@
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="Stubs.cs" />
+    <Compile Include="RecipeStubs.cs" />
+    <Compile Include="EvaRecipeTests.cs" />
+    <Compile Include="../../KhemistryDLLs/Khemistry/PartModules/KhemistryISRU/ISRURecipe.cs" Link="ISRURecipe.cs" />
+    <None Include="../../Khemistry/Definitions/KhemistryRecipes/kerbalEva.cfg" Link="kerbalEva.cfg" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../Khemistry/Definitions/KhemistryMaterials/materials.cfg" Link="materials.cfg" CopyToOutputDirectory="PreserveNewest" />
     <Compile Include="../../KhemistryDLLs/Khemistry/KMathExpr.cs" Link="KMathExpr.cs" />
     <Compile Include="../../KhemistryDLLs/Khemistry/MaterialParameterCondition.cs" Link="MaterialParameterCondition.cs" />
     <Compile Include="../../KhemistryDLLs/Khemistry/KShared/KSharedParameterComparison.cs" Link="KSharedParameterComparison.cs" />

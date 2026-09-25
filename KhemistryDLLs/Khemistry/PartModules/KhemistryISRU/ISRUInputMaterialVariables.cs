@@ -214,7 +214,7 @@ namespace Khemistry
         private bool TryResolveInputMaterialConditions(
             ref KhemistryISRURecipe.ResourceInputMaterial material)
         {
-            var resolved = new Dictionary<string, string>();
+            var resolved = new List<KeyValuePair<string, string>>();
             foreach (KeyValuePair<string, string> condition in
                      material.parameters ?? new Dictionary<string, string>())
             {
@@ -232,7 +232,7 @@ namespace Khemistry
                         "KhemistryISRU/TryResolveInputMaterialConditions");
                     return false;
                 }
-                resolved.Add(condition.Key, value);
+                resolved.Add(new KeyValuePair<string, string>(condition.Key, value));
             }
             // ResourceInputMaterial is a struct; only this operation's copy is changed.
             material.parameters = resolved;
@@ -291,7 +291,7 @@ namespace Khemistry
                 return false;
             if (!KhemistryISRURecipe.ContainsInputMaterialValue(expression)
                 && !KhemistryISRURecipe.ContainsOutputMaterialValue(expression))
-                return KMathExpr.TryInterpolateNumber(expression, out recipeTime,
+                return KMathExpr.TryEvaluateNumericExpression(expression, out recipeTime,
                     out _) && recipeTime > 0.0;
 
             Dictionary<string, KhemistryMaterialInstance> inputValues =
@@ -328,7 +328,7 @@ namespace Khemistry
                         outputValues, biomeConfig?.outputMultiplier ?? 1.0)
                 || !TryResolveMaterialReferences(expression, inputValues, outputValues,
                     true, "recipeTime", out string resolvedExpression)
-                || !KMathExpr.TryInterpolateNumber(resolvedExpression, out recipeTime,
+                || !KMathExpr.TryEvaluateNumericExpression(resolvedExpression, out recipeTime,
                     out error)
                 || double.IsNaN(recipeTime) || double.IsInfinity(recipeTime)
                 || recipeTime <= 0.0)

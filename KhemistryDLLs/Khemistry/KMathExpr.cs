@@ -148,6 +148,15 @@ namespace Khemistry
             return false;
         }
 
+        /// <summary>Numeric recipe fields accept either bare math or bracket interpolation.</summary>
+        public static bool TryEvaluateNumericExpression(string expression, out double result,
+            out string error)
+        {
+            return ContainsInterpolation(expression)
+                ? TryInterpolateNumber(expression, out result, out error)
+                : TryEvaluate(expression, out result, out error);
+        }
+
         /// <summary>A closed range of finite values used for conservative config validation.</summary>
         public struct ValueRange
         {

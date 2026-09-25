@@ -88,7 +88,8 @@ namespace Khemistry
             public string shape;
             public string size;
             public bool usesParams;
-            public Dictionary<string, string> parameters;
+            // Preserve repeated parameter names: every condition must pass (AND).
+            public IEnumerable<KeyValuePair<string, string>> parameters;
             public int amount;
         }
 
@@ -443,10 +444,10 @@ namespace Khemistry
                         ? matNode.GetNode("PARAM_REQUIREMENTS")
                         : matNode.GetNode("PARAMS");
                     bool usesParams = parameterNode != null;
-                    Dictionary<string, string> parameters = new Dictionary<string, string>();
+                    var parameters = new List<KeyValuePair<string, string>>();
                     if (usesParams)
-                        foreach (string key in parameterNode.values.DistinctNames())
-                            parameters.Add(key, parameterNode.GetValue(key));
+                        foreach (ConfigNode.Value value in parameterNode.values)
+                            parameters.Add(new KeyValuePair<string, string>(value.name, value.value));
 
                     foreach (KeyValuePair<string, string> condition in parameters)
                     {
@@ -762,7 +763,7 @@ namespace Khemistry
                 bool validRecipeTime = TryReplaceMaterialValuesForValidation(
                         _recipeTimeExpression, out string validationRecipeTime,
                         out string recipeTimeReferenceError)
-                    && KMathExpr.TryInterpolateNumber(validationRecipeTime,
+                    && KMathExpr.TryEvaluateNumericExpression(validationRecipeTime,
                         out _recipeTime, out recipeTimeExpressionError);
                 if (!validRecipeTime || double.IsNaN(_recipeTime)
                     || double.IsInfinity(_recipeTime) || _recipeTime <= 0.0)
@@ -1014,7 +1015,7 @@ namespace Khemistry
             {
                 KhemistryMaterial definition = definitions.FirstOrDefault(material => material.name == input.name);
                 if (!ValidateMaterialReference(definition, input.name, input.shape,
-                        input.parameters?.Keys, "INPUT_MATERIAL", context))
+                        input.parameters?.Select(condition => condition.Key), "INPUT_MATERIAL", context))
                     valid = false;
             }
 
@@ -1269,7 +1270,7 @@ namespace Khemistry
                     shape = mat.shape,
                     size = mat.size,
                     usesParams = mat.usesParams,
-                    parameters = new Dictionary<string, string>(mat.parameters),
+                    parameters = mat.parameters.ToList(),
                     amount = scaledAmount
                 });
             }

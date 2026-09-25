@@ -17,6 +17,7 @@ internal static class Program
             CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR");
             Conditions();
             Ranges();
+            assertions += EvaRecipeTests.Run();
             Console.WriteLine("Passed " + assertions + " expression assertions.");
             return 0;
         }

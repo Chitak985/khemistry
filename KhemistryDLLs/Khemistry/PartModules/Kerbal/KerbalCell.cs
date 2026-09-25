@@ -150,7 +150,7 @@ namespace Khemistry
         }
 
         public int GetSuitCellMatchingMaterialAmount(string name, string shape, string size,
-            Dictionary<string, string> paramConditions)
+            IEnumerable<KeyValuePair<string, string>> paramConditions)
         {
             long total = 0;
             foreach (KhemistryMaterialInstance material in materialSuitCellContents)
@@ -163,7 +163,7 @@ namespace Khemistry
         }
 
         public bool TryRemoveMaterialFromSuitCell(string name, string shape, string size,
-            Dictionary<string, string> paramConditions, int amount,
+            IEnumerable<KeyValuePair<string, string>> paramConditions, int amount,
             out List<KhemistryMaterialInstance> removed)
         {
             removed = new List<KhemistryMaterialInstance>();

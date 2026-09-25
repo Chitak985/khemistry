@@ -313,7 +313,7 @@ namespace Khemistry
         }
 
         public static bool MatchesMaterial(KhemistryMaterialInstance material, string name, string shape,
-            string size, Dictionary<string, string> paramConditions)
+            string size, IEnumerable<KeyValuePair<string, string>> paramConditions)
         {
             if (material?.material == null || material.material.name != name
                 || material.shape != shape || material.size != size)
@@ -331,7 +331,7 @@ namespace Khemistry
         }
 
         public int GetMatchingMaterialAmount(string name, string shape, string size,
-            Dictionary<string, string> paramConditions)
+            IEnumerable<KeyValuePair<string, string>> paramConditions)
         {
             long total = 0;
             foreach (KhemistryMaterialInstance material in contents)
@@ -348,7 +348,7 @@ namespace Khemistry
         /// The exact removed instances are returned so a caller can roll the transaction back.
         /// </summary>
         public bool TryRemoveMaterial(string name, string shape, string size,
-            Dictionary<string, string> paramConditions, int amount,
+            IEnumerable<KeyValuePair<string, string>> paramConditions, int amount,
             out List<KhemistryMaterialInstance> removed)
         {
             removed = new List<KhemistryMaterialInstance>();
