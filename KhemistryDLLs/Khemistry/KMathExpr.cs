@@ -22,20 +22,58 @@ namespace Khemistry
             { "E", Math.E }
         };
         /// <summary>The dictionary of supported one-argument functions.</summary>
-        static readonly Dictionary<string, Func<double, double>> functions1Arg = new Dictionary<string, Func<double, double>>(StringComparer.OrdinalIgnoreCase)
+        static readonly Dictionary<string, UnaryFunction> functions1Arg = new Dictionary<string, UnaryFunction>(StringComparer.OrdinalIgnoreCase)
         {
-            { "Sqrt", Math.Sqrt },
-            { "Log", Math.Log },
-            { "Log10", Math.Log10 }
+            { "Sqrt", Monotone(Math.Sqrt) },
+            { "Log", Monotone(Math.Log) },
+            { "Log10", Monotone(Math.Log10) }
         };
         /// <summary>The dictionary of supported two-argument functions.</summary>
-        static readonly Dictionary<string, Func<double, double, double>> functions2Arg = new Dictionary<string, Func<double, double, double>>(StringComparer.OrdinalIgnoreCase)
+        static readonly Dictionary<string, BinaryFunction> functions2Arg = new Dictionary<string, BinaryFunction>(StringComparer.OrdinalIgnoreCase)
         {
-            { "Pow", Math.Pow },
-            { "Min", Math.Min },
-            { "Max", Math.Max },
-            { "randf", KShared.RandomDouble }
+            { "Pow", new BinaryFunction(Math.Pow, PowRange) },
+            { "Min", CornerBounded(Math.Min) },
+            { "Max", CornerBounded(Math.Max) },
+            { "randf", new BinaryFunction(KShared.RandomDouble,
+                (a, b) => MakeRange(Math.Min(a.Minimum, b.Minimum),
+                    Math.Max(a.Maximum, b.Maximum))) }
         };
+
+        // Register scalar and interval behavior together: an arbitrary delegate cannot be
+        // bounded safely by sampling. These shared policies avoid a range method per function.
+        private sealed class UnaryFunction
+        {
+            internal readonly Func<double, double> Evaluate;
+            internal readonly Func<ValueRange, ValueRange> Range;
+            internal UnaryFunction(Func<double, double> evaluate, Func<ValueRange, ValueRange> range)
+            { Evaluate = evaluate; Range = range; }
+        }
+
+        private sealed class BinaryFunction
+        {
+            internal readonly Func<double, double, double> Evaluate;
+            internal readonly Func<ValueRange, ValueRange, ValueRange> Range;
+            internal BinaryFunction(Func<double, double, double> evaluate,
+                Func<ValueRange, ValueRange, ValueRange> range)
+            { Evaluate = evaluate; Range = range; }
+        }
+
+        // Only for functions monotone throughout their domain, with no internal domain holes.
+        private static UnaryFunction Monotone(Func<double, double> function)
+            => new UnaryFunction(function, value =>
+                MakeRange(function(value.Minimum), function(value.Maximum)));
+
+        // Only for functions whose extrema on any valid rectangle occur at its corners.
+        private static BinaryFunction CornerBounded(Func<double, double, double> function)
+            => new BinaryFunction(function, (a, b) => EvaluateCorners(function, a, b));
+
+        private static ValueRange EvaluateCorners(Func<double, double, double> function,
+            ValueRange a, ValueRange b)
+        {
+            ValueRange first = MakeRange(function(a.Minimum, b.Minimum), function(a.Minimum, b.Maximum));
+            ValueRange second = MakeRange(function(a.Maximum, b.Minimum), function(a.Maximum, b.Maximum));
+            return MakeRange(Math.Min(first.Minimum, second.Minimum), Math.Max(first.Maximum, second.Maximum));
+        }
         
         /// <summary>True when a value contains at least one bracketed <see cref="KMathExpr"/>.</summary>
         public static bool ContainsInterpolation(string value)
@@ -230,7 +268,7 @@ namespace Khemistry
                 if (pos >= s.Length || s[pos] != ')')
                     KShared.LogFatalError($"Expected ) closing the {funcName} function at position {pos}! String: {s}", "KMathExpr/Parse1ArgFunction");
                 pos++;
-                result = functions1Arg[funcName](a);
+                result = functions1Arg[funcName].Evaluate(a);
                 return true;
             }
             result = 0;
@@ -258,7 +296,7 @@ namespace Khemistry
                 pos++;
                 result = string.Equals(funcName, "randf", StringComparison.OrdinalIgnoreCase)
                     && randomFunction != null
-                    ? randomFunction(a, b) : functions2Arg[funcName](a, b);
+                    ? randomFunction(a, b) : functions2Arg[funcName].Evaluate(a, b);
                 return true;
             }
             result = 0;
@@ -338,9 +376,8 @@ namespace Khemistry
 
         /// <summary>
         /// Conservatively evaluates the complete result range of an expression. This supports
-        /// the same grammar as <see cref="TryEvaluate"/>. Pow requires a fixed exponent; a
-        /// variable exponent is rejected because its extrema cannot generally be bounded by
-        /// endpoint arithmetic.
+        /// the same grammar and functions as <see cref="TryEvaluate"/>. Invalid domains and
+        /// non-finite bounds are rejected. Negative Pow bases require a fixed integer exponent.
         /// </summary>
         public static bool TryEvaluateRange(string expr, out ValueRange result,
             out string error, Dictionary<string, ValueRange> vars = null)
@@ -501,42 +538,21 @@ namespace Khemistry
                     if (string.Equals(identifier, constant, StringComparison.OrdinalIgnoreCase))
                         return MakeRange(constants[constant], constants[constant]);
 
-                // Parse 1 argument functions
-                //foreach (string function in functions1Arg.Keys)
-                //    if (Parse1ArgFunction(identifier, s, ref pos, vars, function, out double result, randomFunction))
-                //        return result;
-
-                // Parse 2 argument functions
-                //foreach (string function in functions2Arg.Keys)
-                //    if (Parse2ArgFunction(identifier, s, ref pos, vars, function, out double result, randomFunction))
-                //        return result;
-
-                if (string.Equals(identifier, "Pow", StringComparison.OrdinalIgnoreCase))
+                if (functions1Arg.TryGetValue(identifier, out UnaryFunction unary))
                 {
-                    SkipWhitespace(s, ref pos);
-                    if (pos >= s.Length || s[pos] != '(')
-                    {
-                        KShared.LogFatalError($"Expected ( after Pow function at position {pos}! String: {s}", "KMathExpr/ParseRangePrimary");
-                        throw new OperationCanceledException();
-                    }
-                    pos++;
-                    ValueRange baseRange = ParseRangeExpr(s, ref pos, vars);
-                    SkipWhitespace(s, ref pos);
-                    if (pos >= s.Length || s[pos] != ',')
-                    {
-                        KShared.LogFatalError($"Expected , to separate arguments in Pow function at position {pos}! String: {s}", "KMathExpr/ParseRangePrimary");
-                        throw new OperationCanceledException();
-                    }
-                    pos++;
-                    ValueRange exponentRange = ParseRangeExpr(s, ref pos, vars);
-                    SkipWhitespace(s, ref pos);
-                    if (pos >= s.Length || s[pos] != ')')
-                    {
-                        KShared.LogFatalError($"Expected ) closing the Pow function at position {pos}! String: {s}", "KMathExpr/ParseRangePrimary");
-                        throw new OperationCanceledException();
-                    }
-                    pos++;
-                    return PowRange(baseRange, exponentRange);
+                    ExpectRangeToken(s, ref pos, '(', identifier);
+                    ValueRange argument = ParseRangeExpr(s, ref pos, vars);
+                    ExpectRangeToken(s, ref pos, ')', identifier);
+                    return unary.Range(argument);
+                }
+                if (functions2Arg.TryGetValue(identifier, out BinaryFunction binary))
+                {
+                    ExpectRangeToken(s, ref pos, '(', identifier);
+                    ValueRange first = ParseRangeExpr(s, ref pos, vars);
+                    ExpectRangeToken(s, ref pos, ',', identifier);
+                    ValueRange second = ParseRangeExpr(s, ref pos, vars);
+                    ExpectRangeToken(s, ref pos, ')', identifier);
+                    return binary.Range(first, second);
                 }
 
                 if (vars.TryGetValue(identifier, out ValueRange variableValue))
@@ -578,58 +594,34 @@ namespace Khemistry
             return MultiplyRanges(numerator, reciprocal);
         }
 
+        private static void ExpectRangeToken(string expression, ref int position,
+            char token, string function)
+        {
+            SkipWhitespace(expression, ref position);
+            if (position >= expression.Length || expression[position] != token)
+                throw new FormatException("Expected '" + token + "' in " + function
+                    + " at position " + position + ".");
+            position++;
+        }
+
         private static ValueRange PowRange(ValueRange baseRange, ValueRange exponentRange)
         {
-            double exponentScale = Math.Max(1.0,
-                Math.Max(Math.Abs(exponentRange.Minimum), Math.Abs(exponentRange.Maximum)));
-            if (Math.Abs(exponentRange.Maximum - exponentRange.Minimum)
-                > exponentScale * 1e-12)
-                KShared.LogFatalError("Pow with a variable exponent cannot be safely bounded! " +
-                                      ValueRangeToString("baseRange", baseRange) + ", " +
-                                      ValueRangeToString("exponentRange", exponentRange),
-                                      "KMathExpr/PowRange");
+            bool fixedExponent = exponentRange.Minimum == exponentRange.Maximum;
+            double exponent = exponentRange.Minimum;
+            if (baseRange.Minimum < 0.0
+                && (!fixedExponent || exponent != Math.Truncate(exponent)))
+                throw new ArgumentException("Pow with negative bases requires a fixed integer exponent.");
+            if (baseRange.Minimum <= 0.0 && baseRange.Maximum >= 0.0
+                && exponentRange.Minimum < 0.0)
+                throw new ArgumentException("Pow can divide by zero for a negative exponent.");
 
-            double exponent = (exponentRange.Minimum + exponentRange.Maximum) * 0.5;
-            if (!KShared.IsFinite(exponent))
-                KShared.LogFatalError("Pow exponent is not finite! " +
-                                      "exponent is " + exponent + ", " +
-                                      ValueRangeToString("baseRange", baseRange) + ", " +
-                                      ValueRangeToString("exponentRange", exponentRange),
-                                      "KMathExpr/PowRange");
-            if (exponent == 0.0) return MakeRange(1.0, 1.0);
-
-            double roundedExponent = Math.Round(exponent);
-            if (!(exponent == roundedExponent) && baseRange.Minimum < 0.0)
-                KShared.LogFatalError("Pow can receive a negative base with a non-integer exponent! " +
-                                      "exponent is " + exponent + ", " +
-                                      "roundedExponent is " + roundedExponent + ", " +
-                                      ValueRangeToString("baseRange", baseRange) + ", " +
-                                      ValueRangeToString("exponentRange", exponentRange),
-                                      "KMathExpr/PowRange");
-            if (exponent < 0.0 && baseRange.Minimum <= 0.0 && baseRange.Maximum >= 0.0)
-                KShared.LogFatalError("Pow can divide by zero for a negative exponent! " +
-                                      "exponent is " + exponent + ", " +
-                                      ValueRangeToString("baseRange", baseRange) + ", " +
-                                      ValueRangeToString("exponentRange", exponentRange),
-                                      "KMathExpr/PowRange");
-
-            double first = Math.Pow(baseRange.Minimum, exponent);
-            double second = Math.Pow(baseRange.Maximum, exponent);
-            if (!KShared.IsFinite(first) || !KShared.IsFinite(second))
-                KShared.LogFatalError("Pow range is not finite! " +
-                                      "first is " + first + ", " +
-                                      "second is " + second + ", " +
-                                      ValueRangeToString("baseRange", baseRange) + ", " +
-                                      ValueRangeToString("exponentRange", exponentRange),
-                                      "KMathExpr/PowRange");
-
-            double minimum = Math.Min(first, second);
-            double maximum = Math.Max(first, second);
-            if (exponent == roundedExponent && exponent > 0.0
-                && Math.Abs(roundedExponent % 2.0) < 0.5
-                && baseRange.Minimum <= 0.0 && baseRange.Maximum >= 0.0)
-                minimum = 0.0;
-            return MakeRange(minimum, maximum);
+            // For nonnegative bases, extrema are at corners (including x=0 and y=0).
+            // For fixed integer powers of signed bases, x=0 is the only extra extremum.
+            ValueRange result = EvaluateCorners(Math.Pow, baseRange, exponentRange);
+            if (fixedExponent && exponent > 0.0 && exponent % 2.0 == 0.0
+                && baseRange.Minimum < 0.0 && baseRange.Maximum > 0.0)
+                result.Minimum = 0.0;
+            return result;
         }
 
         private static ValueRange MakeRange(double first, double second)

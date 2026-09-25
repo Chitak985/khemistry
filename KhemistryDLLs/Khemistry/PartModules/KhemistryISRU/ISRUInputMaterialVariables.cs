@@ -211,12 +211,41 @@ namespace Khemistry
             return true;
         }
 
+        private bool TryResolveInputMaterialConditions(
+            ref KhemistryISRURecipe.ResourceInputMaterial material)
+        {
+            var resolved = new Dictionary<string, string>();
+            foreach (KeyValuePair<string, string> condition in
+                     material.parameters ?? new Dictionary<string, string>())
+            {
+                if (!MaterialParameterCondition.TryResolve(condition.Value, variable =>
+                        {
+                            foreach (KhemistryISRURecipe.RecipeSetting setting in _activeRecipe._settings)
+                                if (setting.variable == variable)
+                                    return (double?)GetActiveRecipeSettingValue(setting);
+                            return null;
+                        }, out string value, out string error))
+                {
+                    KShared.LogError("Converter \"" + ConverterName + "\": INPUT_MATERIAL \""
+                        + material.name + "\" parameter \"" + condition.Key
+                        + "\" could not be resolved: " + error,
+                        "KhemistryISRU/TryResolveInputMaterialConditions");
+                    return false;
+                }
+                resolved.Add(condition.Key, value);
+            }
+            // ResourceInputMaterial is a struct; only this operation's copy is changed.
+            material.parameters = resolved;
+            return true;
+        }
+
         private bool TryPreviewVesselMaterials(
             KhemistryISRURecipe.ResourceInputMaterial requirement, int amount,
             out List<KhemistryMaterialInstance> pieces)
         {
             pieces = new List<KhemistryMaterialInstance>();
             if (amount <= 0) return true;
+            if (!TryResolveInputMaterialConditions(ref requirement)) return false;
             IEnumerable<KhemistryMaterialInstance> available;
             if ((moduleType == "kerbalEVA"
                     || (moduleType == "partEVA" && useSuitCell))

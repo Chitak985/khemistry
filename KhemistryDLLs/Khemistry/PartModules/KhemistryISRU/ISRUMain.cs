@@ -1519,6 +1519,7 @@ namespace Khemistry
         {
             consumed = new List<KhemistryMaterialInstance>();
             if (amount <= 0) return true;
+            if (!TryResolveInputMaterialConditions(ref material)) return false;
 
             if ((moduleType == "kerbalEVA"
                     || (moduleType == "partEVA" && useSuitCell))

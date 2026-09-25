@@ -448,6 +448,23 @@ namespace Khemistry
                         foreach (string key in parameterNode.values.DistinctNames())
                             parameters.Add(key, parameterNode.GetValue(key));
 
+                    foreach (KeyValuePair<string, string> condition in parameters)
+                    {
+                        if (MaterialParameterCondition.TryResolve(condition.Value,
+                                variable =>
+                                {
+                                    foreach (RecipeSetting setting in _settings)
+                                        if (setting.variable == variable) return (double?)setting.defaultValue;
+                                    return null;
+                                }, out _, out string conditionError, validateOnly: true))
+                            continue;
+                        configurationError = true;
+                        KShared.LogError("Recipe \"" + _name + "\": INPUT_MATERIAL \""
+                            + matName + "\" parameter \"" + condition.Key
+                            + "\" has an invalid condition: " + conditionError,
+                            "KhemistryISRURecipe/constructor");
+                    }
+
                     _inputMaterials.Add(new ResourceInputMaterial
                     {
                         id = id,
