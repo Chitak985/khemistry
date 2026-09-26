@@ -4,8 +4,10 @@ It also has some very unique features, including but not limited to:
 
 - A resource and recipe library that automatically fetches data on every single currently loaded resource! Extremely useful if you want to understand processing chains and how to make something. It is inspired by the NEI mod for Minecraft.
 - EVA items that can move resources around different vessels! You no longer need to deal with KSP glitchiness to transfer a resource, just EVA a kerbal and move it manually!
+- Resource deposits that must be found in a specific biome and are required to even start progressing!
+- ISRUs that may need maintenance, charging, and are even affected by the current biome, planet, pressure, temperature, and more!
 - Degrading batteries that will become useless after some time! They will slowly degrade to zero capacity over the course of their life, however there are some batteries that are advanced enough to last years or even forever!
-- Advanced storage containers that can charge, consume somthing to function, explode if things inside are not contained, store multiple types of resources at the same time using a shared volume, and have maximum transfer speeds to simulate real world logistics!
+- Advanced storage containers that can charge, consume something to function, explode if things inside are not contained, store multiple types of resources at the same time using a shared volume, and have maximum transfer speeds to simulate real world logistics!
 - Complex processing lines that require deep understanding of the mod and its machines, making it a similar challenge to GregTech: New Horizons, Factorio, and Satisfactory!
 
 ## Khemistry Construction Overhaul
@@ -20,12 +22,12 @@ An addon for Khemistry, this mod overhauls VAB construction to require resources
 - Kerbalism is expected to be extremely glitchy but have not yet been tested.
 
 ## Dependencies:
-- **ModuleManager** (Khermistry will do nothing without this mod)
-- **Community Resource Pack** (Khemistry removes most of its resources for now but it is vital for the mod's functionality) 
+- **ModuleManager** (extremely important)
+- **Community Resource Pack** (needed mostly because its resources are used by other mods) 
 - **Kopernicus** (used to add custom ores for all planets, mod may break without it)
-- **B9 Part Switch** (used to assign the custom per planet ores to cargo tanks, mod may break without it)
-- **SystemHeat** (used for many things, many ISRU and drills will become unusable)
-- **ParallaxContinued** (yes it's a dependency, you can chop down trees and do similar things to its scatter objects)
+- **B9 Part Switch** (used to assign the custom per planet ores to cargo tanks and some storage, mod will easily break without it)
+- **SystemHeat** (used for many things, without it, some ISRU and all drills will become unusable)
+- **ParallaxContinued** (yes it's a dependency, you can chop down trees and do similar things with its scatter objects)
 - **CustomPrelaunchChecks** (used for the KhemistryConstructionOverhaul addon so not strictly required for the base mod)
 - **Resourceful Technologies** (my ISRU parts mod, Khemistry uses various parts from there)
 - **Far Future Technologies** (while not strictly required and the game will work without it, its parts are used for progression) 
@@ -33,8 +35,8 @@ An addon for Khemistry, this mod overhauls VAB construction to require resources
 ## Fully Supported Mods:
 - **Station Parts Expansion Redux** (cargo parts can hold some planet-speciifc resources) 
 - **Near Future Propulsion** 
-- **Near Future Construction** (patches from this mod have full support) 
-- **Near Future Electrical** (parts and patches from this mod have full support, even deprecated ones. May have some problems with reactor core lifetime calculations. IMPORTANT: The "Legacy" folder inside the mod needs to be deleted in order for the game to finish loading!) 
+- **Near Future Construction**
+- **Near Future Electrical** (parts from this mod have full support, even deprecated ones. May have some problems with reactor core lifetime calculations. IMPORTANT: The "Legacy" folder inside the mod needs to be deleted in order for the game to finish loading!) 
 - **CryoTanks** 
 - **SpaceDust** (used to create resource belts around planets and atmosphere resources) 
 - **Kerbalism** (this thing is kind of insane, I don't know if Khemistry even works properly with it)
@@ -68,8 +70,7 @@ These mods will be suported soon:
 These mods are confirmed to work flawlessly with Khemistry and need no patches to be compatible. 
 - **Near Future Solar** 
 - **Near Future Props** 
-- **Heat Control** 
-- **System Heat** 
+- **Heat Control**
 - **Radioactivity** 
 - **Deployable Engines** 
 - **Dynamic Battery Storage** 
@@ -80,10 +81,11 @@ These mods are confirmed to work flawlessly with Khemistry and need no patches t
 - **Ferram Aerospace Research (FAR)**
 - **Connected Living Space (CLS)**
 
-## Current Resource Counts:
-(As of 08/10/2026, 7:41 PM EST)
+## Current Statistics:
+(As of 09/26/2026, 9:12 PM EST)
 
-- 234x Alloys
+### Resources
+- 231x Alloys
 - ULV-MAX Circuits
 - 6x Composite Material
 - 71x Construction Resources
@@ -96,25 +98,40 @@ These mods are confirmed to work flawlessly with Khemistry and need no patches t
 - 3x Fuel Rods
 - 45x Impure Resource
 - 18x Isotopes
-- 81x Natural Resources
+- 79x Natural Resources
 - 76x Not So Procedural Resources (these resources will be replaced by procedural generation)
 - All Periodic Table Elements
-- 5x Ores
+- 4x Ores
 - 75x Other Resources
 - 3x Powders
-- 58x SandLine-related Resources
+- 78x SandLine-related Resources
 - 7x "Snack"s
 
-- 2x Deposit types
-- 2x Material types
-- 5x SpaceDust bands
+## Recipes
+- 2x Acid Washing
+- 3x Atmosphere Collector
+- 2x Attrition Scrubbing
+- 4x Cooling
+- 2x Crushing
+- 1x Distillation Tower
+- 3x Electrolysis
+- 8x Electrostatic Separation
+- 6x Furnace 
+- 4x Gravitational Collapser 
+- 5x Gravitational Separator
+- 14x Kerbal EVA
+- 2x Kiln
+- 6x Magnetic Separation
+- 2x Miller
+- 3x Mixer 
+- 3x Name Converter 
+- 3x Metallurgical Roasting
+- 2x Settling Tank
+- 30x Transformer
+- 1x Washing
 
-- 4x Cooling recipes
-- 3x Electrolysis recipes
-- 2x Furnace recipes
-- 4x Gravitational Collapser recipes
-- 5x Gravitational Separator recipes
-- 3x Mixer recipes
-- 4x Name Converter recipes
-- 2x Metallurgical Roasting recipes
-- 30x Transformer recipes
+## Other
+- 3x Deposit types
+- 4x Parallax trees
+- 5x Material types
+- 5x SpaceDust bands
