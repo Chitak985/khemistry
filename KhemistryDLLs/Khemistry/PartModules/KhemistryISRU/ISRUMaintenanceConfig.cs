@@ -13,28 +13,33 @@ namespace Khemistry
         /// <summary>Load all MAINTENANCE nodes in a <see cref="ConfigNode"/></summary>
         private bool LoadMaintenance(ConfigNode node)
         {
-            bool valid = true;
-            var names = new HashSet<string>(StringComparer.Ordinal);
+            HashSet<string> names = new HashSet<string>(StringComparer.Ordinal);
             foreach (ConfigNode entry in node.GetNodes("MAINTENANCE"))
             {
-                try
+                try  // Ignore exceptions here, they're all caught later
                 {
-                    var definition = new MaintenanceDefinition
+                    // Get name and optimal status text
+                    MaintenanceDefinition definition = new MaintenanceDefinition
                     {
                         name = RequiredMaintenanceText(entry, "name"),
                         statusOptimal = RequiredMaintenanceText(entry, "statusOptimal")
                     };
-                    if (!names.Add(definition.name)) throw new FormatException("duplicate maintenance name");
-                    var orders = new HashSet<int>();
+                    if (!names.Add(definition.name))
+                        throw new FormatException("Duplicate maintenance name");
+
+                    // Get maintenance stages
+                    HashSet<int> orders = new HashSet<int>();
                     foreach (ConfigNode stageNode in entry.GetNodes("STAGE"))
                     {
+                        // Get stage order
                         double order = MaintenanceNumber(stageNode, "order", null);
                         if (order != Math.Truncate(order) || order < int.MinValue || order > int.MaxValue)
                             throw new FormatException("STAGE order must be an integer");
                         if (!orders.Add((int)order))
-                            throw new FormatException("duplicate STAGE order " + (int)order
-                                + "; every stage within a MAINTENANCE type must have a unique order");
-                        var stage = new MaintenanceStage
+                            throw new FormatException($"Duplicate STAGE order {(int)order}; every stage within a MAINTENANCE type must have a unique order");
+
+                        // Load the maintenance stage
+                        MaintenanceStage stage = new MaintenanceStage
                         {
                             order = (int)order,
                             status = RequiredMaintenanceText(stageNode, "status"),
@@ -44,6 +49,8 @@ namespace Khemistry
                             ignoreOrder = MaintenanceBool(stageNode, "ignoreOrder", false),
                             canFix = MaintenanceBool(stageNode, "canFix", true)
                         };
+
+                        // Load stage order conditions
                         foreach (string value in stageNode.GetValues("requiredOrdersAND"))
                             stage.requiredOrdersAND.UnionWith(ReadRequiredOrders(value, "requiredOrdersAND"));
                         foreach (string value in stageNode.GetValues("requiredOrdersOR"))
@@ -53,6 +60,8 @@ namespace Khemistry
                         foreach (string key in KhemistryISRUBiomeConfig.MultiplierFields.Keys)
                             stage.multipliers[key] = MaintenanceNumber(stageNode, key, 1,
                                 key == "speedMul" || key == "passivePeriodMul" ? double.Epsilon : 0);
+
+                        // Load stage fixing data
                         if (stage.canFix)
                         {
                             stage.fixTime = MaintenanceNumber(stageNode, "fixTime", 0, 0);
@@ -67,29 +76,46 @@ namespace Khemistry
                             ReadRepairResources(stageNode, "RESOURCE_TO_FIX", stage.resources);
                             ReadRepairResources(stageNode, "RESOURCE_TO_FIX_NC", stage.tools);
                         }
+
+                        // Add maintenance stage
                         definition.stages.Add(stage);
                     }
-                    if (definition.stages.Count == 0) throw new FormatException("MAINTENANCE needs at least one STAGE");
+
+                    // Ensure at least one stage loaded
+                    if (definition.stages.Count == 0)
+                        throw new FormatException("MAINTENANCE needs at least one STAGE");
+
+                    // Verify stage orders in order conditions
                     foreach (MaintenanceStage stage in definition.stages)
                         foreach (int required in stage.requiredOrdersAND
                             .Concat(stage.requiredOrdersOR.SelectMany(group => group))
                             .Concat(stage.requiredOrderNOT))
                             if (!orders.Contains(required))
-                                throw new FormatException($"STAGE {stage.order} refers to an undefined order {required} in this MAINTENANCE type");  // Ignore, caught in LoadMaintenance
+                                throw new FormatException($"STAGE {stage.order} refers to an undefined order {required} in this MAINTENANCE type");
+
+                    // Finish
                     definition.stages.Sort((a, b) => b.order.CompareTo(a.order));
                     maintenance.Add(definition);
                 }
                 catch (FormatException ex)
                 {
-                    valid = false;
-                    KShared.LogError($"Recipe \"{_name}\": invalid MAINTENANCE \"" +
+                    KShared.LogError($"Recipe \"{_name}\": Config format error in MAINTENANCE node \"" +
                                      entry.GetValue("name") +
-                                     "\": {ex.Message}", "KhemistryISRURecipe/LoadMaintenance");
+                                     "\": {ex.Message}!", "KhemistryISRURecipe/LoadMaintenance");
+                    return false;
+                }
+                catch (Exception ex)  // Just in case
+                {
+                    KShared.LogError($"Recipe \"{_name}\": Unknown error in MAINTENANCE node \"" +
+                                     entry.GetValue("name") +
+                                     "\": {ex.Message}!", "KhemistryISRURecipe/LoadMaintenance");
+                    return false;
                 }
             }
-            return valid;
+            return true;
         }
 
+        /// <summary>Get a string required for maintenance.</summary>
         private static string RequiredMaintenanceText(ConfigNode node, string key)
         {
             string value = node.GetValue(key)?.Trim();
@@ -98,26 +124,35 @@ namespace Khemistry
             return value;
         }
 
+        /// <summary>Get a required maintenance order.</summary>
         private static int ReadRequiredOrder(string value, string key)
         {
             if (!int.TryParse(value?.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int order))
-                throw new FormatException(key + " requires a single integer stage order; got \"" + value + "\"");  // Ignore, caught in LoadMaintenance
+                throw new FormatException($"{key} requires a single integer stage order; got \"{value}\" instead");  // Ignore, caught in LoadMaintenance
             return order;
         }
 
+        /// <summary>Get all required maintenance orders.</summary>
         private static int[] ReadRequiredOrders(string value, string key)
             => (value ?? "").Split(',').Select(token => ReadRequiredOrder(token, key)).ToArray();
 
+        /// <summary>Get a double required for maintenance.</summary>
         private static double MaintenanceNumber(ConfigNode node, string key, double? fallback,
             double min = double.MinValue, double max = double.MaxValue)
         {
             if (!node.HasValue(key) && fallback.HasValue) return fallback.Value;
-            if (!double.TryParse(node.GetValue(key), NumberStyles.Float, CultureInfo.InvariantCulture,
-                    out double value) || !MaintenanceState.Finite(value) || value < min || value > max)
-                throw new FormatException(key + " must be a finite number in [" + min + ", " + max + "]");  // Ignore, caught in LoadMaintenance
+            if (!double.TryParse(
+                    node.GetValue(key),
+                    NumberStyles.Float,
+                    CultureInfo.InvariantCulture,
+                    out double value) ||
+                !MaintenanceState.Finite(value) ||
+                value < min || value > max)
+                throw new FormatException($"{key} must be a finite number in interval ({min}, {max})");  // Ignore, caught in LoadMaintenance
             return value;
         }
 
+        /// <summary>Get a boolean required for maintenance.</summary>
         private static bool MaintenanceBool(ConfigNode node, string key, bool fallback)
         {
             if (!node.HasValue(key)) return fallback;
@@ -126,6 +161,7 @@ namespace Khemistry
             return value;
         }
 
+        /// <summary>Get an integer required for maintenance.</summary>
         private static int MaintenanceCount(ConfigNode node, string key)
         {
             double count = MaintenanceNumber(node, key, 0, 0, int.MaxValue);
@@ -134,6 +170,7 @@ namespace Khemistry
             return (int)count;
         }
 
+        /// <summary>Get repair resources required for maintenance.</summary>
         private static void ReadRepairResources(ConfigNode node, string kind, Dictionary<string, double> target)
         {
             foreach (ConfigNode resource in node.GetNodes(kind))
