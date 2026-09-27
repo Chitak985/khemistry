@@ -9,6 +9,11 @@
     <Compile Include="Stubs.cs" />
     <Compile Include="RecipeStubs.cs" />
     <Compile Include="EvaRecipeTests.cs" />
+    <Compile Include="WashingRecipeTests.cs" />
+    <Compile Include="ConstructionCostTests.cs" />
+    <Compile Include="../../KhemistryDLLs/KhemistryConstructionOverhaul/ConstructionMaterialCosts.cs" Link="ConstructionMaterialCosts.cs" />
+    <None Include="../../Khemistry/Parts/Resources/Washers/WoodenWashingBasin/WoodenWashingBasin.cfg" Link="WoodenWashingBasin.cfg" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../Khemistry/Definitions/KhemistryRecipes/washing.cfg" Link="washing.cfg" CopyToOutputDirectory="PreserveNewest" />
     <Compile Include="../../KhemistryDLLs/Khemistry/PartModules/KhemistryISRU/ISRURecipe.cs" Link="ISRURecipe.cs" />
     <None Include="../../Khemistry/Definitions/KhemistryRecipes/kerbalEva.cfg" Link="kerbalEva.cfg" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../Khemistry/Definitions/KhemistryMaterials/materials.cfg" Link="materials.cfg" CopyToOutputDirectory="PreserveNewest" />

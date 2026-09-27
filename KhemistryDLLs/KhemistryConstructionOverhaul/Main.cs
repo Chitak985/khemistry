@@ -571,10 +571,18 @@ namespace KhemistryConstructionOverhaul
             if (!TryGetShipCost(ship, out Dictionary<string, double> totalCost,
                     out List<KhemistryISRURecipe.ResourceInputMaterial> materialCosts,
                     out errorMessage))
+            {
+                KShared.LogError("Launch blocked: " + errorMessage,
+                    "KhemistryResourceCheckManager/Test");
                 return false;
+            }
 
             if (!TryCheckCosts(totalCost, materialCosts, out errorMessage))
+            {
+                KShared.LogWarning("Launch blocked: " + errorMessage,
+                    "KhemistryResourceCheckManager/Test");
                 return false;
+            }
 
             errorMessage = string.Empty;
             return true;

@@ -18,6 +18,8 @@ internal static class Program
             Conditions();
             Ranges();
             assertions += EvaRecipeTests.Run();
+            assertions += WashingRecipeTests.Run();
+            assertions += ConstructionCostTests.Run();
             Console.WriteLine("Passed " + assertions + " expression assertions.");
             return 0;
         }
