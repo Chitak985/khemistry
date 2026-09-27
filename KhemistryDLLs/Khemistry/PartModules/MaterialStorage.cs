@@ -10,18 +10,25 @@ namespace Khemistry
     /// </summary>
     public class KhemistryMaterialStorage : PartModule
     {
+        /// <summary>Maximum volume held by this storage.</summary>
         [KSPField(isPersistant = false)]
         public float volume = 1f;
 
+        /// <summary>Displays used volume as "Volume Used: [0 / 0]"</summary>
         [KSPField(isPersistant = false, guiActive = true, guiActiveEditor = true,
                   guiName = "Volume Used", groupName = "khemistrymatstorage")]
         public string volumeDisplay = "0 / 0";
 
+        /// <summary>List of supported material names.</summary>
         public List<string> supportedNames = new List<string>();
+        /// <summary>List of supported material shapes.</summary>
         public List<string> supportedShapes = new List<string>();
+        /// <summary>Dictionary of parameter requirements as param: requirement.</summary>
         public Dictionary<string, string> paramRequirements = new Dictionary<string, string>();
 
+        /// <summary>The list of currently stored <see cref="KhemistryMaterialInstance"/>.</summary>
         public List<KhemistryMaterialInstance> contents = new List<KhemistryMaterialInstance>();
+        /// <summary>Whether a fatal config node occured. If true, module should not function.</summary>
         private bool _fatalConfigError = false;
         private readonly List<ConfigNode> _pendingSavedContents = new List<ConfigNode>();
 
@@ -75,6 +82,7 @@ namespace Khemistry
             RestoreSavedContents();
         }
 
+        /// <summary>Restore the storage from saved contents.</summary>
         private void RestoreSavedContents()
         {
             List<ConfigNode> savedContents = new List<ConfigNode>(_pendingSavedContents);
