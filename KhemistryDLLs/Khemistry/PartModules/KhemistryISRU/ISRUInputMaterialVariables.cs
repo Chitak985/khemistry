@@ -10,6 +10,7 @@ namespace Khemistry
         private KhemistryMaterialInstance CreateConsumedInputMaterialSnapshot(
             IList<KhemistryMaterialInstance> consumed)
         {
+            // Verify consumed
             if (consumed == null || consumed.Count == 0 || consumed[0] == null)
                 return null;
 
@@ -37,21 +38,17 @@ namespace Khemistry
                 amount = totalAmount >= int.MaxValue ? int.MaxValue : (int)totalAmount
             };
             combined.UpdateParams("KhemistryISRU/CreateConsumedInputMaterialSnapshot");
-            KShared.LogError("Converter \"" + ConverterName
-                + "\": an INPUT_MATERIAL id consumed stacks that could not be merged; "
+            KShared.LogError($"Converter \"{ConverterName}\": an INPUT_MATERIAL id consumed stacks that could not be merged; "
                 + "INMAT uses the first stack's shape, size, and parameters with the total consumed amount.",
                 "KhemistryISRU/CreateConsumedInputMaterialSnapshot");
             return combined;
         }
 
         private bool TryResolveInputMaterialOutputs(
-            IEnumerable<KhemistryISRURecipe.ResourceOutputMaterial> templates,
-            IDictionary<string, KhemistryMaterialInstance> inputs,
-            out List<KhemistryISRURecipe.ResourceOutputMaterial> resolved)
-        {
-            return TryResolveInputMaterialOutputs(templates, inputs, out resolved, out _,
-                1.0);
-        }
+             IEnumerable<KhemistryISRURecipe.ResourceOutputMaterial> templates,
+             IDictionary<string, KhemistryMaterialInstance> inputs,
+             out List<KhemistryISRURecipe.ResourceOutputMaterial> resolved)
+            => TryResolveInputMaterialOutputs(templates, inputs, out resolved, out _, 1.0);
 
         private bool TryResolveInputMaterialOutputs(
             IEnumerable<KhemistryISRURecipe.ResourceOutputMaterial> templates,
@@ -86,8 +83,8 @@ namespace Khemistry
                 }
                 if (pending.Count == before)
                 {
-                    KShared.LogError("Converter \"" + ConverterName
-                        + "\": OUTPUT_MATERIAL references contain a cycle or an unresolved id.",
+                    KShared.LogError($"Converter \"{ConverterName}\": "
+                        + "OUTPUT_MATERIAL references contain a cycle or an unresolved id.",
                         "KhemistryISRU/TryResolveInputMaterialOutputs");
                     return false;
                 }
@@ -107,9 +104,8 @@ namespace Khemistry
                 if (!KMathExpr.TryInterpolate(output.shape, out output.shape,
                         out string shapeError))
                 {
-                    KShared.LogError("Converter \"" + ConverterName
-                        + "\": OUTPUT_MATERIAL \"" + template.name
-                        + "\" shape could not be resolved: " + shapeError + ".",
+                    KShared.LogError($"Converter \"{ConverterName}\": OUTPUT_MATERIAL \"{template.name}\" "
+                        + "shape could not be resolved: {shapeError}.",
                         "KhemistryISRU/TryResolveInputMaterialOutputs");
                     return false;
                 }
@@ -131,9 +127,8 @@ namespace Khemistry
                         || double.IsNaN(amount * template.amountScale)
                         || double.IsInfinity(amount * template.amountScale))
                     {
-                        KShared.LogError("Converter \"" + ConverterName
-                            + "\": OUTPUT_MATERIAL \"" + template.name
-                            + "\" amount expression could not be evaluated: "
+                        KShared.LogError($"Converter \"{ConverterName}\": OUTPUT_MATERIAL \"{template.name}\" "
+                            + "amount expression could not be evaluated: "
                             + (amountError ?? "the result was not finite and positive") + ".",
                             "KhemistryISRU/TryResolveInputMaterialOutputs");
                         return false;
@@ -164,9 +159,8 @@ namespace Khemistry
                     .FirstOrDefault(material => material.name == output.name);
                 if (definition == null || !definition.shapes.Contains(output.shape))
                 {
-                    KShared.LogError("Converter \"" + ConverterName
-                        + "\": OUTPUT_MATERIAL \"" + output.name
-                        + "\" resolved to unsupported shape \"" + output.shape + "\".",
+                    KShared.LogError($"Converter \"{ConverterName}\": OUTPUT_MATERIAL \"{output.name}\" "
+                        + "resolved to unsupported shape \"{output.shape}\".",
                         "KhemistryISRU/TryResolveInputMaterialOutputs");
                     return false;
                 }
@@ -214,7 +208,7 @@ namespace Khemistry
         private bool TryResolveInputMaterialConditions(
             ref KhemistryISRURecipe.ResourceInputMaterial material)
         {
-            var resolved = new List<KeyValuePair<string, string>>();
+            List<KeyValuePair<string, string>> resolved = new List<KeyValuePair<string, string>>();
             foreach (KeyValuePair<string, string> condition in
                      material.parameters ?? new Dictionary<string, string>())
             {
@@ -226,9 +220,8 @@ namespace Khemistry
                             return null;
                         }, out string value, out string error))
                 {
-                    KShared.LogError("Converter \"" + ConverterName + "\": INPUT_MATERIAL \""
-                        + material.name + "\" parameter \"" + condition.Key
-                        + "\" could not be resolved: " + error,
+                    KShared.LogError($"Converter \"{ConverterName}\": INPUT_MATERIAL \"{material.name}\" "
+                        + "parameter \"{condition.Key}\" could not be resolved: {error}",
                         "KhemistryISRU/TryResolveInputMaterialConditions");
                     return false;
                 }
@@ -333,8 +326,8 @@ namespace Khemistry
                 || double.IsNaN(recipeTime) || double.IsInfinity(recipeTime)
                 || recipeTime <= 0.0)
             {
-                KShared.LogError("Converter \"" + ConverterName
-                    + "\": recipeTime could not be resolved: "
+                KShared.LogError($"Converter \"{ConverterName}\": "
+                    + "recipeTime could not be resolved: "
                     + (error ?? "the result must be finite and positive") + ".",
                     "KhemistryISRU/TryResolveRecipeTime");
                 return false;
@@ -362,8 +355,8 @@ namespace Khemistry
                     out List<KhemistryISRURecipe.SettingValueReference> references,
                     out string referenceError))
             {
-                KShared.LogError("Converter \"" + ConverterName + "\": "
-                    + referenceError, "KhemistryISRU/TryResolveSettingReferences");
+                KShared.LogError($"Converter \"{ConverterName}\": Error {referenceError}",
+                                 "KhemistryISRU/TryResolveSettingReferences");
                 return false;
             }
             for (int index = references.Count - 1; index >= 0; index--)
@@ -386,8 +379,7 @@ namespace Khemistry
                     out List<KhemistryISRURecipe.OutputMaterialValueReference> references,
                     out string referenceError))
             {
-                KShared.LogError("Converter \"" + ConverterName + "\": "
-                    + referenceError,
+                KShared.LogError($"Converter \"{ConverterName}\": Error {referenceError}",
                     "KhemistryISRU/TryResolveOutputMaterialReferences");
                 return false;
             }
@@ -403,10 +395,9 @@ namespace Khemistry
                             CultureInfo.InvariantCulture, out double number)
                         || double.IsNaN(number) || double.IsInfinity(number)))
                 {
-                    KShared.LogError("Converter \"" + ConverterName + "\": (OUTMAT:"
-                        + reference.output.id + ":" + reference.field
-                        + ") resolved to \"" + replacement + "\", which is not numeric in "
-                        + location + "; using 0.",
+                    KShared.LogError($"Converter \"{ConverterName}\": "
+                        + "(OUTMAT:{reference.output.id}:{reference.field}) resolved to "
+                        + "\"{replacement}\", which is not numeric in {location}; using 0 instead.",
                         "KhemistryISRU/TryResolveOutputMaterialReferences");
                     replacement = "0";
                 }
@@ -424,9 +415,9 @@ namespace Khemistry
             if (outputs == null || !outputs.TryGetValue(reference.output.id,
                     out KhemistryISRURecipe.ResourceOutputMaterial output))
             {
-                KShared.LogError("Converter \"" + ConverterName
-                    + "\": no resolved material is available for OUTPUT_MATERIAL id \""
-                    + reference.output.id + "\" while resolving " + location + ".",
+                KShared.LogError($"Converter \"{ConverterName}\": "
+                    + "no resolved material is available for OUTPUT_MATERIAL "
+                    + "with id \"{reference.output.id}\" while resolving {location}.",
                     "KhemistryISRU/GetOutputMaterialValue");
                 return "0";
             }
@@ -444,9 +435,9 @@ namespace Khemistry
                 if (string.Equals(parameter.Key, reference.field,
                         StringComparison.OrdinalIgnoreCase))
                     return parameter.Value ?? "";
-            KShared.LogError("Converter \"" + ConverterName + "\": OUTPUT_MATERIAL id \""
-                + reference.output.id + "\" has no parameter \"" + reference.field
-                + "\" while resolving " + location + "; using 0.",
+            KShared.LogError($"Converter \"{ConverterName}\": OUTPUT_MATERIAL "
+                + "with id \"{reference.output.id}\" has no parameter \"{reference.field}\" "
+                + "while resolving {location}; using 0 instead.",
                 "KhemistryISRU/GetOutputMaterialValue");
             return "0";
         }
@@ -460,9 +451,8 @@ namespace Khemistry
             if (!KMathExpr.TryInterpolate(output.size, out string resolvedSize,
                     out string sizeError))
             {
-                KShared.LogError("Converter \"" + ConverterName
-                    + "\": OUTPUT_MATERIAL id \"" + output.id
-                    + "\" size could not be evaluated for OUTMAT: " + sizeError + ".",
+                KShared.LogError($"Converter \"{ConverterName}\": OUTPUT_MATERIAL "
+                    + "with id \"{output.id}\" size could not be evaluated for OUTMAT: {sizeError}.",
                     "KhemistryISRU/TryCreateOutputMaterialReferenceValue");
                 return false;
             }
@@ -490,17 +480,20 @@ namespace Khemistry
             return true;
         }
 
-        private bool TryResolveInputMaterialReferences(string value,
-            IDictionary<string, KhemistryMaterialInstance> inputs, bool numeric,
-            string outputLocation, out string resolved)
+        private bool TryResolveInputMaterialReferences(
+            string value,
+            IDictionary<string, KhemistryMaterialInstance> inputs,
+            bool numeric,
+            string outputLocation,
+            out string resolved)
         {
             resolved = value;
             if (!_activeRecipe.TryGetInputMaterialValueReferences(value,
                     out List<KhemistryISRURecipe.InputMaterialValueReference> references,
                     out string referenceError))
             {
-                KShared.LogError("Converter \"" + ConverterName + "\": "
-                    + referenceError, "KhemistryISRU/TryResolveInputMaterialReferences");
+                KShared.LogError($"Converter \"{ConverterName}\": Reference error {referenceError}",
+                                 "KhemistryISRU/TryResolveInputMaterialReferences");
                 return false;
             }
 
@@ -515,10 +508,9 @@ namespace Khemistry
                             CultureInfo.InvariantCulture, out double number)
                         || double.IsNaN(number) || double.IsInfinity(number)))
                 {
-                    KShared.LogError("Converter \"" + ConverterName + "\": (INMAT:"
-                        + reference.input.id + ":" + reference.field + ") resolved to \""
-                        + replacement + "\", which is not numeric in " + outputLocation
-                        + "; using 0.",
+                    KShared.LogError($"Converter \"{ConverterName}\": "
+                        + "(INMAT:{reference.input.id}:{reference.field}) resolved to \""
+                        + "{replacement}\", which is not numeric in {outputLocation}; using 0 instead.",
                         "KhemistryISRU/TryResolveInputMaterialReferences");
                     replacement = "0";
                 }
@@ -529,13 +521,24 @@ namespace Khemistry
             return true;
         }
 
+        /// <summary>
+        /// Check if the position is inside an interpolated <see cref="KMathExpr"/> expression.
+        /// </summary>
+        /// <param name="value">The <see cref="string"/> to check the position in.</param>
+        /// <param name="position">The position to check.</param>
+        /// <returns>Whether position is inside the interpolation or not.</returns>
         private static bool IsInsideInterpolation(string value, int position)
         {
+            // Verify string and position
             if (string.IsNullOrEmpty(value) || position < 0 || position > value.Length)
                 return false;
+
+            // Get start and end of the interpolation
             int opening = value.LastIndexOf('[', Math.Max(0, position - 1));
             if (opening < 0) return false;
             int closing = value.IndexOf(']', opening + 1);
+
+            // Do the check
             return closing >= position;
         }
 
@@ -547,9 +550,9 @@ namespace Khemistry
             if (inputs == null || !inputs.TryGetValue(reference.input.id,
                     out KhemistryMaterialInstance input) || input == null)
             {
-                KShared.LogError("Converter \"" + ConverterName
-                    + "\": no consumed material is available for INPUT_MATERIAL id \""
-                    + reference.input.id + "\" while resolving " + outputLocation + ".",
+                KShared.LogError($"Converter \"{ConverterName}\": no consumed material "
+                    + "is available for INPUT_MATERIAL with id \"{reference.input.id}\" "
+                    + "while resolving {outputLocation}.",
                     "KhemistryISRU/GetInputMaterialValue");
                 return "0";
             }
@@ -566,9 +569,9 @@ namespace Khemistry
                         StringComparison.OrdinalIgnoreCase))
                     return parameter.Value ?? "";
 
-            KShared.LogError("Converter \"" + ConverterName + "\": INPUT_MATERIAL id \""
-                + reference.input.id + "\" has no parameter \"" + reference.field
-                + "\" while resolving " + outputLocation + "; using 0.",
+            KShared.LogError($"Converter \"{ConverterName}\": INPUT_MATERIAL "
+                + "with id \"{reference.input.id}\" has no parameter \"{reference.field}\" "
+                + "while resolving \"{outputLocation}\"; using 0 instead.",
                 "KhemistryISRU/GetInputMaterialValue");
             return "0";
         }
@@ -648,6 +651,10 @@ namespace Khemistry
                 && !ContainsAnyMaterialValue(actual);
         }
 
+        /// <summary>
+        /// Check if the value contains any variable import syntax.
+        /// This includes (INMAT:id:var), (OUTMAT:id:var), and (SETTING:var).
+        /// </summary>
         private static bool ContainsAnyMaterialValue(string value)
             => KhemistryISRURecipe.ContainsInputMaterialValue(value)
                 || KhemistryISRURecipe.ContainsOutputMaterialValue(value)
