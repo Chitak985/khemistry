@@ -105,7 +105,7 @@ namespace Khemistry
                         out string shapeError))
                 {
                     KShared.LogError($"Converter \"{ConverterName}\": OUTPUT_MATERIAL \"{template.name}\" "
-                        + "shape could not be resolved: {shapeError}.",
+                        + $"shape could not be resolved: {shapeError}.",
                         "KhemistryISRU/TryResolveInputMaterialOutputs");
                     return false;
                 }
@@ -160,7 +160,7 @@ namespace Khemistry
                 if (definition == null || !definition.shapes.Contains(output.shape))
                 {
                     KShared.LogError($"Converter \"{ConverterName}\": OUTPUT_MATERIAL \"{output.name}\" "
-                        + "resolved to unsupported shape \"{output.shape}\".",
+                        + $"resolved to unsupported shape \"{output.shape}\".",
                         "KhemistryISRU/TryResolveInputMaterialOutputs");
                     return false;
                 }
@@ -221,7 +221,7 @@ namespace Khemistry
                         }, out string value, out string error))
                 {
                     KShared.LogError($"Converter \"{ConverterName}\": INPUT_MATERIAL \"{material.name}\" "
-                        + "parameter \"{condition.Key}\" could not be resolved: {error}",
+                        + $"parameter \"{condition.Key}\" could not be resolved: {error}",
                         "KhemistryISRU/TryResolveInputMaterialConditions");
                     return false;
                 }
@@ -396,8 +396,8 @@ namespace Khemistry
                         || double.IsNaN(number) || double.IsInfinity(number)))
                 {
                     KShared.LogError($"Converter \"{ConverterName}\": "
-                        + "(OUTMAT:{reference.output.id}:{reference.field}) resolved to "
-                        + "\"{replacement}\", which is not numeric in {location}; using 0 instead.",
+                        + $"(OUTMAT:{reference.output.id}:{reference.field}) resolved to "
+                        + $"\"{replacement}\", which is not numeric in {location}; using 0 instead.",
                         "KhemistryISRU/TryResolveOutputMaterialReferences");
                     replacement = "0";
                 }
@@ -416,8 +416,8 @@ namespace Khemistry
                     out KhemistryISRURecipe.ResourceOutputMaterial output))
             {
                 KShared.LogError($"Converter \"{ConverterName}\": "
-                    + "no resolved material is available for OUTPUT_MATERIAL "
-                    + "with id \"{reference.output.id}\" while resolving {location}.",
+                    + $"no resolved material is available for OUTPUT_MATERIAL "
+                    + $"with id \"{reference.output.id}\" while resolving {location}.",
                     "KhemistryISRU/GetOutputMaterialValue");
                 return "0";
             }
@@ -436,8 +436,8 @@ namespace Khemistry
                         StringComparison.OrdinalIgnoreCase))
                     return parameter.Value ?? "";
             KShared.LogError($"Converter \"{ConverterName}\": OUTPUT_MATERIAL "
-                + "with id \"{reference.output.id}\" has no parameter \"{reference.field}\" "
-                + "while resolving {location}; using 0 instead.",
+                + $"with id \"{reference.output.id}\" has no parameter \"{reference.field}\" "
+                + $"while resolving {location}; using 0 instead.",
                 "KhemistryISRU/GetOutputMaterialValue");
             return "0";
         }
@@ -452,7 +452,7 @@ namespace Khemistry
                     out string sizeError))
             {
                 KShared.LogError($"Converter \"{ConverterName}\": OUTPUT_MATERIAL "
-                    + "with id \"{output.id}\" size could not be evaluated for OUTMAT: {sizeError}.",
+                    + $"with id \"{output.id}\" size could not be evaluated for OUTMAT: {sizeError}.",
                     "KhemistryISRU/TryCreateOutputMaterialReferenceValue");
                 return false;
             }
@@ -509,8 +509,8 @@ namespace Khemistry
                         || double.IsNaN(number) || double.IsInfinity(number)))
                 {
                     KShared.LogError($"Converter \"{ConverterName}\": "
-                        + "(INMAT:{reference.input.id}:{reference.field}) resolved to \""
-                        + "{replacement}\", which is not numeric in {outputLocation}; using 0 instead.",
+                        + $"(INMAT:{reference.input.id}:{reference.field}) resolved to \""
+                        + $"{replacement}\", which is not numeric in {outputLocation}; using 0 instead.",
                         "KhemistryISRU/TryResolveInputMaterialReferences");
                     replacement = "0";
                 }
@@ -551,8 +551,8 @@ namespace Khemistry
                     out KhemistryMaterialInstance input) || input == null)
             {
                 KShared.LogError($"Converter \"{ConverterName}\": no consumed material "
-                    + "is available for INPUT_MATERIAL with id \"{reference.input.id}\" "
-                    + "while resolving {outputLocation}.",
+                    + $"is available for INPUT_MATERIAL with id \"{reference.input.id}\" "
+                    + $"while resolving {outputLocation}.",
                     "KhemistryISRU/GetInputMaterialValue");
                 return "0";
             }
@@ -570,8 +570,8 @@ namespace Khemistry
                     return parameter.Value ?? "";
 
             KShared.LogError($"Converter \"{ConverterName}\": INPUT_MATERIAL "
-                + "with id \"{reference.input.id}\" has no parameter \"{reference.field}\" "
-                + "while resolving \"{outputLocation}\"; using 0 instead.",
+                + $"with id \"{reference.input.id}\" has no parameter \"{reference.field}\" "
+                + $"while resolving \"{outputLocation}\"; using 0 instead.",
                 "KhemistryISRU/GetInputMaterialValue");
             return "0";
         }

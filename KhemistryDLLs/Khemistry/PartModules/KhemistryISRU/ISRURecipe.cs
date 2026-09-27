@@ -192,8 +192,8 @@ namespace Khemistry
                     if (string.IsNullOrEmpty(scatterName) || !parallaxScatterNames.Add(scatterName))
                     {
                         configurationError = true;
-                        KShared.LogError($"Recipe \"{_name}\":
-                            PARALLAX_SCATTER requires a unique, non-empty scatter/name value.",
+                        KShared.LogError($"Recipe \"{_name}\": "
+                            + "PARALLAX_SCATTER requires a unique, non-empty scatter/name value.",
                             "KhemistryISRURecipe/constructor");
                         continue;
                     }

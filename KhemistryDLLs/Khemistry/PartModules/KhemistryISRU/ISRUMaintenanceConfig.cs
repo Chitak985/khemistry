@@ -101,14 +101,14 @@ namespace Khemistry
                 {
                     KShared.LogError($"Recipe \"{_name}\": Config format error in MAINTENANCE node \"" +
                                      entry.GetValue("name") +
-                                     "\": {ex.Message}!", "KhemistryISRURecipe/LoadMaintenance");
+                                     $"\": {ex.Message}!", "KhemistryISRURecipe/LoadMaintenance");
                     return false;
                 }
                 catch (Exception ex)  // Just in case
                 {
                     KShared.LogError($"Recipe \"{_name}\": Unknown error in MAINTENANCE node \"" +
                                      entry.GetValue("name") +
-                                     "\": {ex.Message}!", "KhemistryISRURecipe/LoadMaintenance");
+                                     $"\": {ex.Message}!", "KhemistryISRURecipe/LoadMaintenance");
                     return false;
                 }
             }
