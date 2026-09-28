@@ -7,7 +7,7 @@ public enum ModifierChangeWhen { CONSTANTLY }
 public enum ModifierStagingSituation { CURRENT }
 public interface IPartMassModifier { float GetModuleMass(float mass, ModifierStagingSituation situation); ModifierChangeWhen GetModuleMassChangeWhen(); }
 public interface IPartCostModifier { float GetModuleCost(float cost, ModifierStagingSituation situation); ModifierChangeWhen GetModuleCostChangeWhen(); }
-public class ConfigNode
+public partial class ConfigNode
 {
     public string name;
     public ConfigNode(string name = "") { this.name = name; }
@@ -40,7 +40,7 @@ public class PartResourceLibrary
     public PartResourceDefinition GetDefinition(string name) => definitions.FirstOrDefault(d => d.name == name);
     public PartResourceDefinition GetDefinition(int id) => definitions.FirstOrDefault(d => d.id == id);
 }
-public class Part
+public partial class Part
 {
     public Vessel vessel;
     public List<PartResource> Resources = new List<PartResource>();
@@ -67,7 +67,7 @@ public class Part
     }
 }
 public class ProtoCrewMember { public string trait; }
-public class Vessel
+public partial class Vessel
 {
     public bool loaded = true;
     public List<Part> parts = new List<Part>();
@@ -87,7 +87,12 @@ public class KSPEvent : Attribute
 }
 public enum ScreenMessageStyle { UPPER_CENTER }
 public class ScreenMessage { public ScreenMessage(string message, float duration, ScreenMessageStyle style) { } }
-public static class ScreenMessages { public static void PostScreenMessage(ScreenMessage message) { } }
+public static class ScreenMessages
+{
+    public static int Count;
+    public static void PostScreenMessage(ScreenMessage message) { Count++; }
+    public static void PostScreenMessage(string message, float duration, ScreenMessageStyle style) { Count++; }
+}
 public static class TimeWarp { public static float fixedDeltaTime = 1; }
 public class KSPAddon : Attribute { public enum Startup { Flight } public KSPAddon(Startup startup, bool once) { } }
 namespace UnityEngine
@@ -136,7 +141,7 @@ public class BaseConverter : PartModule
 }
 namespace Khemistry
 {
-    public static class KShared
+    public partial class KShared
     {
         public enum ChargablePartState { Off, On, Charging }
         public static bool IsFinite(double value) => !double.IsInfinity(value) && !double.IsNaN(value);

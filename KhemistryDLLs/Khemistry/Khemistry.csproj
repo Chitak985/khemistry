@@ -127,6 +127,9 @@
     <Compile Include="KEI\KEILoader.cs" />
     <Compile Include="KEI\KEIMain.cs" />
     <Compile Include="KMathExpr.cs" />
+    <Compile Include="StorageEnvironment.cs" />
+    <Compile Include="PartModules\AdvancedStorageEnvironment.cs" />
+    <Compile Include="PartModules\MaterialStorageEnvironment.cs" />
     <Compile Include="MaterialParameterCondition.cs" />
     <Compile Include="KShared\KSharedParameterComparison.cs" />
     <Compile Include="KShared\KSharedConfigHelpers.cs" />

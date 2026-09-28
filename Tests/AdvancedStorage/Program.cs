@@ -161,6 +161,7 @@ static partial class Program
         Equal(1, converter.ResBroker is KhemistryStockResourceBroker ? 1 : 0, "bridge idempotent");
         PassiveTests();
         CapacityTests();
+        EnvironmentTests();
         Console.WriteLine(assertions + " assertions passed.");
     }
 }

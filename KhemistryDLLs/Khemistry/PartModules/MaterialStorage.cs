@@ -8,7 +8,7 @@ namespace Khemistry
     /// A PartModule that stores <see cref="KhemistryMaterialInstance"/> and merges them as needed.
     /// Uses a completely different resource system than stock KSP.
     /// </summary>
-    public class KhemistryMaterialStorage : PartModule
+    public partial class KhemistryMaterialStorage : PartModule
     {
         /// <summary>Maximum volume held by this storage.</summary>
         [KSPField(isPersistant = false)]
@@ -79,7 +79,11 @@ namespace Khemistry
                 return;
             }
 
-            RestoreSavedContents();
+            _environment.Update(part);
+            _restoringContents = true;
+            try { RestoreSavedContents(); }
+            finally { _restoringContents = false; }
+            CheckStorageEnvironment();
         }
 
         /// <summary>Restore the storage from saved contents.</summary>
@@ -108,6 +112,7 @@ namespace Khemistry
 
         public void FixedUpdate()
         {
+            if (_fatalConfigError || !CheckStorageEnvironment()) { UpdateUI(); return; }
             // Apply tank-caused contamination to all materials on the part
             // !TODO
 
@@ -186,6 +191,7 @@ namespace Khemistry
                 return;
             }
 
+            if (!_environment.Load(moduleNode, false)) { _fatalConfigError = true; return; }
             supportedNames.Clear();
             if (!moduleNode.HasNode("SUPPORTED_NAMES"))
             {
@@ -256,13 +262,14 @@ namespace Khemistry
         /// <returns>Whether the material met the storage restrictions and there was enough space.</returns>
         public bool AddMaterial(KhemistryMaterialInstance mat)
         {
-            if (_fatalConfigError || !AcceptsMaterial(mat))
+            if (_fatalConfigError || !CheckStorageEnvironment() || !AcceptsMaterial(mat))
                 return false;
 
             double incomingVolume = mat.TotalVolume;
-            double capacityTolerance = Math.Max(1e-12, Math.Abs(volume) * 1e-6);
+            if (EffectiveVolume <= 0) return false;
+            double capacityTolerance = Math.Max(1e-12, System.Math.Abs(EffectiveVolume) * 1e-6);
             if (double.IsNaN(incomingVolume) || double.IsInfinity(incomingVolume)
-                || ComputeCurrentVolume(incomingVolume) > volume + capacityTolerance)
+                || ComputeCurrentVolume(incomingVolume) > EffectiveVolume + capacityTolerance)
                 return false;
 
             foreach (KhemistryMaterialInstance m in contents)
@@ -341,6 +348,7 @@ namespace Khemistry
         public int GetMatchingMaterialAmount(string name, string shape, string size,
             IEnumerable<KeyValuePair<string, string>> paramConditions)
         {
+            if (_fatalConfigError || !CheckStorageEnvironment()) return 0;
             long total = 0;
             foreach (KhemistryMaterialInstance material in contents)
                 if (MatchesMaterial(material, name, shape, size, paramConditions))
@@ -421,8 +429,8 @@ namespace Khemistry
             }
             double usedVolume = ComputeCurrentVolume();
             volumeDisplay = double.IsNaN(usedVolume) || double.IsInfinity(usedVolume)
-                ? $"Preserved saved material / {volume:F10}"
-                : $"{usedVolume:F10} / {volume:F10}";
+                ? $"Preserved saved material / {EffectiveVolume:F10}"
+                : $"{usedVolume:F10} / {EffectiveVolume:F10}";
         }
     }
 }

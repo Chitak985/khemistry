@@ -250,6 +250,7 @@ namespace Khemistry
                 available = vessel.parts
                     .SelectMany(vesselPart => vesselPart.Modules
                         .OfType<KhemistryMaterialStorage>())
+                    .Where(storage => storage.TransfersEnabled)
                     .SelectMany(storage => storage.contents);
 
             int remaining = amount;

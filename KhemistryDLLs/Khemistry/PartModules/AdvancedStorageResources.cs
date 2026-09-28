@@ -82,6 +82,7 @@ namespace Khemistry
         public double GetStoredAmount(string name)
             => name != null && _resources.TryGetValue(name, out double amount) ? amount : 0.0;
         public bool TransfersEnabled => _storageReady && !_fatalConfigError
+            && CheckStorageEnvironment()
             && state == KShared.ChargablePartState.On
             && !_passiveNeedsMaintenance && (!_passivePaused || _processingPassive);
 
@@ -97,8 +98,8 @@ namespace Khemistry
         {
             if (!TransfersEnabled) return 0.0;
             RefreshRateBudget();
-            double budget = maxOutputRate < 0f ? double.PositiveInfinity
-                : Math.Max(0.0, maxOutputRate * TimeWarp.fixedDeltaTime - _outputThisTick);
+            double budget = EffectiveOutputRate < 0f ? double.PositiveInfinity
+                : Math.Max(0.0, EffectiveOutputRate * TimeWarp.fixedDeltaTime - _outputThisTick);
             return Math.Min(GetStoredAmount(name), budget);
         }
 
@@ -113,8 +114,8 @@ namespace Khemistry
             RefreshRateBudget();
             double capacity = GetResourceCapacity(name) * Math.Min(1.0, fillAmount);
             double space = Math.Max(0.0, capacity - _resources.Values.Sum());
-            double budget = maxInputRate < 0f ? double.PositiveInfinity
-                : Math.Max(0.0, maxInputRate * TimeWarp.fixedDeltaTime - _inputThisTick);
+            double budget = EffectiveInputRate < 0f ? double.PositiveInfinity
+                : Math.Max(0.0, EffectiveInputRate * TimeWarp.fixedDeltaTime - _inputThisTick);
             return Math.Min(space, budget);
         }
 

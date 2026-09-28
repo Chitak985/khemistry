@@ -280,7 +280,7 @@ namespace KhemistryConstructionOverhaul
                 if (storages == null) continue;
                 foreach (KhemistryMaterialStorage storage in storages)
                     foreach (KhemistryMaterialInstance material in
-                        storage?.contents ?? new List<KhemistryMaterialInstance>())
+                        storage != null && storage.TransfersEnabled ? storage.contents : new List<KhemistryMaterialInstance>())
                     {
                         if (!KhemistryConstructionMaterials.IsValidInstance(material)) continue;
                         MaterialSelection selection = selections.FirstOrDefault(existing =>
@@ -339,6 +339,7 @@ namespace KhemistryConstructionOverhaul
 
             List<MaterialSource> validSources = selection.sources.Where(source =>
                 source?.storage?.part?.vessel == vessel
+                && source.storage.TransfersEnabled
                 && source.storage.contents.Contains(source.material)
                 && SameNormalMaterial(selection.representative, source.material)).ToList();
             long available = validSources.Sum(source => (long)source.material.amount);

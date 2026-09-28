@@ -217,6 +217,7 @@ namespace Khemistry
             MigrateLegacyResources();
             _storageReady = true;
             EnforceCapacity();
+            CheckStorageEnvironment();
             SanitizePersistentState();
             if (HighLogic.LoadedSceneIsFlight)
                 PrepareUniversalTimeCatchUp();
@@ -236,8 +237,17 @@ namespace Khemistry
             if (vessel == null || part == null) return;
             if (_fatalConfigError) return;
 
-            // Passive inputs and decay catch up after unloading; active charging
-            // remains an operation performed only while the vessel is loaded.
+            // Apply the destination environment before catch-up or any transfers.
+            bool operational = CheckStorageEnvironment();
+            if (!operational)
+            {
+                pendingCatchUpSeconds = 0;
+                HandleOfflineChargeDecay(GetLiveElapsedTime());
+                UpdateUI();
+                return;
+            }
+
+            // Passive inputs and decay catch up; active charging is loaded-only.
             double catchUpDt = pendingCatchUpSeconds;
             if (catchUpDt > 0.0)
             {
@@ -288,6 +298,7 @@ namespace Khemistry
 
 
             storageType = (moduleNode.GetValue("storageType") ?? moduleNode.GetValue("type") ?? "single").Trim();
+            if (!_environment.Load(moduleNode, true)) { _fatalConfigError = true; return; }
 
             if (!TryReadOptionalFloat(moduleNode, "maximumResources", ref maximumResources)
                 || !TryReadOptionalFloat(moduleNode, "maxInputRate", ref maxInputRate)
@@ -468,8 +479,8 @@ namespace Khemistry
             if (dt <= 0.0) return;
             bool wasOn = state == KShared.ChargablePartState.On;
             bool wasCharging = state == KShared.ChargablePartState.Charging;
-            double timeToFullCharge = chargingRequired && chargeRate > 0f
-                ? Math.Max(0.0, (100.0 - chargePercent) / chargeRate) : 0.0;
+            double timeToFullCharge = chargingRequired && EffectiveChargeRate > 0f
+                ? Math.Max(0.0, (100.0 - chargePercent) / EffectiveChargeRate) : 0.0;
             if (allowActiveCharging) HandleCharging(dt);
             else HandleOfflineChargeDecay(dt);
             double poweredDt = wasOn ? dt
@@ -484,10 +495,10 @@ namespace Khemistry
             // was left in Charging therefore cannot maintain its charge either, and decays
             // just like an Off container until it is loaded again.
             if (!chargingRequired || state == KShared.ChargablePartState.On
-                || chargeDecayRate <= 0f)
+                || EffectiveChargeDecayRate <= 0f)
                 return;
 
-            chargePercent = (float)Math.Max(0.0, chargePercent - chargeDecayRate * dt);
+            chargePercent = (float)Math.Max(0.0, chargePercent - EffectiveChargeDecayRate * dt);
         }
 
         private void PrepareUniversalTimeCatchUp()
@@ -585,9 +596,9 @@ namespace Khemistry
 
             if (state == KShared.ChargablePartState.Off)
             {
-                if (chargeDecayRate > 0f)
+                if (EffectiveChargeDecayRate > 0f)
                 {
-                    chargePercent = (float)Math.Max(0.0, chargePercent - chargeDecayRate * dt);
+                    chargePercent = (float)Math.Max(0.0, chargePercent - EffectiveChargeDecayRate * dt);
                 }
                 return;
             }
@@ -603,11 +614,12 @@ namespace Khemistry
                 return;
             }
 
-            double chargingDt = Math.Min(dt, (100.0 - chargePercent) / chargeRate);
+            if (EffectiveChargeRate <= 0) { HandleOfflineChargeDecay(dt); return; }
+            double chargingDt = Math.Min(dt, (100.0 - chargePercent) / EffectiveChargeRate);
             bool satisfied = ConsumeVesselResources(_chargeNames, _chargeAmounts, chargingDt);
             if (satisfied)
             {
-                chargePercent = (float)Math.Min(100.0, chargePercent + chargeRate * chargingDt);
+                chargePercent = (float)Math.Min(100.0, chargePercent + EffectiveChargeRate * chargingDt);
                 if (chargePercent >= 100f)
                 {
                     chargePercent = 100f;
@@ -618,9 +630,9 @@ namespace Khemistry
             }
             else
             {
-                if (chargeDecayRate > 0f)
+                if (EffectiveChargeDecayRate > 0f)
                 {
-                    chargePercent = (float)Math.Max(0.0, chargePercent - chargeDecayRate * dt);
+                    chargePercent = (float)Math.Max(0.0, chargePercent - EffectiveChargeDecayRate * dt);
                 }
             }
         }
@@ -742,13 +754,13 @@ namespace Khemistry
 
             contentsDisplay = parts.Count == 0 ? "Empty" : string.Join(", ", parts.ToArray());
             volumeDisplay = string.Format("{0:F2} / {1:F2}", total,
-                storageType == "multi" ? GetResourceCapacity(activeResource) : maximumResources);
+                EffectiveCapacity);
 
             chargeDisplay = chargingRequired
                 ? string.Format("{0:F1}%", chargePercent)
                 : "N/A";
 
-            stateDisplay = _passiveNeedsMaintenance ? "Needs maintenance"
+            stateDisplay = !_environment.Operational ? _environment.Reason : _passiveNeedsMaintenance ? "Needs maintenance"
                 : _passivePaused ? "Paused: missing passive input" : state.ToString();
             Events["PerformStorageMaintenance"].guiActiveUnfocused = _passiveNeedsMaintenance;
 

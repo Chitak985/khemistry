@@ -1734,11 +1734,7 @@ namespace Khemistry
             }
 
             // One hundred and one ways to explode
-            if (biomeConfig.situationDestructive.Contains(_runtimeData.sitCon) ||
-                _runtimeData.alt < biomeConfig.minAltitude || _runtimeData.alt > biomeConfig.maxAltitude ||
-                _runtimeData.g < biomeConfig.minG || _runtimeData.g > biomeConfig.maxG ||
-                _runtimeData.temperature < biomeConfig.minTemperature || _runtimeData.temperature > biomeConfig.maxTemperature ||
-                _runtimeData.pressure < biomeConfig.minPressure || _runtimeData.pressure > biomeConfig.maxPressure)
+            if (KhemistryEnvironmentConditions.Destructive(biomeConfig, _runtimeData))
             {
                 TriggerPowerfail(GetPowerfailContextPart(), KhemistryISRURecipe.PowerfailResult.Explode);
                 return true;
@@ -1785,15 +1781,10 @@ namespace Khemistry
             if (CheckBiomeConfig(biomeConfig))
                 return false;
 
-            if (biomeConfig.disabled)
+            string environmentFailure = KhemistryEnvironmentConditions.OperatingFailure(biomeConfig, _runtimeData);
+            if (environmentFailure != null)
             {
-                statusDisplay = "Disabled in this biome";
-                return false;
-            }
-
-            if (biomeConfig.situationOperating.Count > 0 && !biomeConfig.situationOperating.Contains(_runtimeData.sitCon))
-            {
-                statusDisplay = "Wrong situation (" + _runtimeData.sitCon + ")";
+                statusDisplay = environmentFailure;
                 return false;
             }
 
@@ -1810,29 +1801,6 @@ namespace Khemistry
                 return false;
             }
 
-            if (_runtimeData.alt < biomeConfig.minOperatingAltitude || _runtimeData.alt > biomeConfig.maxOperatingAltitude)
-            {
-                statusDisplay = "Out of operating altitude range";
-                return false;
-            }
-
-            if (_runtimeData.g < biomeConfig.minOperatingG || _runtimeData.g > biomeConfig.maxOperatingG)
-            {
-                statusDisplay = "Out of operating G range";
-                return false;
-            }
-
-            if (_runtimeData.temperature < biomeConfig.minOperatingTemperature || _runtimeData.temperature > biomeConfig.maxOperatingTemperature)
-            {
-                statusDisplay = "Out of operating temperature range";
-                return false;
-            }
-
-            if (_runtimeData.pressure < biomeConfig.minOperatingPressure || _runtimeData.pressure > biomeConfig.maxOperatingPressure)
-            {
-                statusDisplay = "Out of operating pressure range";
-                return false;
-            }
 
             if (!CountWorkers(out uint engineers, out uint pilots, out uint scientists))
             {

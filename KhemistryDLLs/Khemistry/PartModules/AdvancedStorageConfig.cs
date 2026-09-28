@@ -9,12 +9,13 @@ namespace Khemistry
         private readonly Dictionary<string, double> _resourceCapacities =
             new Dictionary<string, double>(StringComparer.Ordinal);
 
-        /// <summary>Configured capacity, independent of the current selection, contents and rates.</summary>
+        /// <summary>Capacity for this name with the active biome multiplier, independent of contents and rates.</summary>
         public double GetResourceCapacity(string name)
         {
             if (name == null || !_supportedResources.Contains(name)) return 0;
-            return storageType == "multi" && _resourceCapacities.TryGetValue(name, out double capacity)
-                ? capacity : maximumResources;
+            double capacity = storageType == "multi" && _resourceCapacities.TryGetValue(name, out double specific)
+                ? specific : maximumResources;
+            return StorageMultipliers.Multiply(capacity, _environment.Multiplier("volumeMul"));
         }
 
         private bool LoadSupportedResources(ConfigNode module)
@@ -22,6 +23,7 @@ namespace Khemistry
             const string context = "KhemistryAdvancedStorage/LoadSupportedResources";
             _supportedResources.Clear();
             _resourceCapacities.Clear();
+            _resourceMultipliers.Clear();
             var seen = new HashSet<string>(StringComparer.Ordinal);
             ConfigNode group = module.GetNode("SUPPORTED_RESOURCES");
             if (group != null)
@@ -57,6 +59,9 @@ namespace Khemistry
                     KShared.LogError("Duplicate SUPPORTED_RESOURCE for \"" + name + "\"; storage disabled.", context);
                     return false;
                 }
+                var multipliers = new StorageMultipliers();
+                if (!multipliers.Load(entry, true, false, context)) return false;
+                _resourceMultipliers.Add(name, multipliers);
                 if (entry.HasValue("amount"))
                 {
                     if (!double.TryParse(entry.GetValue("amount"), NumberStyles.Float, CultureInfo.InvariantCulture,

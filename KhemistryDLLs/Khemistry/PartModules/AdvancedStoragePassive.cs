@@ -147,8 +147,14 @@ namespace Khemistry
                     if (!active[i]) continue;
                     StoragePassiveInput entry = _storagePassiveInputs[i];
                     KhemistryISRURecipe.PassiveResourceInput input = entry.input;
+                    input.amount = StorageMultipliers.Multiply(input.amount, EffectivePassiveMultiplier);
                     double due = Math.Floor(entry.elapsed / input.period);
                     if (due < 1.0) continue;
+                    if (input.amount == 0.0)
+                    {
+                        entry.elapsed = System.Math.Max(0, entry.elapsed - due * input.period);
+                        continue;
+                    }
                     double needed = due * input.amount;
                     if (!KShared.IsFinite(needed) || !KShared.IsFinite(entry.consumed + needed))
                     {
