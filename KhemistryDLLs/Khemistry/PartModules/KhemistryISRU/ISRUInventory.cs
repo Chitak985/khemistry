@@ -31,6 +31,8 @@ namespace Khemistry
             public bool hasMaintenance, hasRepairableMaintenance, autoMaintenanceFixing;
             public bool chargingRequired;
             public float chargePercent;
+            public double chargeThreshold;
+            public bool canOperate;
             public KShared.ChargablePartState state;
             public readonly List<string> recipeNames = new List<string>();
             public readonly List<KhemistryISRURecipe.RecipeSetting> recipeSettings =
@@ -107,9 +109,6 @@ namespace Khemistry
                     chargePercent = 0f;
                 chargePercent = UnityEngine.Mathf.Clamp(chargePercent, 0f, 100f);
                 if (!Enum.IsDefined(typeof(KShared.ChargablePartState), state))
-                    state = KShared.ChargablePartState.Off;
-                if (chargingRequired && state == KShared.ChargablePartState.On
-                    && chargePercent < 100f)
                     state = KShared.ChargablePartState.Off;
                 if (!chargingRequired)
                     state = KShared.ChargablePartState.On;
@@ -200,18 +199,20 @@ namespace Khemistry
                 TryTransferMaterialOutputBuffer();
 
                 if (needsMaintenance || !isRunning
-                    || state != KShared.ChargablePartState.On
+                    || !CanOperate
                     || _activeRecipe == null)
                 {
                     statusDisplay = needsMaintenance
                         ? "Needs maintenance"
                         : (!isRunning ? "Stopped" : "Not ready");
                     progressDisplay = "Off";
+                    ApplyChargeDecay(dt, 0);
                     TickMaintenance(dt);
                     return false;
                 }
 
-                bool worked = RunBatchCycle(dt);
+                bool worked = RunBatchCycle(RecipeTimeAvailable(dt));
+                ApplyChargeDecay(dt, _maintenanceRuntime);
                 TickMaintenance(dt);
                 return worked;
             }
@@ -236,7 +237,7 @@ namespace Khemistry
                     activeRecipeName = activeRecipeName,
                     status = needsMaintenance ? "Needs maintenance"
                         : (isRunning
-                            ? (state == KShared.ChargablePartState.On
+                            ? (CanOperate
                                 ? "Running" : "Not ready")
                             : "Stopped"),
                     progress = FormatProgress(batchProgress,
@@ -251,6 +252,8 @@ namespace Khemistry
                     autoMaintenanceFixing = autoMaintenanceFixing,
                     chargingRequired = chargingRequired,
                     chargePercent = chargePercent,
+                    chargeThreshold = EffectiveChargeThreshold,
+                    canOperate = CanOperate,
                     state = state
                 };
                 info.recipeNames.AddRange(recipes.Select(recipe => recipe._name));
@@ -283,7 +286,7 @@ namespace Khemistry
                         autoMaintenanceFixing = !autoMaintenanceFixing;
                         return true;
                     case InventoryAction.EnableCharging:
-                        if (!chargingRequired || state == KShared.ChargablePartState.On)
+                        if (!chargingRequired || chargePercent >= 100f)
                             return false;
                         state = KShared.ChargablePartState.Charging;
                         return true;
@@ -291,11 +294,11 @@ namespace Khemistry
                     case InventoryAction.DisableCharging:
                         if (!chargingRequired || state != KShared.ChargablePartState.Charging)
                             return false;
-                        state = KShared.ChargablePartState.Off;
+                        state = KShared.ChargablePartState.On;
                         return true;
 
                     case InventoryAction.TurnOn:
-                        if (chargingRequired && chargePercent < 100f) return false;
+                        if (chargingRequired && chargePercent < EffectiveChargeThreshold) return false;
                         state = KShared.ChargablePartState.On;
                         return true;
 
@@ -324,7 +327,7 @@ namespace Khemistry
                         if (selected == null || selected == _activeRecipe) return false;
                         RefundPassiveConsumption();
                         ApplyRecipe(selected);
-                        if (chargingRequired && chargePercent < 100f
+                        if (chargingRequired && chargePercent < EffectiveChargeThreshold
                             && state == KShared.ChargablePartState.On)
                             state = KShared.ChargablePartState.Off;
                         else if (!chargingRequired)

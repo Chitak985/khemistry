@@ -11,6 +11,25 @@ internal static class EvaRecipeTests
     {
         int count = 0;
         void Check(bool ok, string error) { count++; if (!ok) throw new Exception(error); }
+        var chargingNode = new ConfigNode("RECIPE");
+        chargingNode.AddValue("name", "Charging test");
+        chargingNode.AddValue("recipeTime", "1");
+        var output = new ConfigNode("OUTPUT_RESOURCE");
+        chargingNode.AddNode(output);
+        output.AddValue("name", "Water"); output.AddValue("amount", "1");
+        var defaults = new KhemistryISRURecipe(chargingNode, "Test");
+        Check(defaults._chargeThreshold == 90 && defaults._chargeDecayRateActive == 0
+            && defaults._chargeDecayRateInactive == 0 && !defaults._chargeWhileRunning, "Charging defaults");
+        chargingNode.AddValue("chargeThreshold", "65");
+        chargingNode.AddValue("chargeDecayRateActive", "2");
+        chargingNode.AddValue("chargeDecayRateInactive", "0.5");
+        chargingNode.AddValue("chargeWhileRunning", "true");
+        var chargingRecipe = new KhemistryISRURecipe(chargingNode, "Test");
+        Check(chargingRecipe._chargeThreshold == 65 && chargingRecipe._chargeDecayRateActive == 2
+            && chargingRecipe._chargeDecayRateInactive == 0.5 && chargingRecipe._chargeWhileRunning, "Charging config parsing");
+        var chargingCopy = chargingRecipe.ScaledCopy(2);
+        Check(chargingCopy._chargeThreshold == 65 && chargingCopy._chargeDecayRateActive == 2
+            && chargingCopy._chargeDecayRateInactive == 0.5 && chargingCopy._chargeWhileRunning, "Charging config copied, not scaled");
         var materials = ConfigNode.ReadFixture(Path.Combine(AppContext.BaseDirectory, "materials.cfg"))
             .GetNodes("KHEMISTRY_MATERIAL").Select(n => new KhemistryMaterial
             {

@@ -130,6 +130,10 @@ namespace Khemistry
         public bool _chargingRequired = false;
         public float _chargeRate = 0f;
         public float _chargeDecay = 0f;
+        public float _chargeDecayRateInactive = 0f;
+        public float _chargeDecayRateActive = 0f;
+        public float _chargeThreshold = 90f;
+        public bool _chargeWhileRunning = false;
         public readonly List<string> _chargeNames = new List<string>();
         public readonly List<float> _chargeAmounts = new List<float>();
 
@@ -298,6 +302,17 @@ namespace Khemistry
                     configurationError = true;
                 }
 
+                _chargeDecayRateInactive = KShared.GetFloatValueFromCFG(node, "chargeDecayRateInactive", 0f);
+                _chargeDecayRateActive = KShared.GetFloatValueFromCFG(node, "chargeDecayRateActive", 0f);
+                _chargeThreshold = KShared.GetFloatValueFromCFG(node, "chargeThreshold", 90f);
+                _chargeWhileRunning = bool.TryParse(node.GetValue("chargeWhileRunning"), out bool concurrentCharging) && concurrentCharging;
+                if (float.IsNaN(_chargeDecayRateInactive) || float.IsInfinity(_chargeDecayRateInactive) || _chargeDecayRateInactive < 0
+                    || float.IsNaN(_chargeDecayRateActive) || float.IsInfinity(_chargeDecayRateActive) || _chargeDecayRateActive < 0
+                    || float.IsNaN(_chargeThreshold) || float.IsInfinity(_chargeThreshold) || _chargeThreshold < 0 || _chargeThreshold > 100)
+                {
+                    configurationError = true;
+                    KShared.LogError("Recipe charging decay rates must be finite and non-negative; chargeThreshold must be between 0 and 100.", "KhemistryISRURecipe/constructor");
+                }
                 _chargeRate = KShared.GetFloatValueFromCFG(node, "chargeRate", 0f);
                 _chargeDecay = KShared.GetFloatValueFromCFG(node, "chargeDecay", 0f);
                 if (float.IsNaN(_chargeRate) || float.IsInfinity(_chargeRate) || _chargeRate < 0f
@@ -1226,6 +1241,10 @@ namespace Khemistry
                 _chargingRequired = _chargingRequired,
                 _chargeRate = _chargeRate,
                 _chargeDecay = _chargeDecay,
+                _chargeDecayRateInactive = _chargeDecayRateInactive,
+                _chargeDecayRateActive = _chargeDecayRateActive,
+                _chargeThreshold = _chargeThreshold,
+                _chargeWhileRunning = _chargeWhileRunning,
                 _controlsShowPAW = _controlsShowPAW,
                 _controlsShowEVA = _controlsShowEVA,
                 _useSuitCell = _useSuitCell,

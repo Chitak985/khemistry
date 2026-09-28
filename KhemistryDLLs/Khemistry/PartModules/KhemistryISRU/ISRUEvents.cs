@@ -10,7 +10,7 @@ namespace Khemistry
         public void EnableCharging()
         {
             if (!chargingRequired) return;
-            if (state == KShared.ChargablePartState.On) return;
+            if (chargePercent >= 100f) return;
             state = KShared.ChargablePartState.Charging;
             KShared.Log("Charging enabled.", "KhemistryISRU/EnableCharging");
         }
@@ -21,7 +21,7 @@ namespace Khemistry
         {
             if (!chargingRequired) return;
             if (state != KShared.ChargablePartState.Charging) return;
-            state = KShared.ChargablePartState.Off;
+            state = KShared.ChargablePartState.On;
             KShared.Log("Charging disabled.", "KhemistryISRU/DisableCharging");
         }
 
@@ -29,10 +29,10 @@ namespace Khemistry
                   groupName = "khemistryisru", active = false)]
         public void TurnOnConverter()
         {
-            if (chargingRequired && chargePercent < 100f)
+            if (chargingRequired && chargePercent < EffectiveChargeThreshold)
             {
                 ScreenMessages.PostScreenMessage(new ScreenMessage(
-                    "Converter must be fully charged before turning on.", 5f, ScreenMessageStyle.UPPER_CENTER));
+                    "Converter must reach its charge threshold before turning on.", 5f, ScreenMessageStyle.UPPER_CENTER));
                 return;
             }
             state = KShared.ChargablePartState.On;
@@ -58,7 +58,7 @@ namespace Khemistry
                     5f, ScreenMessageStyle.UPPER_CENTER));
                 return;
             }
-            if (state != KShared.ChargablePartState.On) return;
+            if (!CanOperate) return;
 
             KhemistryISRUBiomeConfig biomeConfig = _activeRecipe != null && _runtimeData != null
                 ? GetEffectiveBiomeConfig()
@@ -135,7 +135,7 @@ namespace Khemistry
 
                 RefundPassiveConsumption();
                 ApplyRecipe(recipes[idx]);
-                if (chargingRequired && chargePercent < 100f && state == KShared.ChargablePartState.On)
+                if (chargingRequired && chargePercent < EffectiveChargeThreshold && state == KShared.ChargablePartState.On)
                     state = KShared.ChargablePartState.Off;
                 else if (!chargingRequired)
                     state = KShared.ChargablePartState.On;

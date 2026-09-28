@@ -59,6 +59,8 @@ namespace Khemistry
         /// <summary>How much to multiply charge rate by.</summary>
         public double chargeRateMultiplier = 1.0;
         /// <summary>How much to multiply charge decay by.</summary>
+        public double chargeDecayRateInactiveMultiplier = 1.0;
+        public double chargeThresholdMultiplier = 1.0;
         public double chargeDecayMultiplier = 1.0;
         /// <summary>How much to multiply charging consumption resource amounts by.</summary>
         public double chargeConsumptionMultiplier = 1.0;
@@ -80,6 +82,8 @@ namespace Khemistry
                 { "outMul", nameof(outputMultiplier) },
                 { "speedMul", nameof(speedMul) },
                 { "chargeRateMul", nameof(chargeRateMultiplier) },
+                { "chargeDecayRateInactiveMul", nameof(chargeDecayRateInactiveMultiplier) },
+                { "chargeThresholdMul", nameof(chargeThresholdMultiplier) },
                 { "chargeDecayMul", nameof(chargeDecayMultiplier) },
                 { "chargeConMul", nameof(chargeConsumptionMultiplier) },
                 { "passivePeriodMul", nameof(passivePeriodMultiplier) },
@@ -232,6 +236,8 @@ namespace Khemistry
 
                 // Charge multipliers
                 chargeRateMultiplier = KShared.GetDoubleValueFromCFG(node, "chargeRateMul", chargeRateMultiplier);
+                chargeDecayRateInactiveMultiplier = KShared.GetDoubleValueFromCFG(node, "chargeDecayRateInactiveMul", chargeDecayRateInactiveMultiplier);
+                chargeThresholdMultiplier = KShared.GetDoubleValueFromCFG(node, "chargeThresholdMul", chargeThresholdMultiplier);
                 chargeDecayMultiplier = KShared.GetDoubleValueFromCFG(node, "chargeDecayMul", chargeDecayMultiplier);
                 chargeConsumptionMultiplier = KShared.GetDoubleValueFromCFG(node, "chargeConMul", chargeConsumptionMultiplier);
 
@@ -254,6 +260,8 @@ namespace Khemistry
                 passiveMultiplier = ValidateMultiplier(passiveMultiplier, "passiveMul", true, ConverterName);
                 passivePeriodMultiplier = ValidateMultiplier(passivePeriodMultiplier, "passivePeriodMul", false, ConverterName);
                 chargeRateMultiplier = ValidateMultiplier(chargeRateMultiplier, "chargeRateMul", true, ConverterName);
+                chargeDecayRateInactiveMultiplier = ValidateMultiplier(chargeDecayRateInactiveMultiplier, "chargeDecayRateInactiveMul", true, ConverterName);
+                chargeThresholdMultiplier = ValidateMultiplier(chargeThresholdMultiplier, "chargeThresholdMul", true, ConverterName);
                 chargeDecayMultiplier = ValidateMultiplier(chargeDecayMultiplier, "chargeDecayMul", true, ConverterName);
                 chargeConsumptionMultiplier = ValidateMultiplier(chargeConsumptionMultiplier, "chargeConMul", true, ConverterName);
                 inputMultiplier = ValidateMultiplier(inputMultiplier, "inMul", true, ConverterName);

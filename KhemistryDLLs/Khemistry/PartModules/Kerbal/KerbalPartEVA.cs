@@ -166,18 +166,18 @@ namespace Khemistry
             {
                 if (info.state == KShared.ChargablePartState.Charging)
                     actions.Add("Disable Charging");
-                else if (info.state != KShared.ChargablePartState.On)
+                else if (info.chargePercent < 100f)
                     actions.Add("Enable Charging");
                 if (info.state != KShared.ChargablePartState.On
-                    && info.chargePercent >= 100f)
+                    && info.chargePercent >= info.chargeThreshold)
                     actions.Add("Prepare Converter");
-                if (info.state == KShared.ChargablePartState.On)
+                if (info.state != KShared.ChargablePartState.Off)
                     actions.Add("Turn Off Converter");
             }
             if (info.isRunning)
                 actions.Add("Stop Converter");
             else if (!info.needsMaintenance
-                && info.state == KShared.ChargablePartState.On)
+                && info.canOperate)
                 actions.Add("Start Converter");
             if (!info.isRunning && info.recipeNames.Count > 1)
                 actions.Add("Switch Recipe");

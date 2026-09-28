@@ -78,7 +78,7 @@ internal static class Program
         { biomeNode.AddValue(key, 2); a.multipliers[key] = 3; b.multipliers[key] = 4; }
         var biome = new KhemistryISRUBiomeConfig(biomeNode);
         var effective = biome.WithMaintenance(new[] { a, b });
-        Check(KhemistryISRUBiomeConfig.MultiplierFields.Count == 13, "all thirteen biome multipliers included");
+        Check(KhemistryISRUBiomeConfig.MultiplierFields.Count == 15, "all fifteen biome multipliers included");
         foreach (var mapping in KhemistryISRUBiomeConfig.MultiplierFields)
         {
             var field = typeof(KhemistryISRUBiomeConfig).GetField(mapping.Value);

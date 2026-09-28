@@ -604,6 +604,10 @@ namespace Khemistry
                 _chargeAmounts.AddRange(_moduleChargeAmounts);
             }
 
+            chargeDecayRateInactive = recipe._chargeDecayRateInactive;
+            chargeDecayRateActive = recipe._chargeDecayRateActive;
+            chargeThreshold = recipe._chargeThreshold;
+            chargeWhileRunning = recipe._chargeWhileRunning;
             _controlsShowPAW = recipe._controlsShowPAW;
             _controlsShowEVA = recipe._controlsShowEVA;
         }
@@ -1330,9 +1334,6 @@ namespace Khemistry
             chargePercent = Mathf.Clamp(chargePercent, 0f, 100f);
             if (!Enum.IsDefined(typeof(KShared.ChargablePartState), this.state))
                 this.state = KShared.ChargablePartState.Off;
-            if (chargingRequired && this.state == KShared.ChargablePartState.On
-                && chargePercent < 100f)
-                this.state = KShared.ChargablePartState.Off;
 
             RestoreMaterialOutputBuffer();
 
@@ -1589,102 +1590,14 @@ namespace Khemistry
                 : "N/A";
 
             if (state == KShared.ChargablePartState.On)
-                stateDisplay = "Ready";
+                stateDisplay = CanOperate ? "Ready" : "Below charge threshold";
             else
                 stateDisplay = state.ToString();
 
-            Events["EnableCharging"].active = chargingRequired && state != KShared.ChargablePartState.Charging && state != KShared.ChargablePartState.On;
+            Events["EnableCharging"].active = chargingRequired && state != KShared.ChargablePartState.Charging && chargePercent < 100f;
             Events["DisableCharging"].active = chargingRequired && state == KShared.ChargablePartState.Charging;
             Events["TurnOnConverter"].active = state != KShared.ChargablePartState.On;
-            Events["TurnOffConverter"].active = state == KShared.ChargablePartState.On;
-        }
-
-        public void HandleCharging(double dt)
-        {
-            if (!chargingRequired) return;
-            if (double.IsNaN(dt) || double.IsInfinity(dt) || dt <= 0.0) return;
-
-            KhemistryISRUBiomeConfig biomeConfig = _activeRecipe != null && _runtimeData != null
-                ? GetEffectiveBiomeConfig()
-                : null;
-            double decayMultiplier = biomeConfig?.chargeDecayMultiplier ?? 1.0;
-            double rateMultiplier = biomeConfig?.chargeRateMultiplier ?? 1.0;
-            double consumptionMultiplier = biomeConfig?.chargeConsumptionMultiplier ?? 1.0;
-            if (double.IsNaN(decayMultiplier) || double.IsInfinity(decayMultiplier)
-                || decayMultiplier < 0.0
-                || double.IsNaN(rateMultiplier) || double.IsInfinity(rateMultiplier)
-                || rateMultiplier < 0.0
-                || double.IsNaN(consumptionMultiplier)
-                || double.IsInfinity(consumptionMultiplier)
-                || consumptionMultiplier < 0.0)
-            {
-                statusDisplay = "ERROR: invalid charging multiplier";
-                return;
-            }
-
-            if (state == KShared.ChargablePartState.Off)
-            {
-                if (chargeDecayRate > 0f)
-                {
-                    chargePercent -= chargeDecayRate * (float)(dt * decayMultiplier);
-                    if (chargePercent < 0f)
-                        chargePercent = 0f;
-                }
-                return;
-            }
-
-            if (state != KShared.ChargablePartState.Charging) return;
-
-            if (chargePercent >= 100f)
-            {
-                chargePercent = 100f;
-                state = KShared.ChargablePartState.On;
-                KShared.Log("Converter fully charged, now ON.",
-                    "KhemistryISRU/HandleCharging");
-                return;
-            }
-
-            double effectiveChargeRate = chargeRate * rateMultiplier;
-            if (double.IsNaN(effectiveChargeRate) || double.IsInfinity(effectiveChargeRate)
-                || effectiveChargeRate <= 0.0)
-            {
-                // In particular, a biome charge-rate multiplier of zero must not consume
-                // resources while producing no charge.
-                statusDisplay = "Charging unavailable here";
-                return;
-            }
-
-            double secondsToFullCharge = (100.0 - chargePercent) / effectiveChargeRate;
-            double chargingDt = Math.Min(dt, secondsToFullCharge);
-            if (double.IsNaN(chargingDt) || double.IsInfinity(chargingDt)
-                || chargingDt <= 0.0)
-                return;
-
-            List<double> scaledChargeAmounts = _chargeAmounts
-                .Select(amount => (double)amount * consumptionMultiplier)
-                .ToList();
-            bool satisfied = ConsumeVesselResources(_chargeNames, scaledChargeAmounts,
-                chargingDt);
-            if (satisfied)
-            {
-                chargePercent += (float)(effectiveChargeRate * chargingDt);
-                if (chargePercent >= 100f - 1e-5f)
-                {
-                    chargePercent = 100f;
-                    state = KShared.ChargablePartState.On;
-                    KShared.Log("Converter fully charged, now ON.",
-                        "KhemistryISRU/HandleCharging");
-                }
-            }
-            else
-            {
-                if (chargeDecayRate > 0f)
-                {
-                    chargePercent -= chargeDecayRate * (float)(dt * decayMultiplier);
-                    if (chargePercent < 0f)
-                        chargePercent = 0f;
-                }
-            }
+            Events["TurnOffConverter"].active = state != KShared.ChargablePartState.Off;
         }
 
         public void FixedUpdate()
@@ -1705,16 +1618,18 @@ namespace Khemistry
             TryTransferMaterialOutputBuffer();
             UpdateEventVisibility();
 
-            if (needsMaintenance || !isRunning || state != KShared.ChargablePartState.On || _activeRecipe == null)
+            if (needsMaintenance || !isRunning || !CanOperate || _activeRecipe == null)
             {
                 statusDisplay = needsMaintenance ? "Needs maintenance" : (!isRunning ? "Stopped" : "Not ready");
                 progressDisplay = "Off";
                 SetActiveAnimationPlaying(false);
+                ApplyChargeDecay(dt, 0);
                 TickMaintenance(dt);
                 return;
             }
 
-            SetActiveAnimationPlaying(RunBatchCycle(dt));
+            SetActiveAnimationPlaying(RunBatchCycle(RecipeTimeAvailable(dt)));
+            ApplyChargeDecay(dt, _maintenanceRuntime);
             TickMaintenance(dt);
         }
 

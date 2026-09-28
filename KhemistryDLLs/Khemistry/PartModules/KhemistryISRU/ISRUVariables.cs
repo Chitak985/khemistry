@@ -93,6 +93,11 @@ namespace Khemistry
         [KSPField(isPersistant = false)]
         public float chargeDecayRate = 0f;
 
+        [KSPField] public float chargeDecayRateInactive = 0f;
+        [KSPField] public float chargeDecayRateActive = 0f;
+        [KSPField] public float chargeThreshold = 90f;
+        [KSPField] public bool chargeWhileRunning = false;
+
         protected List<string> _chargeNames = new List<string>();
         protected List<float> _chargeAmounts = new List<float>();
         protected bool _moduleChargingRequired = false;
