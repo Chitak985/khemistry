@@ -130,6 +130,7 @@
     <Compile Include="KEI\KEILoader.cs" />
     <Compile Include="KEI\KEIMain.cs" />
     <Compile Include="KMathExpr.cs" />
+    <Compile Include="MaterialDrop.cs" />
     <Compile Include="StorageEnvironment.cs" />
     <Compile Include="PartModules\AdvancedStorageEnvironment.cs" />
     <Compile Include="PartModules\MaterialStorageEnvironment.cs" />

@@ -324,7 +324,8 @@ namespace Khemistry
         public void OpenMaterialStorageContents()
         {
             KShared.Instance?.ShowMaterialContents("Material Storage Contents",
-                () => part == null ? null : contents);
+                () => part == null ? null : contents,
+                (material, amount) => part != null && MaterialDrop.TryDrop(contents, material, amount));
         }
 
         public static bool MatchesMaterial(KhemistryMaterialInstance material, string name, string shape,

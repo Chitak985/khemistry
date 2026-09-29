@@ -147,7 +147,9 @@ namespace Khemistry
         {
             if (!HasMaterialSuitCell) return;
             KShared.Instance?.ShowMaterialContents("Material Suit Cell Contents",
-                () => part == null ? null : materialSuitCellContents);
+                () => part == null ? null : materialSuitCellContents,
+                (material, amount) => part != null && HasMaterialSuitCell
+                    && MaterialDrop.TryDrop(materialSuitCellContents, material, amount));
         }
 
         ///// EVA Processor Actions /////

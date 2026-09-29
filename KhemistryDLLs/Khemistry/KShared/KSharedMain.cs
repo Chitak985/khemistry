@@ -29,6 +29,7 @@ namespace Khemistry
             _amountWindowId = ("Khemistry.Amount." + windowIdSeed).GetHashCode();
             _recipeSettingsWindowId = ("Khemistry.RecipeSettings." + windowIdSeed).GetHashCode();
             _depositsWindowId = ("Khemistry.Deposits." + windowIdSeed).GetHashCode();
+            _materialDropWindowId = ("Khemistry.MaterialDrop." + windowIdSeed).GetHashCode();
             _materialContentsWindowId = ("Khemistry.MaterialContents." + windowIdSeed).GetHashCode();
             _materialParametersWindowId = ("Khemistry.MaterialParameters." + windowIdSeed).GetHashCode();
             _resourceContentsWindowId = ("Khemistry.ResourceContents." + windowIdSeed).GetHashCode();

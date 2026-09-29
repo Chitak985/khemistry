@@ -22,9 +22,16 @@ namespace Khemistry
         private bool _materialContentsVisible;
         private string _materialContentsTitle = "Material Contents";
         private Func<IEnumerable<KhemistryMaterialInstance>> _materialContentsProvider;
-        private Rect _materialContentsRect = new Rect(0f, 0f, 760f, 450f);
+        private Rect _materialContentsRect = new Rect(0f, 0f, 850f, 450f);
         private Vector2 _materialContentsScroll = Vector2.zero;
         private int _materialContentsWindowId;
+
+        private Func<KhemistryMaterialInstance, int, bool> _materialDropCallback;
+        private KhemistryMaterialInstance _materialDropSelection;
+        private string _materialDropAmount = "1";
+        private string _materialDropError = "";
+        private Rect _materialDropRect = new Rect(0, 0, 360, 180);
+        private int _materialDropWindowId;
 
         private bool _materialParametersVisible;
         private string _materialParametersTitle = "Material Parameters";
@@ -70,12 +77,15 @@ namespace Khemistry
 
         /// <summary>Shows the live contents of a material container.</summary>
         public void ShowMaterialContents(string title,
-            Func<IEnumerable<KhemistryMaterialInstance>> contentsProvider)
+            Func<IEnumerable<KhemistryMaterialInstance>> contentsProvider,
+            Func<KhemistryMaterialInstance, int, bool> onDrop = null)
         {
             if (contentsProvider == null) return;
             _materialContentsTitle = string.IsNullOrWhiteSpace(title)
                 ? "Material Contents" : title;
             _materialContentsProvider = contentsProvider;
+            _materialDropCallback = onDrop;
+            _materialDropSelection = null;
             _materialContentsScroll = Vector2.zero;
             _materialContentsRect = CenterContentsWindow(_materialContentsRect);
             _materialParametersVisible = false;
@@ -99,6 +109,8 @@ namespace Khemistry
         private void CloseContentsWindows()
         {
             _materialContentsVisible = false;
+            _materialDropSelection = null;
+            _materialDropCallback = null;
             _materialParametersVisible = false;
             _resourceContentsVisible = false;
             _materialContentsProvider = null;
@@ -134,6 +146,39 @@ namespace Khemistry
                     DrawResourceContentsWindow,
                     _resourceContentsTitle,
                     HighLogic.Skin.window);
+            if (_materialDropSelection != null && _materialContentsVisible)
+                _materialDropRect = GUILayout.Window(_materialDropWindowId, _materialDropRect,
+                    DrawMaterialDropWindow, "Drop Material", HighLogic.Skin.window);
+        }
+
+        private void DrawMaterialDropWindow(int windowId)
+        {
+            var selected = _materialDropSelection;
+            bool present = selected != null && ReadMaterialContents().Any(m => ReferenceEquals(m, selected));
+            int maximum = present ? selected.amount : 0;
+            GUILayout.Label(present ? selected.material.name : "Material is no longer available.", HighLogic.Skin.label);
+            GUILayout.Label("Amount to permanently delete (1–" + maximum + "):", HighLogic.Skin.label);
+            _materialDropAmount = GUILayout.TextField(_materialDropAmount, HighLogic.Skin.textField);
+            bool valid = MaterialDrop.TryReadAmount(_materialDropAmount, maximum, out int amount);
+            if (!valid) GUILayout.Label("Enter a whole number within the available amount.", HighLogic.Skin.label);
+            if (!string.IsNullOrEmpty(_materialDropError)) GUILayout.Label(_materialDropError, HighLogic.Skin.label);
+            GUILayout.BeginHorizontal();
+            bool enabled = GUI.enabled;
+            GUI.enabled = enabled && valid && _materialDropCallback != null;
+            if (GUILayout.Button("OK", HighLogic.Skin.button))
+            {
+                if (_materialDropCallback(selected, amount))
+                {
+                    _materialDropSelection = null;
+                    _materialParametersVisible = false;
+                    _materialParameterRows.Clear();
+                }
+                else _materialDropError = "Contents changed. Check the amount and try again.";
+            }
+            GUI.enabled = enabled;
+            if (GUILayout.Button("Cancel", HighLogic.Skin.button)) _materialDropSelection = null;
+            GUILayout.EndHorizontal();
+            GUI.DragWindow();
         }
 
         private List<KhemistryMaterialInstance> ReadMaterialContents()
@@ -174,6 +219,7 @@ namespace Khemistry
                 GUILayout.Width(MaterialVolumeWidth));
             GUILayout.Label("Parameters", _contentsHeaderStyle,
                 GUILayout.Width(MaterialParametersWidth));
+            GUILayout.Label("Actions", _contentsHeaderStyle, GUILayout.Width(70f));
             GUILayout.EndHorizontal();
 
             float scrollHeight = Mathf.Min(340f,
@@ -216,6 +262,14 @@ namespace Khemistry
                     if (GUILayout.Button("Open List", HighLogic.Skin.button,
                             GUILayout.Width(MaterialParametersWidth)))
                         ShowMaterialParameters(material);
+                    if (GUILayout.Button("Drop", HighLogic.Skin.button, GUILayout.Width(70f))
+                        && _materialDropCallback != null)
+                    {
+                        _materialDropSelection = material;
+                        _materialDropAmount = "1";
+                        _materialDropError = "";
+                        _materialDropRect = CenterContentsWindow(_materialDropRect);
+                    }
                     GUILayout.EndHorizontal();
                 }
             }
@@ -224,6 +278,8 @@ namespace Khemistry
             if (GUILayout.Button("Close", HighLogic.Skin.button))
             {
                 _materialContentsVisible = false;
+                _materialDropSelection = null;
+                _materialDropCallback = null;
                 _materialContentsProvider = null;
                 _materialParametersVisible = false;
                 _materialParameterRows.Clear();
