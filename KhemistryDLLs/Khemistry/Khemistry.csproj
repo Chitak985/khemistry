@@ -146,6 +146,7 @@
     <Compile Include="Materials.cs" />
     <Compile Include="PartModules\Kerbal\KerbalCell.cs" />
     <Compile Include="PartModules\Kerbal\KerbalEvents.cs" />
+    <Compile Include="PartModules\Kerbal\KerbalKSCSender.cs" />
     <Compile Include="PartModules\Kerbal\KerbalMain.cs" />
     <Compile Include="PartModules\Kerbal\KerbalPartEVA.cs" />
     <Compile Include="PartModules\KhemistryISRU\ISRUActions.cs" />

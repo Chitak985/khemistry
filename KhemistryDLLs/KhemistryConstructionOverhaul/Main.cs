@@ -523,6 +523,7 @@ namespace KhemistryConstructionOverhaul
                 return;
             }
             _instance = this;
+            KerbalKSCBridge.SendMaterial = AcceptKerbalMaterial;
             DontDestroyOnLoad(gameObject);
 
             if (!_registered)
@@ -543,7 +544,23 @@ namespace KhemistryConstructionOverhaul
                 GameEvents.OnVesselRollout.Remove(OnVesselRollout);
                 _rolloutEventRegistered = false;
             }
-            if (_instance == this) _instance = null;
+            if (_instance == this)
+            {
+                KerbalKSCBridge.SendMaterial = null;
+                _instance = null;
+            }
+        }
+
+        private static bool AcceptKerbalMaterial(KhemistryMaterialInstance material)
+        {
+            var ledger = KShared.Instance?.KSCMaterialContents;
+            if (ledger == null || !KhemistryConstructionMaterials.IsValidInstance(material)) return false;
+            // Work on copies first: a rejected send must not mutate the live ledger.
+            var next = ledger.Select(item => new KhemistryMaterialInstance(item)).ToList();
+            if (!KhemistryConstructionMaterials.AddNormal(next, new KhemistryMaterialInstance(material))) return false;
+            ledger.Clear();
+            ledger.AddRange(next);
+            return true;
         }
 
         private void OnVesselRollout(ShipConstruct ship)

@@ -512,6 +512,7 @@ namespace Khemistry
                 }
             }
 
+            UpdateKSCSenderControls();
             Events["OpenSuitCellContents"].active = HasFluidSuitCell;
             Events["OpenMaterialSuitCellContents"].active = HasMaterialSuitCell;
 
