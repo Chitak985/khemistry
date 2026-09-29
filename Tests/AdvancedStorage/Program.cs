@@ -162,6 +162,7 @@ static partial class Program
         PassiveTests();
         CapacityTests();
         EnvironmentTests();
+        DegradationTests();
         Console.WriteLine(assertions + " assertions passed.");
     }
 }

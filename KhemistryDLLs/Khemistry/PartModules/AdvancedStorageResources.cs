@@ -33,6 +33,7 @@ namespace Khemistry
         {
             base.OnLoad(node);
             LoadStoragePassiveState(node);
+            LoadDegradationState(node);
             _storageReady = false;
             _resources.Clear();
             _unreadableContents.Clear();
@@ -60,6 +61,7 @@ namespace Khemistry
             base.OnSave(node);
             if (node == null) return;
             SaveStoragePassiveState(node);
+            SaveDegradationState(node);
             node.RemoveNodes("STORED_RESOURCE");
             node.RemoveNodes(SavedFlowStateNodeName);
             foreach (var resource in _resources)
@@ -132,6 +134,7 @@ namespace Khemistry
             else _resources[name] = remaining;
             if (moved > 0.0) _outputThisTick += moved;
             else _inputThisTick -= moved;
+            TrackDegradationTransfer(moved);
             return moved;
         }
 
@@ -144,6 +147,7 @@ namespace Khemistry
         // prevented by a rate limit, full tank, or the opposite direction being blocked.
         internal void UndoTransfer(string name, double moved)
         {
+            TrackDegradationTransfer(moved, undo: true);
             _resources[name] = GetStoredAmount(name) + moved;
             if (_resources[name] == 0.0) _resources.Remove(name);
             if (moved > 0.0) _outputThisTick = Math.Max(0.0, _outputThisTick - moved);

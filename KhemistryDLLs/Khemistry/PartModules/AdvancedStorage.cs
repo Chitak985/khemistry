@@ -241,8 +241,11 @@ namespace Khemistry
             bool operational = CheckStorageEnvironment();
             if (!operational)
             {
+                ProcessDegradation(pendingCatchUpSeconds);
                 pendingCatchUpSeconds = 0;
-                HandleOfflineChargeDecay(GetLiveElapsedTime());
+                double unavailableDt = GetLiveElapsedTime();
+                HandleOfflineChargeDecay(unavailableDt);
+                ProcessDegradation(unavailableDt);
                 UpdateUI();
                 return;
             }
@@ -253,6 +256,7 @@ namespace Khemistry
             {
                 ProcessElapsedTime(catchUpDt, allowActiveCharging: false);
                 pendingCatchUpSeconds = 0.0;
+                if (_fatalConfigError) { UpdateUI(); return; }
             }
 
             double dt = GetLiveElapsedTime();
@@ -354,6 +358,8 @@ namespace Khemistry
                 _fatalConfigError = true;
                 return;
             }
+
+            if (!LoadDegradation(moduleNode)) return;
 
             if (!LoadPassiveInputs(moduleNode))
             {
@@ -475,6 +481,7 @@ namespace Khemistry
 
         private void ProcessElapsedTime(double dt, bool allowActiveCharging)
         {
+            if (_fatalConfigError) return;
             dt = BoundElapsedTime(dt, "storage update");
             if (dt <= 0.0) return;
             bool wasOn = state == KShared.ChargablePartState.On;
@@ -487,6 +494,7 @@ namespace Khemistry
                 : wasCharging && state == KShared.ChargablePartState.On
                     ? Math.Max(0.0, dt - timeToFullCharge) : 0.0;
             ProcessStoragePassiveInputs(dt, poweredDt);
+            ProcessDegradation(dt);
         }
 
         private void HandleOfflineChargeDecay(double dt)
@@ -760,6 +768,7 @@ namespace Khemistry
                 ? string.Format("{0:F1}%", chargePercent)
                 : "N/A";
 
+            if (_fatalConfigError) { contentsDisplay = "ERROR: see log"; return; }
             stateDisplay = !_environment.Operational ? _environment.Reason : _passiveNeedsMaintenance ? "Needs maintenance"
                 : _passivePaused ? "Paused: missing passive input" : state.ToString();
             Events["PerformStorageMaintenance"].guiActiveUnfocused = _passiveNeedsMaintenance;

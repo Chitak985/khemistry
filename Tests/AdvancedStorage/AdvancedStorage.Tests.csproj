@@ -6,6 +6,9 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Program.cs" />
+    <Compile Include="DegradationTests.cs" />
+    <Compile Include="../../KhemistryDLLs/Khemistry/KMathExpr.cs" Link="KMathExpr.cs" />
+    <Compile Include="../../KhemistryDLLs/Khemistry/PartModules/AdvancedStorageDegradation.cs" Link="AdvancedStorageDegradation.cs" />
     <Compile Include="Stubs.cs" />
     <Compile Include="PassiveTests.cs" />
     <Compile Include="CapacityTests.cs" />

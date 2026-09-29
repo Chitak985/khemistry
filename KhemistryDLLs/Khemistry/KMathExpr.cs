@@ -213,6 +213,33 @@ namespace Khemistry
             }
         }
 
+        /// <summary>Checks syntax/identifiers with the existing scalar parser, without
+        /// requiring dummy variable values to produce a finite numeric result.</summary>
+        public static bool TryValidate(string expression, IEnumerable<string> variableNames, out string error)
+        {
+            error = null;
+            if (string.IsNullOrWhiteSpace(expression)) { error = "Expression is empty."; return false; }
+            var variables = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string name in variableNames) variables[name] = "1";
+            try
+            {
+                int pos = 0;
+                ParseExpr(expression, ref pos, variables, (a, b) => 0);
+                SkipWhitespace(expression, ref pos);
+                if (pos != expression.Length) { error = "Unexpected trailing characters at position " + pos + "."; return false; }
+                return true;
+            }
+            catch (Exception ex) { error = ex.Message; return false; }
+        }
+
+        public static bool IsVariableName(string name)
+        {
+            if (string.IsNullOrEmpty(name) || !(char.IsLetter(name[0]) || name[0] == '_')) return false;
+            foreach (char c in name)
+                if (!char.IsLetterOrDigit(c) && c != '_') return false;
+            return !constants.ContainsKey(name) && !functions1Arg.ContainsKey(name) && !functions2Arg.ContainsKey(name);
+        }
+
         private static void SkipWhitespace(string s, ref int pos)
         {
             while (pos < s.Length && char.IsWhiteSpace(s[pos])) pos++;

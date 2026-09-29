@@ -11,22 +11,26 @@ public partial class ConfigNode
 {
     public string name;
     public ConfigNode(string name = "") { this.name = name; }
-    private Dictionary<string, string> values = new Dictionary<string, string>();
+    public class Value { public string name, value; }
+    public IEnumerable<Value> values => repeatedValues.Select(v => new Value { name = v.Item1, value = v.Item2 });
+    private Dictionary<string, string> scalarValues = new Dictionary<string, string>();
     private List<(string, string)> repeatedValues = new List<(string, string)>();
     private List<(string, ConfigNode)> nodes = new List<(string, ConfigNode)>();
-    public string GetValue(string key) => values.TryGetValue(key, out string v) ? v : null;
-    public bool HasValue(string key) => values.ContainsKey(key);
-    public void AddValue(string key, object value) { values[key] = value.ToString(); repeatedValues.Add((key, value.ToString())); }
+    public string GetValue(string key) => scalarValues.TryGetValue(key, out string v) ? v : null;
+    public bool HasValue(string key) => scalarValues.ContainsKey(key);
+    public void AddValue(string key, object value) { scalarValues[key] = value.ToString(); repeatedValues.Add((key, value.ToString())); }
     public string[] GetValues(string key) => repeatedValues.Where(v => v.Item1 == key).Select(v => v.Item2).ToArray();
     public ConfigNode GetNode(string name) => GetNodes(name).FirstOrDefault();
     public ConfigNode AddNode(string name) { var n = new ConfigNode(name); nodes.Add((name, n)); return n; }
     public void AddNode(ConfigNode node) => nodes.Add((node.name, node));
     public ConfigNode[] GetNodes(string name) => nodes.Where(n => n.Item1 == name).Select(n => n.Item2).ToArray();
     public void RemoveNodes(string name) => nodes.RemoveAll(n => n.Item1 == name);
-    public void CopyTo(ConfigNode node) { node.values = new Dictionary<string, string>(values); node.repeatedValues = new List<(string, string)>(repeatedValues); node.nodes = new List<(string, ConfigNode)>(nodes); }
+    public void CopyTo(ConfigNode node) { node.scalarValues = new Dictionary<string, string>(scalarValues); node.repeatedValues = new List<(string, string)>(repeatedValues); node.nodes = new List<(string, ConfigNode)>(nodes); }
 }
+public class BaseEvent { public bool active; }
 public class PartModule
 {
+    public List<BaseEvent> Events = new List<BaseEvent>();
     public Part part;
     public virtual void OnLoad(ConfigNode node) { }
     public virtual void OnSave(ConfigNode node) { }
@@ -144,6 +148,8 @@ namespace Khemistry
     public partial class KShared
     {
         public enum ChargablePartState { Off, On, Charging }
+        public static void LogFatalError(string message, string context) => throw new Exception(message);
+        public static double RandomDouble(double a, double b) => (a + b) / 2;
         public static bool IsFinite(double value) => !double.IsInfinity(value) && !double.IsNaN(value);
         public static readonly List<string> Errors = new List<string>();
         public static void LogError(string message, string context) => Errors.Add(context + ": " + message);
@@ -161,6 +167,7 @@ namespace Khemistry
     {
         private List<string> _supportedResources = new List<string>();
         private bool _fatalConfigError = false;
+        public string contentsDisplay;
         private const string SavedFlowStateNodeName = "KHEMISTRY_ORIGINAL_FLOW_STATE";
         public string storageType = "multiShared", activeResource = "A";
         public float maximumResources = 10, maxInputRate = -1, maxOutputRate = -1;

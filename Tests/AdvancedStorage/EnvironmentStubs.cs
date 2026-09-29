@@ -4,7 +4,7 @@ using System.Linq;
 public partial class ConfigNode
 {
     public bool HasNode(string name) => GetNode(name) != null;
-    public void RemoveValue(string name) { values.Remove(name); repeatedValues.RemoveAll(v => v.Item1 == name); }
+    public void RemoveValue(string name) { scalarValues.Remove(name); repeatedValues.RemoveAll(v => v.Item1 == name); }
 }
 public static class HighLogic { public static bool LoadedSceneIsFlight = true; }
 public class CelestialBody { public string name = "Kerbin"; public string biome = "Grasslands"; }
