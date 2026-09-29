@@ -19,6 +19,29 @@ namespace Khemistry
         [KSPField(isPersistant = false)]
         public float TransferDistance = 10.0f;
 
+        [KSPField] public double maxInputRate = -1;
+        [KSPField] public double maxOutputRate = -1;
+        [KSPField] public double maxInputRateInternal = -1;
+        [KSPField] public double maxOutputRateInternal = -1;
+        private readonly FluidCellRateBudget rateBudget = new FluidCellRateBudget();
+
+        internal double GetRate(bool input, bool internalTransfer)
+            => internalTransfer ? (input ? maxInputRateInternal : maxOutputRateInternal)
+                : (input ? maxInputRate : maxOutputRate);
+
+        internal static int RateChannel(bool input, bool internalTransfer)
+            => (internalTransfer ? 2 : 0) + (input ? 0 : 1);
+
+        internal double LimitTransfer(FluidCellRateBudget budget, double amount, bool internalTransfer)
+            => Math.Sign(amount) * Math.Min(Math.Abs(amount),
+                budget.Available(RateChannel(amount < 0, internalTransfer),
+                    GetRate(amount < 0, internalTransfer), UnityEngine.Time.fixedTime, TimeWarp.fixedDeltaTime));
+
+        internal void RecordTransfer(FluidCellRateBudget budget, double amount, bool internalTransfer)
+            => budget.Record(RateChannel(amount < 0, internalTransfer),
+                Math.Abs(amount), UnityEngine.Time.fixedTime);
+
+
         /// <summary>Canonical contents, serialized as "ResourceA:1.5|ResourceB:2".</summary>
         [KSPField(isPersistant = true)]
         public string StoredResourcesData = "";
@@ -133,11 +156,16 @@ namespace Khemistry
         /// positive amounts consume and negative amounts produce.
         /// </summary>
         public double RequestStoredResource(string resourceName, double amount)
+            => RequestStoredResourceCore(resourceName, amount, false);
+
+        private double RequestStoredResourceCore(string resourceName, double amount, bool migrating)
         {
             if (string.IsNullOrWhiteSpace(resourceName) || !KShared.IsFinite(amount)
                 || amount == 0.0)
                 return 0.0;
 
+            if (!migrating) amount = LimitTransfer(rateBudget, amount, false);
+            if (amount == 0) return 0;
             resourceName = resourceName.Trim();
             Dictionary<string, double> resources = GetStoredResources();
             resources.TryGetValue(resourceName, out double current);
@@ -150,6 +178,7 @@ namespace Khemistry
                 if (remaining <= 1e-9) resources.Remove(resourceName);
                 else resources[resourceName] = remaining;
                 StoredResourcesData = SerializeResources(resources);
+                if (!migrating) RecordTransfer(rateBudget, removed, false);
                 return removed;
             }
 
@@ -163,6 +192,7 @@ namespace Khemistry
             if (added <= 0.0 || !KShared.IsFinite(current + added)) return 0.0;
             resources[resourceName] = current + added;
             StoredResourcesData = SerializeResources(resources);
+            if (!migrating) RecordTransfer(rateBudget, -added, false);
             return -added;
         }
 
@@ -174,9 +204,20 @@ namespace Khemistry
                 () => part == null ? null : GetStoredResources());
         }
 
+        private static double ValidateRate(double rate, string name)
+        {
+            if (KShared.IsFinite(rate)) return rate;
+            KShared.LogError("Invalid fluid-cell " + name + "; using zero (blocked).", "KhemistryFluidCell/OnLoad");
+            return 0;
+        }
+
         public override void OnLoad(ConfigNode node)
         {
             base.OnLoad(node);
+            maxInputRate = ValidateRate(maxInputRate, "maxInputRate");
+            maxOutputRate = ValidateRate(maxOutputRate, "maxOutputRate");
+            maxInputRateInternal = ValidateRate(maxInputRateInternal, "maxInputRateInternal");
+            maxOutputRateInternal = ValidateRate(maxOutputRateInternal, "maxOutputRateInternal");
             _supportedResourceGroups.Clear();
             SupportedResources.Clear();
 
@@ -264,7 +305,7 @@ namespace Khemistry
             if (!string.IsNullOrEmpty(ResourceName) && ResourceAmount > 0f
                 && !float.IsNaN(ResourceAmount) && !float.IsInfinity(ResourceAmount))
             {
-                double added = -RequestStoredResource(ResourceName, -ResourceAmount);
+                double added = -RequestStoredResourceCore(ResourceName, -ResourceAmount, true);
                 double remainder = Math.Max(0.0, ResourceAmount - added);
                 ResourceAmount = remainder >= float.MaxValue
                     ? float.MaxValue : (float)remainder;

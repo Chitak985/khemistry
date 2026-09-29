@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+<PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework></PropertyGroup>
+<ItemGroup>
+<Compile Include="../../KhemistryDLLs/Khemistry/FluidCellRateBudget.cs" Link="FluidCellRateBudget.cs" />
+<Compile Include="../../KhemistryDLLs/Khemistry/PartModules/FluidCell.cs" Link="FluidCell.cs" />
+<Compile Include="../../KhemistryDLLs/Khemistry/PartModules/Kerbal/KerbalFluidTransfers.cs" Link="KerbalFluidTransfers.cs" />
+</ItemGroup>
+</Project>

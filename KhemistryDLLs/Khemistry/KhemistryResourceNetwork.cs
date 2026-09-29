@@ -117,7 +117,7 @@ namespace Khemistry
             internal PartResource stock;
             internal KhemistryAdvancedStorage storage;
             internal KhemistryFluidCell cell;
-            private bool IsCurrent => part != null && (stock != null
+            internal bool IsCurrent => part != null && (stock != null
                 ? part.Resources.Any(r => ReferenceEquals(r, stock))
                 : storage != null ? part.Modules.Cast<PartModule>().Any(m => ReferenceEquals(m, storage))
                 : cell != null && part.Modules.Cast<PartModule>().Any(m => ReferenceEquals(m, cell)));

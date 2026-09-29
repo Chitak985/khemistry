@@ -123,6 +123,8 @@
     <Compile Include="KhemistryResourceNetwork.cs" />
     <Compile Include="KhemistryStockResourceBroker.cs" />
     <Compile Include="PartModules\FluidCell.cs" />
+    <Compile Include="FluidCellRateBudget.cs" />
+    <Compile Include="PartModules\Kerbal\KerbalFluidTransfers.cs" />
     <Compile Include="KEI\KEIData.cs" />
     <Compile Include="KEI\KEILoader.cs" />
     <Compile Include="KEI\KEIMain.cs" />

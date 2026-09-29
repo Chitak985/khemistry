@@ -33,8 +33,11 @@
                 return _kerbalHost.RequestSuitCellResource(name, amount);
             if (moduleType == "partEVA" && _inventorySessionActive
                 && _kerbalHost != null && _inventoryStoredPart != null)
+            {
+                _lastResourceTransfers = new System.Collections.Generic.List<KhemistryResourceNetwork.Transfer>();
                 return _kerbalHost.RequestInventoryProcessorResource(
-                    _inventoryStoredPart, name, amount, useSuitCell);
+                    _inventoryStoredPart, name, amount, useSuitCell, _lastResourceTransfers);
+            }
             _lastResourceTransfers = new System.Collections.Generic.List<KhemistryResourceNetwork.Transfer>();
             return KhemistryResourceNetwork.Request(part, name, amount, flowMode,
                 _lastResourceTransfers);

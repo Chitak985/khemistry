@@ -422,19 +422,7 @@ namespace Khemistry
                         double taken = Math.Min((double)amount,
                             Math.Min(liveSource.amount, liveSpace));
                         if (taken <= 1e-9) return;
-                        liveDict.TryGetValue(resourceName, out double existing);
-                        liveDict[resourceName] = existing + taken;
-                        SetSuitCellFromDict(liveDict);
-                        double removed = liveSource.Request(taken);
-                        if (removed < taken)
-                        {
-                            liveDict[resourceName] = existing + removed;
-                            SetSuitCellFromDict(liveDict);
-                        }
-                        taken = removed;
-                        ScreenMessages.PostScreenMessage(new ScreenMessage(
-                            string.Format("Received {0:F2} of {1}.", taken, resourceName),
-                            5f, ScreenMessageStyle.UPPER_CENTER));
+                        StartCellTransfer(null, liveSource, true, taken, _suitCellTransferDistance);
                     });
             });
         }
@@ -503,20 +491,7 @@ namespace Khemistry
                     double space = Math.Max(0.0, targetResource.maxAmount - targetResource.amount);
                     double pushed = Math.Min(existing, space);
                     if (pushed <= 1e-9) return;
-                    double remaining = existing - pushed;
-                    if (remaining < 1e-9) d.Remove(resourceName);
-                    else d[resourceName] = remaining;
-                    SetSuitCellFromDict(d);
-                    double accepted = -targetResource.Request(-pushed);
-                    if (accepted < pushed)
-                    {
-                        d[resourceName] = existing - accepted;
-                        SetSuitCellFromDict(d);
-                    }
-                    pushed = accepted;
-                    ScreenMessages.PostScreenMessage(new ScreenMessage(
-                        string.Format("Transferred {0:F2} of {1}.", pushed, resourceName),
-                        5f, ScreenMessageStyle.UPPER_CENTER));
+                    StartCellTransfer(null, targetResource, false, pushed, _suitCellTransferDistance);
                 });
         }
     }

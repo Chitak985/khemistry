@@ -181,51 +181,6 @@ namespace Khemistry
         /// Routes a held partEVA converter request through the fluid cell on that same held
         /// part, then through the suit cell when the converter explicitly enables it.
         /// </summary>
-        internal double RequestInventoryProcessorResource(StoredPart stored, string name,
-            double amount, bool allowSuitCell)
-        {
-            if (!IsStoredPartCurrent(stored) || string.IsNullOrWhiteSpace(name)
-                || !KShared.IsFinite(amount) || amount == 0.0)
-                return 0.0;
-
-            name = name.Trim();
-            bool hasPartCell = GetCellModuleSnapshot(stored) != null;
-            double moved = 0.0;
-
-            if (hasPartCell && amount > 0.0)
-            {
-                double available = ReadResourceAmountValue(stored, name);
-                double take = Math.Min(amount, available);
-                if (take > 0.0
-                    && WriteResourceAmount(stored, name, available - take))
-                    moved += take;
-            }
-            else if (hasPartCell && amount < 0.0
-                && IsResourceAllowedForAddition(stored, name))
-            {
-                double current = ReadResourceAmountValue(stored, name);
-                KhemistryFluidCell cell = ReadFluidCellPrefab(stored.partName);
-                double totalSpace = cell == null || !KShared.IsFinite(cell.ResourceMaxAmount)
-                    || cell.ResourceMaxAmount <= 0f
-                    ? 0.0
-                    : Math.Max(0.0, cell.ResourceMaxAmount - ReadResourceAmount(stored));
-                double add = Math.Min(-amount, totalSpace);
-                if (add > 0.0
-                    && WriteResourceAmount(stored, name, current + add))
-                    moved += add;
-            }
-
-            double remaining = Math.Abs(amount) - moved;
-            if (allowSuitCell && remaining > 0.0)
-            {
-                double suitMoved = RequestSuitCellResource(name,
-                    amount > 0.0 ? remaining : -remaining);
-                if (KShared.IsFinite(suitMoved)) moved += Math.Abs(suitMoved);
-            }
-
-            return amount > 0.0 ? moved : -moved;
-        }
-
         internal double GetProcessorResourceAmount(StoredPart stored, string name, bool allowSuit)
         {
             double amount = stored != null && IsStoredPartCurrent(stored)
@@ -571,6 +526,7 @@ namespace Khemistry
             if (vessel == null || part == null) return;
 
             double dt = TimeWarp.fixedDeltaTime;
+            TickCellTransfers();
 
             foreach (StoredPart storedCell in GetHeldCellSnapshots())
                 ApplyHeldBatteryDegradation(storedCell);
@@ -833,14 +789,7 @@ namespace Khemistry
                     double space = Math.Max(0.0, targetResource.maxAmount - targetResource.amount);
                     double pushed = Math.Min(available, space);
                     if (pushed <= 1e-9) return;
-                    if (!WriteResourceAmount(cell.stored, resourceName, available - pushed)) return;
-                    double accepted = -targetResource.Request(-pushed);
-                    if (accepted < pushed)
-                        WriteResourceAmount(cell.stored, resourceName, available - accepted);
-                    pushed = accepted;
-                    ScreenMessages.PostScreenMessage(new ScreenMessage(
-                        string.Format("Transferred {0:F2} units of {1}.", pushed, resourceName),
-                        5.0f, ScreenMessageStyle.UPPER_CENTER));
+                    StartCellTransfer(cell.stored, targetResource, false, pushed, range);
                 });
         }
 
@@ -918,17 +867,7 @@ namespace Khemistry
                         double liveCellSpace = ReadCellTotalFreeSpace(cell.stored);
                         double taken = Math.Min(amount, Math.Min(liveSource.amount, liveCellSpace));
                         if (taken <= 1e-9) return;
-                        double currentLogicalAmount = ReadResourceAmountValue(
-                            cell.stored, resourceName);
-                        if (!WriteResourceAmount(cell.stored, resourceName,
-                                currentLogicalAmount + taken)) return;
-                        double removed = liveSource.Request(taken);
-                        if (removed < taken)
-                            WriteResourceAmount(cell.stored, resourceName, currentLogicalAmount + removed);
-                        taken = removed;
-                        ScreenMessages.PostScreenMessage(new ScreenMessage(
-                            string.Format("Received {0:F2} units of {1}.", taken, resourceName),
-                            5.0f, ScreenMessageStyle.UPPER_CENTER));
+                        StartCellTransfer(cell.stored, sourceResource, true, taken, range);
                     });
             });
         }
