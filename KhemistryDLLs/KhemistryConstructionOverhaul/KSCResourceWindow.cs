@@ -9,11 +9,14 @@ using Data = KhemistryConstructionOverhaul.KSCResourceListData;
 
 namespace KhemistryConstructionOverhaul
 {
-    [KSPAddon(KSPAddon.Startup.EveryScene, false)]
+    [KSPAddon(KSPAddon.Startup.MainMenu, true)]
     public sealed class KSCResourceWindow : MonoBehaviour
     {
         private const int WindowId = 856220, SellId = 856221;
         private const string LockName = "Khemistry.KSCResourceWindow";
+        private static KSCResourceWindow _instance;
+        private ApplicationLauncher _launcher;
+        private bool _launcherAvailable;
         private ApplicationLauncherButton _button;
         private Texture2D _icon;
         private bool _visible, _hidden, _resourcesOpen, _materialsOpen, _unitOpen;
@@ -41,7 +44,11 @@ namespace KhemistryConstructionOverhaul
 
         public void Awake()
         {
-            GameEvents.onGUIApplicationLauncherReady.Add(AddButton);
+            if (_instance != null && _instance != this) { Destroy(gameObject); return; }
+            _instance = this;
+            DontDestroyOnLoad(gameObject);
+            _launcherAvailable = ApplicationLauncher.Ready;
+            GameEvents.onGUIApplicationLauncherReady.Add(LauncherReady);
             GameEvents.onGUIApplicationLauncherDestroyed.Add(LauncherDestroyed);
             GameEvents.onHideUI.Add(HideUI);
             GameEvents.onShowUI.Add(ShowUI);
@@ -63,13 +70,30 @@ namespace KhemistryConstructionOverhaul
 
         private void AddButton()
         {
-            if (!InSave || _button != null || _icon == null || !ApplicationLauncher.Ready
+            if (!InSave || !_launcherAvailable || _icon == null || !ApplicationLauncher.Ready
                 || ApplicationLauncher.Instance == null) return;
-            _button = ApplicationLauncher.Instance.AddModApplication(
+            if (_button != null && _launcher == ApplicationLauncher.Instance) return;
+            RemoveButton();
+            _launcher = ApplicationLauncher.Instance;
+            _button = _launcher.AddModApplication(
                 () => _visible = true, Close, null, null, null, null,
                 ApplicationLauncher.AppScenes.ALWAYS, _icon);
         }
-        private void LauncherDestroyed() { _button = null; Close(); }
+        private void LauncherReady() { _launcherAvailable = true; AddButton(); }
+        private void LauncherDestroyed()
+        {
+            _launcherAvailable = false;
+            RemoveButton();
+            Close();
+        }
+        private void RemoveButton()
+        {
+            var owner = _launcher;
+            var button = _button;
+            _button = null;
+            _launcher = null;
+            if (owner != null && button != null) owner.RemoveModApplication(button);
+        }
         private void HideUI() { _hidden = true; InputLockManager.RemoveControlLock(LockName); }
         private void ShowUI() { _hidden = false; }
         private void Close()
@@ -79,18 +103,19 @@ namespace KhemistryConstructionOverhaul
         }
         public void OnDestroy()
         {
+            if (_instance != this) return;
+            _instance = null;
             Close();
-            GameEvents.onGUIApplicationLauncherReady.Remove(AddButton);
+            GameEvents.onGUIApplicationLauncherReady.Remove(LauncherReady);
             GameEvents.onGUIApplicationLauncherDestroyed.Remove(LauncherDestroyed);
             GameEvents.onHideUI.Remove(HideUI);
             GameEvents.onShowUI.Remove(ShowUI);
-            if (_button != null && ApplicationLauncher.Instance != null)
-                ApplicationLauncher.Instance.RemoveModApplication(_button);
+            RemoveButton();
             if (_icon != null) Destroy(_icon);
         }
         public void Update()
         {
-            if (!InSave) { Close(); return; }
+            if (!InSave) { Close(); RemoveButton(); return; }
             AddButton();
             Vector2 mouse = new Vector2(Input.mousePosition.x, Screen.height - Input.mousePosition.y);
             if (_visible && !_hidden && (_window.Contains(mouse) || _sellName != null))

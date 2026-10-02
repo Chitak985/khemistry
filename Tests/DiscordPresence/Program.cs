@@ -140,6 +140,30 @@ static class Program
             await client.Completion.WaitAsync(TimeSpan.FromSeconds(3));
             Check(client.Completion.IsCompletedSuccessfully, "shutdown interrupts reconnect delay");
         }
+        using (var entered = new ManualResetEventSlim())
+        using (var release = new ManualResetEventSlim())
+        {
+            int connections = 0;
+            var client = new DiscordRpcClient(12345, _ => { }, token =>
+            {
+                token.Register(() => { entered.Set(); release.Wait(); });
+                Interlocked.Increment(ref connections);
+                return null;
+            }, 10000);
+            await Eventually(() => Volatile.Read(ref connections) > 0);
+            // A watchdog makes this test fail rather than hang against the old implementation.
+            var watchdog = Task.Run(async () => { await Task.Delay(1500); release.Set(); });
+            var elapsed = Stopwatch.StartNew();
+            client.Dispose();
+            Check(elapsed.ElapsedMilliseconds < 500, "Dispose never waits for blocking cancellation callbacks");
+            await Eventually(() => entered.IsSet);
+            release.Set();
+            await client.Completion.WaitAsync(TimeSpan.FromSeconds(3));
+            await watchdog;
+            client.Dispose();
+            Check(client.Completion.IsCompletedSuccessfully, "blocked callback shutdown eventually completes");
+        }
+
         var offline = new ConcurrentQueue<string>();
         attempts = 0;
         using (var client = new DiscordRpcClient(12345, offline.Enqueue, token =>

@@ -48,7 +48,7 @@ namespace Khemistry
 
         private void Report(string message)
         {
-            if (message == lastStatus) return;
+            if (Volatile.Read(ref disposed) != 0 || message == lastStatus) return;
             lastStatus = message;
             report?.Invoke(message);
         }
@@ -58,7 +58,7 @@ namespace Khemistry
             CancellationToken token = stop.Token;
             try
             {
-                while (!token.IsCancellationRequested)
+                while (!token.IsCancellationRequested && Volatile.Read(ref disposed) == 0)
                 {
                     Stream stream = null;
                     bool published = false;
@@ -71,7 +71,7 @@ namespace Khemistry
                         bool ready = false, acknowledged = false;
                         string nonce = Guid.NewGuid().ToString("N");
                         var deadline = Stopwatch.StartNew();
-                        while (!token.IsCancellationRequested)
+                        while (!token.IsCancellationRequested && Volatile.Read(ref disposed) == 0)
                         {
                             int timeout = acknowledged ? Timeout.Infinite
                                 : Math.Max(1, responseTimeout - (int)deadline.ElapsedMilliseconds);
@@ -133,7 +133,7 @@ namespace Khemistry
                             try { stream.Dispose(); } catch { }
                         }
                     }
-                    if (!token.IsCancellationRequested)
+                    if (!token.IsCancellationRequested && Volatile.Read(ref disposed) == 0)
                         await Task.Delay(retryMilliseconds, token).ConfigureAwait(false);
                 }
             }
@@ -144,8 +144,15 @@ namespace Khemistry
         public void Dispose()
         {
             if (Interlocked.Exchange(ref disposed, 1) != 0) return;
-            try { stop.Cancel(); } catch (ObjectDisposedException) { }
-            // Never wait for IPC from Unity's main thread.
+            // Cancel invokes callbacks synchronously; Mono pipe cancellation can block.
+            // Keep both cancellation and IPC cleanup off Unity's shutdown thread.
+            var shutdown = new Thread(() =>
+            {
+                try { stop.Cancel(); }
+                catch (ObjectDisposedException) { }
+                catch (Exception) { /* Do not surface cancellation callback errors at shutdown. */ }
+            }) { IsBackground = true, Name = "Khemistry Discord shutdown" };
+            shutdown.Start();
         }
 
         [Serializable]

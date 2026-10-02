@@ -95,6 +95,7 @@
     <Compile Include="KSCResourceListData.cs" />
     <Compile Include="KSCResourceWindow.cs" />
     <Compile Include="Main.cs" />
+    <Compile Include="KhemistryPart.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
