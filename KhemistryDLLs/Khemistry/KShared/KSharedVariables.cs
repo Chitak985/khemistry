@@ -8,8 +8,9 @@ namespace Khemistry
 {
     public partial class KShared
     {
-        // Instance
+        ///<summary>The private singleton instance.</summary>
         private static KShared _instance;
+        ///<summary>The singleton instance.</summary>
         public static KShared Instance => _instance;
 
         // Selector GUI
@@ -51,28 +52,33 @@ namespace Khemistry
         private ApplicationLauncherButton _depositsToolbarButton;
         private Texture2D _depositsButtonTexture;
 
-        // Deposit data for the active save (persisted by KhemistryDepositsScenario)
+        ///<summary>Underground deposits in active save, persisted by <see cref="KhemistryDepositsScenario"/></summary>
         public List<KhemistryUDeposit> undergroundDeposits = new List<KhemistryUDeposit>();
+        ///<summary>Surface deposits in active save, persisted by <see cref="KhemistryDepositsScenario"/></summary>
         public List<KhemistryGDeposit> surfaceDeposits = new List<KhemistryGDeposit>();
 
-        // Loaded BatchISRU recipe data
+        ///<summary>List of loaded <see cref="KhemistryISRURecipe"/> recipes.</summary>
         public List<KhemistryISRURecipe> batchRecipeList = new List<KhemistryISRURecipe>();
 
-        // Loaded material data
+        ///<summary>List of loaded <see cref="KhemistryMaterial"/> definitions.</summary>
         public List<KhemistryMaterial> materialList = new List<KhemistryMaterial>();
 
-        // Currently loaded celestial bodies
+        ///<summary>List of names of the currently loaded celestial bodies.</summary>
         public List<string> celestialBodies = new List<string>();
 
-        // Resource dictionary for KhemistryConstructionOverhaul
-        // Construction-resource balances can reach hundreds of millions of units while
-        // transfers may be only a few units. Double precision keeps those small transfers
-        // representable; float precision loses them at that scale.
+        /// <summary>
+        /// Resource dictionary for <see cref="KhemistryConstructionOverhaul"/>.
+        /// Construction-resource balances can reach hundreds of millions of units while
+        /// transfers may be only a few units. Double precision keeps those small transfers
+        /// representable; float precision loses them at that scale.
+        /// </summary>
         public Dictionary<string, double> ResourceDict = new Dictionary<string, double>();
 
-        // Material instances delivered to the KSC by KhemistryConstructionOverhaul. This is an
-        // unbounded logical ledger, not a PartModule container: the construction add-on persists
-        // it per save and only performs exact (non-contaminating) material merges.
+        /// <summary>
+        /// Material instances delivered to the KSC by <see cref="KhemistryConstructionOverhaul"/>. This is an
+        /// unbounded logical ledger, not a <see cref="PartModule"/> container: the construction add-on persists
+        /// it per save and only performs exact (non-contaminating) material merges.
+        /// </summary>
         public readonly List<KhemistryMaterialInstance> KSCMaterialContents =
             new List<KhemistryMaterialInstance>();
 
@@ -80,10 +86,20 @@ namespace Khemistry
         public List<string> _selectorResources;
         public bool _kcoSelectorVisible = false;
 
-        // Random number generator
+        ///<summary>The random number generator.</summary>
         public static System.Random rand = new System.Random();
 
-        // Enumerators
+        /// <summary>
+        /// List of vessel situations used in situation conitions.
+        /// <list type="bullet">Any: Any situation works for the condition.</list>
+        /// <list type="bullet">Landed: The vessel must be landed.</list>
+        /// <list type="bullet">Splashed/SplashedDown: The vessel must be splashed down.</list>
+        /// <list type="bullet">FlyingLow: The vessel must be in the FlyingLow condition (usually lower, thick atmosphere).</list>
+        /// <list type="bullet">FlyingHigh: The vessel must be in the FlyingHigh condition (usually upper atmosphere).</list>
+        /// <list type="bullet">SpaceLow: The vessel must be in the SpaceLow condition (usually end of atmosphere to edge of low orbit).</list>
+        /// <list type="bullet">SpaceHigh: The vessel must be in the SpaceHigh condition (usually deep planetary space).</list>
+        /// <list type="bullet">SubOrbital: The vessel must be on a suborbital trajectory.</list>
+        /// </summary>
         public enum SituationCondition
         {
             Any,
