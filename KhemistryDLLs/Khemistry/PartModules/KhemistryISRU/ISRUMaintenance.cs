@@ -146,11 +146,11 @@ namespace Khemistry
 
         private bool MaintenanceFixersPresent(MaintenanceStage stage)
         {
-            var context = GetPowerfailContextPart();
-            var craft = GetProcessingVessel();
+            Part context = GetPowerfailContextPart();
+            Vessel craft = GetProcessingVessel();
             if (context == null || craft == null) return false;
             int[] eva = new int[3], crew = new int[3];
-            Action<IEnumerable<ProtoCrewMember>, int[]> count = (people, counts) =>
+            void count(IEnumerable<ProtoCrewMember> people, int[] counts)
             {
                 foreach (var person in people)
                 {
@@ -158,7 +158,7 @@ namespace Khemistry
                         : person.trait == "Scientist" ? 2 : -1;
                     if (i >= 0) counts[i]++;
                 }
-            };
+            }
             if (!craft.isEVA)
                 count(stage.fixersCrewSamePart ? (IEnumerable<ProtoCrewMember>)context.protoModuleCrew
                     : craft.GetVesselCrew(), crew);
@@ -178,9 +178,9 @@ namespace Khemistry
                 ? _kerbalHost.GetProcessorResourceAmount(_inventoryStoredPart, name,
                     moduleType == "kerbalEVA" || useSuitCell) : 0;
             if (!vesselWide && IsEVAModuleType()) return cells;
-            var craft = GetProcessingVessel();
-            var origin = GetPowerfailContextPart();
-            var definition = PartResourceLibrary.Instance?.GetDefinition(name);
+            Vessel craft = GetProcessingVessel();
+            Part origin = GetPowerfailContextPart();
+            PartResourceDefinition definition = PartResourceLibrary.Instance?.GetDefinition(name);
             if (craft == null || origin == null || definition == null) return cells;
             return cells + craft.parts.Where(p => p != null && (vesselWide || p == origin
                     || origin.CanCrossfeed(p, definition.id, ResourceFlowMode.STAGE_PRIORITY_FLOW)))

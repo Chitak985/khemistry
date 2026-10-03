@@ -6,27 +6,19 @@ namespace Khemistry
     {
         public List<string> SurfaceDepositsAtPoint(float lat, float lon, string body, float depth)
         {
-            List<string> tmp = new List<string>();
+            List<string> result = new List<string>();
             foreach (KhemistryGDeposit deposit in surfaceDeposits)
-            {
-                if (body == deposit.Planet && deposit.IsInsideDeposit(lat, lon) && deposit.IsDepthInsideDeposit(depth))
-                {
-                    tmp.Add(deposit.Resource);
-                }
-            }
-            return tmp;
+                if (deposit.IsInsideDeposit(lat, lon, body, depth))
+                    result.Add(deposit.Resource);
+            return result;
         }
         public List<string> UndergroundDepositsAtPoint(float lat, float lon, string body, float depth)
         {
-            List<string> tmp = new List<string>();
+            List<string> result = new List<string>();
             foreach (KhemistryUDeposit deposit in undergroundDeposits)
-            {
-                if (body == deposit.Planet && deposit.IsInsideDeposit(lat, lon) && deposit.IsDepthInsideDeposit(depth))
-                {
-                    tmp.Add(deposit.Resource);
-                }
-            }
-            return tmp;
+                if (deposit.IsInsideDeposit(lat, lon, body, depth))
+                    result.Add(deposit.Resource);
+            return result;
         }
 
         /// <summary>
@@ -38,7 +30,7 @@ namespace Khemistry
         {
             List<string> result = new List<string>();
             foreach (KhemistryUDeposit deposit in undergroundDeposits)
-                if (body == deposit.Planet && deposit.IsInsideDeposit(lat, lon))
+                if (deposit.IsInsideDeposit(lat, lon, body))
                     result.Add(deposit.Resource);
             return result;
         }

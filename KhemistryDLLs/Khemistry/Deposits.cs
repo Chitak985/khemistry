@@ -31,7 +31,19 @@ namespace Khemistry
                 return float.PositiveInfinity;
             }
         }
-        public bool IsInsideDeposit(float lat, float lon) => DistanceFromDeposit(lat, lon) <= Radius;
+
+        /// <summary>
+        /// Check if a latitude and longitude are inside the deposit.
+        /// </summary>
+        public bool IsInsideDeposit(float lat, float lon)
+            => DistanceFromDeposit(lat, lon) <= Radius;
+
+        /// <summary>
+        /// Check if a latitude and longitude are inside the deposit.
+        /// This overload also checks the planet.
+        /// </summary>
+        public bool IsInsideDeposit(float lat, float lon, string body)
+            => body == Planet && IsInsideDeposit(lat, lon);
 
         protected static float RollRadius(float minRadius, float maxRadius,
             string logContext)
@@ -81,6 +93,13 @@ namespace Khemistry
 
         public bool IsDepthInsideDeposit(float depth2)
             => depth2 >= DepthStart && depth2 <= DepthStart + Depth;
+
+        /// <summary>
+        /// Check if a latitude and longitude are inside the deposit.
+        /// This overload also checks the planet and depth.
+        /// </summary>
+        public bool IsInsideDeposit(float lat, float lon, string body, float depth)
+            => IsInsideDeposit(lat, lon, body) && IsDepthInsideDeposit(depth);
 
         public KhemistryUDeposit(string planet, string requiredBiome, float depthStart, float depth, string resource, float minRadius, float maxRadius, float latOverride = -12345, float lonOverride = -12345)
         {
@@ -153,6 +172,13 @@ namespace Khemistry
         /// <param name="depth2">Depth of the point in meters.</param>
         /// <returns>Whether the depth is inside the deposit.</returns>
         public bool IsDepthInsideDeposit(float depth2) => depth2 >= 0f && depth2 <= Depth;
+
+        /// <summary>
+        /// Check if a latitude and longitude are inside the deposit.
+        /// This overload also checks the planet and depth.
+        /// </summary>
+        public bool IsInsideDeposit(float lat, float lon, string body, float depth)
+            => IsInsideDeposit(lat, lon, body) && IsDepthInsideDeposit(depth);
 
         public KhemistryGDeposit(string planet, string requiredBiome, float depth,
             string resource, float minRadius, float maxRadius, string resource2,

@@ -9,13 +9,13 @@ namespace Khemistry
         private readonly Dictionary<string, StorageMultipliers> _resourceMultipliers = new Dictionary<string, StorageMultipliers>();
         private double ResourceMultiplier(string name) => storageType == "multi"
             && activeResource != null && _resourceMultipliers.TryGetValue(activeResource, out var multipliers) ? multipliers[name] : 1.0;
-        private double EffectiveMultiplier(string name) => StorageMultipliers.Multiply(_environment.Multiplier(name), ResourceMultiplier(name));
+        private double EffectiveMultiplier(string name) => KShared.Multiply(_environment.Multiplier(name), ResourceMultiplier(name));
         private double EffectiveInputRate => maxInputRate < 0 ? (EffectiveMultiplier("maxInputRateMul") == 0 ? 0 : -1)
-            : StorageMultipliers.Multiply(maxInputRate, EffectiveMultiplier("maxInputRateMul"));
+            : KShared.Multiply(maxInputRate, EffectiveMultiplier("maxInputRateMul"));
         private double EffectiveOutputRate => maxOutputRate < 0 ? (EffectiveMultiplier("maxOutputRateMul") == 0 ? 0 : -1)
-            : StorageMultipliers.Multiply(maxOutputRate, EffectiveMultiplier("maxOutputRateMul"));
-        private double EffectiveChargeRate => StorageMultipliers.Multiply(chargeRate, EffectiveMultiplier("chargeRateMul"));
-        private double EffectiveChargeDecayRate => StorageMultipliers.Multiply(chargeDecayRate, EffectiveMultiplier("chargeDecayRateMul"));
+            : KShared.Multiply(maxOutputRate, EffectiveMultiplier("maxOutputRateMul"));
+        private double EffectiveChargeRate => KShared.Multiply(chargeRate, EffectiveMultiplier("chargeRateMul"));
+        private double EffectiveChargeDecayRate => KShared.Multiply(chargeDecayRate, EffectiveMultiplier("chargeDecayRateMul"));
         private double EffectivePassiveMultiplier => EffectiveMultiplier("passiveConsumptionRateMul");
         private double EffectiveCapacity => GetResourceCapacity(storageType == "multiShared"
             ? _supportedResources.FirstOrDefault() : activeResource);

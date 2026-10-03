@@ -74,10 +74,6 @@ namespace Khemistry
             ValueRange second = MakeRange(function(a.Maximum, b.Minimum), function(a.Maximum, b.Maximum));
             return MakeRange(Math.Min(first.Minimum, second.Minimum), Math.Max(first.Maximum, second.Maximum));
         }
-        
-        /// <summary>True when a value contains at least one bracketed <see cref="KMathExpr"/>.</summary>
-        public static bool ContainsInterpolation(string value)
-            => !string.IsNullOrEmpty(value) && value.IndexOf('[') >= 0;
 
         /// <summary>
         /// Evaluates every <see cref="KMathExpr"/> segment and inserts its invariant numeric result into
@@ -152,7 +148,7 @@ namespace Khemistry
         public static bool TryEvaluateNumericExpression(string expression, out double result,
             out string error)
         {
-            return ContainsInterpolation(expression)
+            return KShared.ContainsInterpolation(expression)
                 ? TryInterpolateNumber(expression, out result, out error)
                 : TryEvaluate(expression, out result, out error);
         }

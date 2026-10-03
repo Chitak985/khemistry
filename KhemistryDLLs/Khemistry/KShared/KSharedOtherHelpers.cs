@@ -303,5 +303,22 @@ namespace Khemistry
 
         public static double DoubleFarenheitToCelsius(double f) => (f - 32.0) * (5.0 / 9.0);
         public static double DegreesToRadians(double degrees) => degrees * Math.PI / 180.0;
+
+        /// <summary>
+        /// Multiply two doubles safely.
+        /// </summary>
+        /// <param name="a">First number to multiply.</param>
+        /// <param name="b">Second number to multiply.</param>
+        /// <returns>Result of multiplication, can also be 0 or <c>double.MaxValue</c>.</returns>
+        internal static double Multiply(double a, double b)
+        {
+            if (a == 0 || b == 0) return 0;
+            double result = a * b;
+            return double.IsInfinity(result) ? double.MaxValue : result;
+        }
+
+        /// <summary>True when a value contains at least one bracketed <see cref="KMathExpr"/>.</summary>
+        public static bool ContainsInterpolation(string value)
+            => !string.IsNullOrEmpty(value) && value.IndexOf('[') >= 0;
     }
 }

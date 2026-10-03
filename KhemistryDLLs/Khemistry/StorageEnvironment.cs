@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -56,13 +55,6 @@ namespace Khemistry
                 values[name] = value;
             }
             return true;
-        }
-
-        internal static double Multiply(double a, double b)
-        {
-            if (a == 0 || b == 0) return 0;
-            double result = a * b;
-            return double.IsInfinity(result) ? double.MaxValue : result;
         }
     }
 
@@ -154,11 +146,21 @@ namespace Khemistry
             }
             if (Reason == null && active.conditions.depositConditions.Count > 0)
             {
-                var shared = KShared.Instance;
+                KShared shared = KShared.Instance;
                 Vessel vessel = part.vessel;
-                var here = shared?.SurfaceDepositsAtPoint((float)vessel.latitude, (float)vessel.longitude, data.planet, 0);
-                if (here != null) here.AddRange(shared.UndergroundDepositsBelowPoint((float)vessel.latitude, (float)vessel.longitude, data.planet));
-                if (here == null || !active.conditions.depositConditions.Any(here.Contains)) Reason = "Not at a required deposit";
+                List<string> here = shared?.SurfaceDepositsAtPoint(
+                    (float)vessel.latitude,
+                    (float)vessel.longitude,
+                    data.planet,
+                    0
+                );
+                here?.AddRange(shared?.UndergroundDepositsBelowPoint(
+                    (float)vessel.latitude,
+                    (float)vessel.longitude,
+                    data.planet
+                ));
+                if (here == null || !active.conditions.depositConditions.Any(here.Contains))
+                    Reason = "Not at a required deposit";
             }
             Operational = Reason == null && !destroyed;
         }

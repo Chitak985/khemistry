@@ -1079,7 +1079,7 @@ namespace Khemistry
                 key = bufferedKey;
                 return true;
             }
-            key = default(KhemistryISRURecipe.ResourceOutputMaterial);
+            key = default;
             return false;
         }
 
@@ -2280,8 +2280,7 @@ namespace Khemistry
             {
                 double amount = mat.amount * biomeConfig.outputMultiplier;
                 if (double.IsNaN(amount) || double.IsInfinity(amount) || amount <= 0.0) continue;
-                KhemistryISRURecipe.ResourceOutputMaterial key;
-                if (!TryGetBufferedMaterialKey(mat, out key))
+                if (!TryGetBufferedMaterialKey(mat, out KhemistryISRURecipe.ResourceOutputMaterial key))
                 {
                     key = mat;
                     _materialOutputAmount.Add(key, 0.0);
@@ -2383,17 +2382,17 @@ namespace Khemistry
                     long randomSequence = _materialOutputRandomSequence[matOutput];
                     System.Random random = CreateMaterialOutputRandom(randomSeed,
                         randomSequence);
-                    Func<double, double, double> randomFunction = (first, second) =>
+                    double randomFunction(double first, double second)
                     {
                         double low = Math.Min(first, second);
                         double high = Math.Max(first, second);
                         double interpolation = random.NextDouble();
                         return low * (1.0 - interpolation)
                             + high * interpolation;
-                    };
+                    }
                     if (!KMathExpr.TryInterpolate(matOutput.size,
                             out string resolvedSize, out string sizeError, null,
-                            randomFunction))
+randomFunction))
                     {
                         KShared.LogError("Converter \"" + ConverterName
                             + "\": OUTPUT_MATERIAL \"" + matOutput.name
@@ -2416,12 +2415,12 @@ namespace Khemistry
                     };
                     if (!instance.ApplyParameterValuesInOrder(assignments,
                             "KhemistryISRU/TryTransferMaterialOutputBuffer",
-                            randomFunction))
+randomFunction))
                         break;
 
                     if (!KShared.TryEvaluateOutVolumeExpression(matOutput.outVolume, resolvedSize, instance.parameters,
                             "KhemistryISRU/TryTransferMaterialOutputBuffer", out double perUnitVolume,
-                            randomFunction))
+randomFunction))
                         break;
                     if (double.IsNaN(perUnitVolume) || double.IsInfinity(perUnitVolume) || perUnitVolume <= 0.0
                         || perUnitVolume > float.MaxValue)

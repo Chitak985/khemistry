@@ -212,7 +212,7 @@ namespace Khemistry
                 if (!IsDerivedParameter(parameterName))
                 {
                     string configuredValue = parameters[parameterName];
-                    if (!KMathExpr.ContainsInterpolation(configuredValue)
+                    if (!KShared.ContainsInterpolation(configuredValue)
                         || KMathExpr.TryInterpolate(configuredValue, out _,
                             out string defaultExpressionError, syntaxVariables))
                         continue;
@@ -376,7 +376,7 @@ namespace Khemistry
             {
                 if (material.IsDerivedParameter(parameterName)) continue;
                 string configured = this.parameters[parameterName];
-                if (!KMathExpr.ContainsInterpolation(configured)) continue;
+                if (!KShared.ContainsInterpolation(configured)) continue;
                 if (KMathExpr.TryInterpolate(configured, out string resolved,
                         out string interpolationError,
                         BuildVariableList(this.parameters, amount)))

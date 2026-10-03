@@ -549,7 +549,7 @@ namespace Khemistry
                     bool amountIsExpression = ContainsInputMaterialValue(amountExpression)
                         || ContainsOutputMaterialValue(amountExpression)
                         || ContainsSettingValue(amountExpression)
-                        || KMathExpr.ContainsInterpolation(amountExpression);
+                        || KShared.ContainsInterpolation(amountExpression);
                     bool validOutputAmount;
                     double amount = 1.0;
                     if (amountIsExpression)
@@ -1037,7 +1037,7 @@ namespace Khemistry
                         ContainsInputMaterialValue(output.shape)
                             || ContainsOutputMaterialValue(output.shape)
                             || ContainsSettingValue(output.shape)
-                            || KMathExpr.ContainsInterpolation(output.shape)
+                            || KShared.ContainsInterpolation(output.shape)
                             ? null : output.shape,
                         output.parameters?.Keys, "OUTPUT_MATERIAL", context))
                     valid = false;

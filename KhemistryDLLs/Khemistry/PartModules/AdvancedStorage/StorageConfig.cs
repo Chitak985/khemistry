@@ -15,7 +15,7 @@ namespace Khemistry
             if (name == null || !_supportedResources.Contains(name)) return 0;
             double capacity = storageType == "multi" && _resourceCapacities.TryGetValue(name, out double specific)
                 ? specific : (storageType == "single" ? DegradationCapacity : maximumResources);
-            return StorageMultipliers.Multiply(capacity, _environment.Multiplier("volumeMul"));
+            return KShared.Multiply(capacity, _environment.Multiplier("volumeMul"));
         }
 
         private bool LoadSupportedResources(ConfigNode module)
