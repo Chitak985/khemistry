@@ -163,6 +163,7 @@
     <Compile Include="PartModules\KhemistryISRU\ISRUParallax.cs" />
     <Compile Include="PartModules\KhemistryISRU\ISRURecipe.cs" />
     <Compile Include="PartModules\KhemistryISRU\ISRUSettings.cs" />
+    <Compile Include="PartModules\KhemistryISRU\ISRUSettingConfig.cs" />
     <Compile Include="PartModules\KhemistryISRU\MaintenanceState.cs" />
     <Compile Include="PartModules\KhemistryISRU\ISRUMaintenanceConfig.cs" />
     <Compile Include="PartModules\KhemistryISRU\ISRUMaintenance.cs" />

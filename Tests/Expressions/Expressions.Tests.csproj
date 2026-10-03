@@ -12,6 +12,10 @@
     <Compile Include="WashingRecipeTests.cs" />
     <Compile Include="ConstructionCostTests.cs" />
     <Compile Include="CargoRecipeTests.cs" />
+    <Compile Include="ChoiceSettingTests.cs" />
+    <Compile Include="SettingStateTests.cs" />
+    <Compile Include="../../KhemistryDLLs/Khemistry/PartModules/KhemistryISRU/ISRUSettings.cs" Link="ISRUSettings.cs" />
+    <Compile Include="../../KhemistryDLLs/Khemistry/PartModules/KhemistryISRU/ISRUSettingConfig.cs" Link="ISRUSettingConfig.cs" />
     <Compile Include="../../KhemistryDLLs/Khemistry/PartModules/KhemistryISRU/ISRUCargoConfig.cs" Link="ISRUCargoConfig.cs" />
     <Compile Include="../../KhemistryDLLs/KhemistryConstructionOverhaul/ConstructionMaterialCosts.cs" Link="ConstructionMaterialCosts.cs" />
     <None Include="../../Khemistry/Parts/Basins/WoodenBasin/WoodenBasin.cfg" Link="WoodenWashingBasin.cfg" CopyToOutputDirectory="PreserveNewest" />

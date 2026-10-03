@@ -241,6 +241,12 @@ namespace Khemistry
                 statusDisplay = "ERROR: config node not found, see log";
                 return;
             }
+            if (!KhemistryISRURecipe.ValidateModuleSettingScope(moduleNode))
+            {
+                _fatalConfigError = true;
+                statusDisplay = "ERROR: invalid setting scope, see log";
+                return;
+            }
             KShared shared = KShared.Instance;
 
             ///// Module type /////
@@ -523,6 +529,19 @@ namespace Khemistry
         /// </summary>
         protected void ApplyRecipe(KhemistryISRURecipe recipe, bool resetProgress = true)
         {
+            if (recipe._settings.Count > 0)
+            {
+                var resolved = recipe.WithSettingValues(EnsureRecipeSettingValues(recipe));
+                if (!resolved.IsValid || !resolved.ValidateReferences(KShared.Instance?.materialList, ConverterName))
+                {
+                    _activeRecipe = recipe;
+                    isRunning = false;
+                    _fatalConfigError = true;
+                    statusDisplay = "ERROR: invalid recipe settings, see log";
+                    return;
+                }
+                recipe = resolved;
+            }
             _activeRecipe = recipe;
             // A top-level recipe may opt a partEVA converter into the kerbal's suit cells.
             // A MODULE-level value is merged into every loaded recipe and therefore remains

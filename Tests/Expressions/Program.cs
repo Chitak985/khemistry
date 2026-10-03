@@ -18,6 +18,8 @@ internal static class Program
             Conditions();
             Ranges();
             assertions += CargoRecipeTests.Run();
+            assertions += ChoiceSettingTests.Run();
+            assertions += SettingStateTests.Run();
             if (Array.IndexOf(args, "--cargo") < 0)
             {
                 assertions += EvaRecipeTests.Run();

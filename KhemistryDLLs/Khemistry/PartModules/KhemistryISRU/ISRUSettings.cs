@@ -7,6 +7,8 @@ namespace Khemistry
 {
     public partial class KhemistryISRU
     {
+        private readonly Dictionary<string, Dictionary<string, string>> _pendingChoiceValues =
+            new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
         private Dictionary<string, double> EnsureRecipeSettingValues(
             KhemistryISRURecipe recipe)
         {
@@ -22,6 +24,12 @@ namespace Khemistry
             {
                 if (!values.TryGetValue(setting.variable, out double value))
                     value = setting.defaultValue;
+                if (setting.IsChoice && _pendingChoiceValues.TryGetValue(recipe._name, out var choices)
+                    && choices.TryGetValue(setting.variable, out string option))
+                {
+                    value = setting.options.IndexOf(option);
+                    choices.Remove(setting.variable);
+                }
                 values[setting.variable] = setting.Clamp(value);
             }
             return values;
@@ -51,6 +59,7 @@ namespace Khemistry
         {
             if (recipe == null || recipe != _activeRecipe || isRunning) return false;
             Dictionary<string, double> values = EnsureRecipeSettingValues(recipe);
+            var candidate = new Dictionary<string, double>(values, StringComparer.Ordinal);
             bool changed = false;
             foreach (KhemistryISRURecipe.RecipeSetting setting in recipe._settings)
             {
@@ -62,16 +71,22 @@ namespace Khemistry
                 if (!values.TryGetValue(setting.variable, out double previous)
                     || !previous.Equals(next))
                     changed = true;
-                values[setting.variable] = next;
+                candidate[setting.variable] = next;
             }
             if (!changed) return true;
+            var resolved = recipe.WithSettingValues(candidate);
+            if (!resolved.IsValid || !resolved.ValidateReferences(KShared.Instance?.materialList, ConverterName))
+            {
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "Invalid recipe parameters; previous values kept. See KSP.log.", 5f, ScreenMessageStyle.UPPER_CENTER));
+                return true;
+            }
 
             // A stopped converter may retain partial timed/passive progress. A parameter change
             // begins a fresh batch so one batch can never mix two sets of values.
             RefundPassiveConsumption();
-            ResetPassiveTimers();
-            batchProgress = 0.0;
-            resolvedRecipeTime = 0.0;
+            _recipeSettingValues[recipe._name] = candidate;
+            ApplyRecipe(resolved);
             return true;
         }
 
@@ -99,6 +114,7 @@ namespace Khemistry
         private void LoadRecipeSettingValues(ConfigNode node)
         {
             _recipeSettingValues.Clear();
+            _pendingChoiceValues.Clear();
             ConfigNode root = node?.GetNode("RECIPE_SETTING_VALUES");
             if (root == null) return;
             foreach (ConfigNode recipeNode in root.GetNodes("RECIPE"))
@@ -121,6 +137,13 @@ namespace Khemistry
                         || double.IsNaN(value) || double.IsInfinity(value))
                         continue;
                     values[variable] = value;
+                    string option = settingNode.GetValue("option");
+                    if (option != null)
+                    {
+                        if (!_pendingChoiceValues.TryGetValue(recipeName, out var choices))
+                            _pendingChoiceValues[recipeName] = choices = new Dictionary<string, string>(StringComparer.Ordinal);
+                        choices[variable] = option;
+                    }
                 }
             }
         }
@@ -150,6 +173,16 @@ namespace Khemistry
                     settingNode.AddValue("var", setting.Key);
                     settingNode.AddValue("value", setting.Value.ToString("R",
                         CultureInfo.InvariantCulture));
+                    var definition = recipes.FirstOrDefault(item => item._name == recipe.Key)?._settings
+                        .FirstOrDefault(item => item.variable == setting.Key);
+                    if (definition.HasValue && definition.Value.IsChoice)
+                    {
+                        string option = definition.Value.SelectedOption(setting.Value);
+                        if (_pendingChoiceValues.TryGetValue(recipe.Key, out var choices)
+                            && choices.TryGetValue(setting.Key, out string pending))
+                            option = pending;
+                        settingNode.AddValue("option", option);
+                    }
                     recipeNode.AddNode(settingNode);
                 }
                 if (recipeNode.nodes.Count > 0) root.AddNode(recipeNode);

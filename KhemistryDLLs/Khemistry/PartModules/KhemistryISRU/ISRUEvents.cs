@@ -131,7 +131,7 @@ namespace Khemistry
             {
                 int idx = labels.IndexOf(label);
                 if (idx < 0) return;
-                if (recipes[idx] == _activeRecipe) return;
+                if (recipes[idx]._name == _activeRecipe?._name) return;
 
                 RefundPassiveConsumption();
                 ApplyRecipe(recipes[idx]);

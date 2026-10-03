@@ -64,6 +64,9 @@ namespace Khemistry
 
         public struct RecipeSetting
         {
+            public List<string> options;
+            public bool IsChoice => options != null;
+            public string SelectedOption(double index) => options[(int)Clamp(index)];
             public string name;
             public string variable;
             public double min;
@@ -75,6 +78,9 @@ namespace Khemistry
 
             public double Clamp(double value)
             {
+                if (IsChoice)
+                    return double.IsNaN(value) || double.IsInfinity(value) || value < 0
+                        || value >= options.Count || value != Math.Floor(value) ? 0 : value;
                 if (double.IsNaN(value) || double.IsInfinity(value))
                     return defaultValue;
                 return Math.Max(min, Math.Min(max, value));
@@ -151,11 +157,17 @@ namespace Khemistry
         /// top level KHEMISTRYBATCHISRU_RECIPE node: identity, charging, planet/biome configs,
         /// inputs/outputs/materials, timing, control rules, and worker requirements.
         /// </summary>
-        public KhemistryISRURecipe(ConfigNode node, string ConverterName)
+        public KhemistryISRURecipe(ConfigNode node, string ConverterName,
+            IDictionary<string, double> settingValues = null)
         {
             try
             {
-                bool configurationError = false;
+                ConfigNode sourceNode = node;
+                _name = node?.GetValue("name") ?? "Recipe";
+                bool configurationError = !LoadSettingDefinitions(node);
+                node = new ConfigNode();
+                sourceNode.CopyTo(node);
+                if (!ResolveSettingConfig(node, settingValues, true)) configurationError = true;
 
                 _name = node?.GetValue("name")?.Trim();
                 if (string.IsNullOrEmpty(_name))
@@ -207,59 +219,6 @@ namespace Khemistry
                     });
                 }
 
-                ///// Player-adjustable recipe settings /////
-                _settings.Clear();
-                HashSet<string> settingVariables = new HashSet<string>(StringComparer.Ordinal);
-                foreach (ConfigNode settingNode in node.GetNodes("SETTING"))
-                {
-                    string settingName = settingNode.GetValue("name")?.Trim();
-                    string variable = settingNode.GetValue("var")?.Trim();
-                    double multiplier1 = 10.0;
-                    double multiplier2 = 100.0;
-                    double step = 1.0;
-                    bool validNumbers = TryReadOptionalDouble(settingNode, "min", 0.0,
-                            out double min)
-                        && TryReadOptionalDouble(settingNode, "max", 100.0,
-                            out double max)
-                        && TryReadOptionalDouble(settingNode, "mul1", 10.0,
-                            out multiplier1)
-                        && TryReadOptionalDouble(settingNode, "mul2", 100.0,
-                            out multiplier2)
-                        && TryReadOptionalDouble(settingNode, "step", 1.0,
-                            out step);
-                    double defaultValue = min;
-                    validNumbers = validNumbers
-                        && TryReadOptionalDouble(settingNode, "default", min,
-                            out defaultValue);
-                    bool valid = !string.IsNullOrEmpty(settingName)
-                        && !string.IsNullOrEmpty(variable)
-                        && Regex.IsMatch(variable, "^[A-Za-z0-9]+$")
-                        && settingVariables.Add(variable)
-                        && validNumbers && (double)100.0 >= min && step > 0.0
-                        && multiplier1 > 0.0 && multiplier2 > 0.0
-                        && defaultValue >= min && defaultValue <= (double)100.0;
-                    if (!valid)
-                    {
-                        configurationError = true;
-                        KShared.LogError("Recipe \"" + _name
-                            + "\": SETTING requires a non-empty name, a unique alphanumeric var, "
-                            + "finite min/max/default values with min <= default <= max, and "
-                            + "finite positive step/mul1/mul2 values; entry skipped.",
-                            "KhemistryISRURecipe/constructor");
-                        continue;
-                    }
-                    _settings.Add(new RecipeSetting
-                    {
-                        name = settingName,
-                        variable = variable,
-                        min = min,
-                        max = 100.0,
-                        multiplier1 = multiplier1,
-                        multiplier2 = multiplier2,
-                        defaultValue = defaultValue,
-                        step = step
-                    });
-                }
 
                 ///// Charging /////
                 _chargeNames.Clear();
@@ -827,7 +786,7 @@ namespace Khemistry
 
                 if (!LoadMaintenance(node)) configurationError = true;
                 mainNode = new ConfigNode();
-                node.CopyTo(mainNode);
+                sourceNode.CopyTo(mainNode);
                 IsValid = !configurationError && _recipeTime > 0.0 && !double.IsNaN(_recipeTime)
                     && !double.IsInfinity(_recipeTime)
                     && (_outputs.Count > 0 || _outputMaterials.Count > 0
@@ -1271,6 +1230,7 @@ namespace Khemistry
             if (double.IsNaN(multiplier) || double.IsInfinity(multiplier) || multiplier <= 0.0)
                 multiplier = 1.0;
             copy._biomeResourceScale = _biomeResourceScale * multiplier;
+            copy._settingRecipeScale = _settingRecipeScale * multiplier;
             CopyCargoPartsTo(copy, multiplier);
 
             foreach (ResourceInput inp in _inputs)

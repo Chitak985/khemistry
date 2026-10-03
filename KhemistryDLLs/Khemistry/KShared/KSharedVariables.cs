@@ -34,6 +34,7 @@ namespace Khemistry
 
         // Recipe settings selector GUI
         private bool _recipeSettingsVisible = false;
+        private string _openRecipeSettingDropdown;
         private Vector2 _recipeSettingsScroll = Vector2.zero;
         private string _recipeSettingsTitle = "";
         private List<KhemistryISRURecipe.RecipeSetting> _recipeSettings =

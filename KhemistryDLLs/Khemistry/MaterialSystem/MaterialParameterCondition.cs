@@ -17,6 +17,8 @@ namespace Khemistry
             resolved = null;
             error = null;
             if (condition == null) { error = "Condition is null."; return false; }
+            if (condition.StartsWith(LiteralPrefix, StringComparison.Ordinal))
+            { resolved = condition; return true; }
             if (condition.IndexOf("(INMAT:", StringComparison.OrdinalIgnoreCase) >= 0
                 || condition.IndexOf("(OUTMAT:", StringComparison.OrdinalIgnoreCase) >= 0)
             { error = "Input parameter conditions do not support INMAT or OUTMAT."; return false; }

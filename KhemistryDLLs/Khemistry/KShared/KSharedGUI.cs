@@ -293,6 +293,7 @@ namespace Khemistry
                 _recipeSettingWorkingValues[setting.variable] = setting.Clamp(value);
             }
             _recipeSettingsCallback = onDone;
+            _openRecipeSettingDropdown = null;
             _recipeSettingsScroll = Vector2.zero;
             _recipeSettingsRect = new Rect(
                 (Screen.width - _recipeSettingsRect.width) / 2f,
@@ -316,6 +317,24 @@ namespace Khemistry
                 if (!_recipeSettingWorkingValues.TryGetValue(setting.variable,
                         out double current))
                     current = setting.defaultValue;
+                if (setting.IsChoice)
+                {
+                    current = setting.Clamp(current);
+                    if (GUILayout.Button(setting.name + ": " + setting.SelectedOption(current) + " ▼", HighLogic.Skin.button))
+                        _openRecipeSettingDropdown = _openRecipeSettingDropdown == setting.variable ? null : setting.variable;
+                    if (_openRecipeSettingDropdown == setting.variable)
+                    {
+                        GUILayout.BeginVertical(HighLogic.Skin.box);
+                        for (int option = 0; option < setting.options.Count; option++)
+                            if (GUILayout.Button(setting.options[option], HighLogic.Skin.button))
+                            {
+                                _recipeSettingWorkingValues[setting.variable] = option;
+                                _openRecipeSettingDropdown = null;
+                            }
+                        GUILayout.EndVertical();
+                    }
+                    continue;
+                }
                 GUILayout.BeginHorizontal();
                 DrawRecipeSettingButton(setting, -setting.step * setting.multiplier2,
                     ref current);
