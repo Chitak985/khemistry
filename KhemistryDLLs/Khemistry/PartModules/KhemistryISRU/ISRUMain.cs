@@ -2211,7 +2211,7 @@ namespace Khemistry
             }
 
             if (!TryResolveInputMaterialOutputs(materialOutputs, inputMaterialValues,
-                    out materialOutputs, out _, biomeConfig.outputMultiplier))
+                    out materialOutputs, out var outputMaterialValues, biomeConfig.outputMultiplier))
             {
                 RefundMaterialRemovals(materialTransaction);
                 return false;
@@ -2263,9 +2263,30 @@ namespace Khemistry
                 return false;
             }
 
+            if (!TryPlanCargo(biomeConfig, inputMaterialValues, outputMaterialValues,
+                    out CargoInventoryTransaction cargoTransaction))
+            {
+                RollBackProducedResources(committedOutputs);
+                RefundResourceDraws(resourceDraws);
+                RefundMaterialRemovals(materialTransaction);
+                return false;
+            }
+            try { cargoTransaction?.Apply(); }
+            catch (Exception error)
+            {
+                cargoTransaction?.Rollback();
+                RollBackProducedResources(committedOutputs);
+                RefundResourceDraws(resourceDraws);
+                RefundMaterialRemovals(materialTransaction);
+                _lastBatchFailureStatus = "Cargo inventory error (see log)";
+                KShared.LogError(error.ToString(), "KhemistryISRU/TryRunBatch");
+                return false;
+            }
+
             if (parallaxTarget != null
                 && !KhemistryParallaxIntegration.TryHarvest(parallaxTarget))
             {
+                cargoTransaction?.Rollback();
                 RollBackProducedResources(committedOutputs);
                 RefundResourceDraws(resourceDraws);
                 RefundMaterialRemovals(materialTransaction);
@@ -2289,6 +2310,12 @@ namespace Khemistry
                 _materialOutputAmount[key] += amount;
             }
 
+            try { cargoTransaction?.Publish(); }
+            catch (Exception error)
+            {
+                // The batch is already committed. A UI subscriber failure must not replay it.
+                KShared.LogError(error.ToString(), "KhemistryISRU/CargoInventoryChanged");
+            }
             return true;
         }
 

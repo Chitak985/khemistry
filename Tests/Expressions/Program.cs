@@ -10,16 +10,20 @@ internal static class Program
     private static double radius = 2;
     private static double? Setting(string name) => name == "radius" ? radius : (double?)null;
 
-    private static int Main()
+    private static int Main(string[] args)
     {
         try
         {
             CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR");
             Conditions();
             Ranges();
-            assertions += EvaRecipeTests.Run();
-            assertions += WashingRecipeTests.Run();
-            assertions += ConstructionCostTests.Run();
+            assertions += CargoRecipeTests.Run();
+            if (Array.IndexOf(args, "--cargo") < 0)
+            {
+                assertions += EvaRecipeTests.Run();
+                assertions += WashingRecipeTests.Run();
+                assertions += ConstructionCostTests.Run();
+            }
             Console.WriteLine("Passed " + assertions + " expression assertions.");
             return 0;
         }

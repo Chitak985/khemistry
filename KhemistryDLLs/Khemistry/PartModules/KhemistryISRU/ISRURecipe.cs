@@ -757,10 +757,11 @@ namespace Khemistry
                     });
                 }
 
+                if (!LoadCargoParts(node)) configurationError = true;
                 bool hasBiomeResourceOutput = _planetConfigs.Values.Any(biomes =>
                     biomes.Values.Any(config => config.outputs.Count > 0));
                 if (_outputs.Count == 0 && _outputMaterials.Count == 0
-                    && !hasBiomeResourceOutput)
+                    && _outputCargoParts.Count == 0 && _inputCargoParts.Count == 0 && !hasBiomeResourceOutput)
                 {
                     configurationError = true;
                     KShared.LogError(
@@ -830,7 +831,7 @@ namespace Khemistry
                 IsValid = !configurationError && _recipeTime > 0.0 && !double.IsNaN(_recipeTime)
                     && !double.IsInfinity(_recipeTime)
                     && (_outputs.Count > 0 || _outputMaterials.Count > 0
-                        || hasBiomeResourceOutput);
+                        || _outputCargoParts.Count > 0 || _inputCargoParts.Count > 0 || hasBiomeResourceOutput);
             }
             catch (Exception ex)
             {
@@ -1270,6 +1271,7 @@ namespace Khemistry
             if (double.IsNaN(multiplier) || double.IsInfinity(multiplier) || multiplier <= 0.0)
                 multiplier = 1.0;
             copy._biomeResourceScale = _biomeResourceScale * multiplier;
+            CopyCargoPartsTo(copy, multiplier);
 
             foreach (ResourceInput inp in _inputs)
                 copy._inputs.Add(new ResourceInput { resourceName = inp.resourceName, amount = inp.amount * multiplier, flowMode = inp.flowMode });
@@ -1745,6 +1747,7 @@ namespace Khemistry
         private static readonly HashSet<string> _keyedByNameNodeKeys = new HashSet<string>
         {
             "INPUT_RESOURCE", "OUTPUT_RESOURCE", "PINPUT_RESOURCE", "INPUT_MATERIAL", "OUTPUT_MATERIAL",
+            "INPUT_CARGOPART", "OUTPUT_CARGOPART", "OUPUT_CARGOPART",
             "PARALLAX_SCATTER", "SETTING", "MAINTENANCE"
         };
 

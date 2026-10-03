@@ -4,6 +4,7 @@ namespace Khemistry
 {
     public partial class KShared
     {
+        public static bool ContainsInterpolation(string value) => value?.Contains("[") == true;
         public static int RandomCalls;
         public static double RandomDouble(double a, double b)
         { RandomCalls++; return a + (b - a) * 0.5; }

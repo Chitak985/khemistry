@@ -154,6 +154,9 @@
     <Compile Include="PartModules\KhemistryISRU\ISRUEvents.cs" />
     <Compile Include="PartModules\KhemistryISRU\ISRUHelpers.cs" />
     <Compile Include="PartModules\KhemistryISRU\ISRUInventory.cs" />
+    <Compile Include="PartModules\KhemistryISRU\ISRUCargoConfig.cs" />
+    <Compile Include="PartModules\KhemistryISRU\ISRUCargo.cs" />
+    <Compile Include="PartModules\KhemistryISRU\CargoInventoryTransaction.cs" />
     <Compile Include="PartModules\KhemistryISRU\ISRUInputMaterialVariables.cs" />
     <Compile Include="PartModules\KhemistryISRU\ISRUMain.cs" />
     <Compile Include="PartModules\KhemistryISRU\ISRUCharging.cs" />

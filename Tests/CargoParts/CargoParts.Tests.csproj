@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework></PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../KhemistryDLLs/Khemistry/PartModules/KhemistryISRU/CargoInventoryTransaction.cs" Link="CargoInventoryTransaction.cs" />
+    <Compile Include="../../KhemistryDLLs/Khemistry/PartModules/KhemistryISRU/ISRUCargo.cs" Link="ISRUCargo.cs" />
+    <Compile Include="../../KhemistryDLLs/Khemistry/KMathExpr.cs" Link="KMathExpr.cs" />
+  </ItemGroup>
+</Project>
