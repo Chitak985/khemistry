@@ -11,20 +11,63 @@ namespace Khemistry
     /// </summary>
     public class KhemistryFluidCell : PartModule
     {
+        ////////// Main Config Fields //////////
+        
         /// <summary>The maximum amount of resources the cell can hold.</summary>
         [KSPField(isPersistant = false)]
         public float ResourceMaxAmount = 100.0f;
-
         /// <summary>The maximum resource transfer distance in meters.</summary>
         [KSPField(isPersistant = false)]
         public float TransferDistance = 10.0f;
 
+        ////////// Transfer Rate Config Fields //////////
+        
+        /// <summary>Maximum resource input rate when transferring into the cell from a part.</summary>
         [KSPField] public double maxInputRate = -1;
+        /// <summary>Maximum resource output rate when transferring from the cell into a part.</summary>
         [KSPField] public double maxOutputRate = -1;
+        
+        /// <summary>Maximum resource input rate when transferring into the cell inside the kerbal.</summary>
         [KSPField] public double maxInputRateInternal = -1;
+        /// <summary>Maximum resource output rate when transferring out of the cell inside the kerbal.</summary>
         [KSPField] public double maxOutputRateInternal = -1;
-        private readonly FluidCellRateBudget rateBudget = new FluidCellRateBudget();
 
+        ////////// Runtime Variables //////////    
+        
+        private readonly FluidCellRateBudget rateBudget = new FluidCellRateBudget();
+        
+        /// <summary>Contents stored as "ResourceA:1.5|ResourceB:2".</summary>
+        [KSPField(isPersistant = true)]
+        public string StoredResourcesData = "";
+        
+        /// <summary>Union of every group, useful for knowing if a resource can be stored in this cell at all.</summary>
+        public HashSet<string> SupportedResources = new HashSet<string>();
+
+        ////////// Obsolete Config Fields //////////
+        
+        [KSPField(isPersistant = true)]
+        public float ResourceAmount = 0.0f;
+        [KSPField(isPersistant = true)]
+        public string ResourceName = "";
+
+        ////////// KSPEvents //////////
+        
+        [KSPEvent(guiActive = true, guiActiveEditor = false,
+            guiName = "Cell Contents")]
+        public void OpenCellContents()
+        {
+            KShared.Instance?.ShowResourceContents("Cell Contents",
+                () => part == null ? null : GetStoredResources());
+        }
+
+        ////////// Transfer Rate Functions //////////
+        
+        /// <summary>
+        /// Get the transfer rate to use.
+        /// </summary>
+        /// <param name="input">If the rate is for input, otherwise for output.</param>
+        /// <param name="internalTransfer">If the rate is for internal transfer, otherwise for external.</param>
+        /// <returns>The transfer rate to use in these conditions.</returns>
         internal double GetRate(bool input, bool internalTransfer)
             => internalTransfer ? (input ? maxInputRateInternal : maxOutputRateInternal)
                 : (input ? maxInputRate : maxOutputRate);
@@ -41,32 +84,27 @@ namespace Khemistry
             => budget.Record(RateChannel(amount < 0, internalTransfer),
                 Math.Abs(amount), UnityEngine.Time.fixedTime);
 
-
-        /// <summary>Canonical contents, serialized as "ResourceA:1.5|ResourceB:2".</summary>
-        [KSPField(isPersistant = true)]
-        public string StoredResourcesData = "";
-
-        // Obsolete pre-dictionary fields. Keep loading them so existing saves can migrate
-        // without losing contents, but never use them as active storage.
-        [KSPField(isPersistant = true)]
-        public float ResourceAmount = 0.0f;
-        [KSPField(isPersistant = true)]
-        public string ResourceName = "";
-
+        ////////// Supported Resource Groups Functions //////////
+        
         private readonly List<HashSet<string>> _supportedResourceGroups
             = new List<HashSet<string>>();
 
         /// <summary>
-        /// Union of every group, for callers that only need to know whether a resource
-        /// belongs to this cell at all.
+        /// Check if the fluid cell has any supported resource groups.
         /// </summary>
-        public HashSet<string> SupportedResources = new HashSet<string>();
-
         public bool HasSupportedResourceGroups => _supportedResourceGroups.Count > 0;
 
+        ////////// Contents Serialization Functions //////////
+        
+        /// <summary>
+        /// Turn a serialized contents string into a dictionary.
+        /// </summary>
+        /// <param name="data">The serialized contents string.</param>
+        /// <returns>The contents as a dictionary.</returns>
         internal static Dictionary<string, double> DeserializeResources(string data)
         {
-            var result = new Dictionary<string, double>(StringComparer.Ordinal);
+            Dictionary<string, double> result =
+                new Dictionary<string, double>(StringComparer.Ordinal);
             if (string.IsNullOrWhiteSpace(data)) return result;
 
             foreach (string entry in data.Split('|'))
@@ -88,6 +126,11 @@ namespace Khemistry
             return result;
         }
 
+        /// <summary>
+        /// Turn a dictionary into a serialized contents string.
+        /// </summary>
+        /// <param name="resources">The contents as a dictionary.</param>
+        /// <returns>The serialized contents string.</returns>
         internal static string SerializeResources(
             IDictionary<string, double> resources)
         {
@@ -101,6 +144,11 @@ namespace Khemistry
                 .ToArray());
         }
 
+        ////////// Stroed Resources Functions //////////
+        
+        /// <summary>
+        /// Get the total amount of resources stored inside the provided dictionary contents.
+        /// </summary>
         internal static double GetResourceTotal(
             IDictionary<string, double> resources)
         {
@@ -115,9 +163,15 @@ namespace Khemistry
             return total;
         }
 
+        /// <summary>
+        /// Get the stored resources in the fluid cell's serialized contents.
+        /// </summary>
         public Dictionary<string, double> GetStoredResources()
             => DeserializeResources(StoredResourcesData);
 
+        /// <summary>
+        /// Get the stored amount of a resource inside the fluid cell's serialized contents.
+        /// </summary>
         public double GetStoredAmount(string resourceName)
         {
             if (string.IsNullOrWhiteSpace(resourceName)) return 0.0;
@@ -125,32 +179,47 @@ namespace Khemistry
             return amount;
         }
 
+        /// <summary>
+        /// Get the total amount of resources stored inside the fluid cell's serialized contents.
+        /// </summary>
         public double GetStoredTotal()
             => GetResourceTotal(GetStoredResources());
 
+        ////////// Check Addable Resources Functions //////////
+        
+        /// <summary>
+        /// Get a string <see cref="HashSet"/> of resources that can be added to the fluid cell.
+        /// </summary>
         public HashSet<string> GetAddableResources(IEnumerable<string> storedResources)
         {
-            var result = new HashSet<string>(StringComparer.Ordinal);
-            if (_supportedResourceGroups.Count == 0) return result;
+            HashSet<string> result = new HashSet<string>(StringComparer.Ordinal);
+            if (!HasSupportedResourceGroups()) return result;
 
-            var stored = new HashSet<string>(StringComparer.Ordinal);
+            HashSet<string> stored = new HashSet<string>(StringComparer.Ordinal);
             if (storedResources != null)
                 foreach (string name in storedResources)
-                    if (!string.IsNullOrWhiteSpace(name)) stored.Add(name.Trim());
+                    if (!string.IsNullOrWhiteSpace(name))
+                        stored.Add(name.Trim());
 
             foreach (HashSet<string> group in _supportedResourceGroups)
-                if (group.IsSupersetOf(stored)) result.UnionWith(group);
+                if (group.IsSupersetOf(stored))
+                    result.UnionWith(group);
             return result;
         }
 
+        /// <summary>
+        /// Check if a resource can be added to the fluid cell.
+        /// </summary>
         public bool CanAddResource(string resourceName,
             IEnumerable<string> storedResources)
         {
             if (string.IsNullOrWhiteSpace(resourceName)) return false;
-            return !HasSupportedResourceGroups
+            return !HasSupportedResourceGroups()
                 || GetAddableResources(storedResources).Contains(resourceName.Trim());
         }
 
+        ////////// Stored Resource Requesting Functions //////////
+        
         /// <summary>
         /// Uses the Part.RequestResource return contract against the private dictionary:
         /// positive amounts consume and negative amounts produce.
@@ -158,107 +227,187 @@ namespace Khemistry
         public double RequestStoredResource(string resourceName, double amount)
             => RequestStoredResourceCore(resourceName, amount, false);
 
+        /// <summary>
+        /// Requests a stored resource from the fluid cell.
+        /// This accepts negative values, so this function is able to
+        /// insert or remove a resource from the cell.
+        /// </summary>
+        /// <param name="resourceName">Name of the resource to remove/add.</param>
+        /// <param name="amount">Amount of the resource to remove (positive) or add (negative).</param>
+        /// <param name="migrating">Disables transfer rate limits, used for migrated fluid cells.</param>
+        /// <returns>Amount of the stored resource that was removed (positive) or added (negative).</returns>
         private double RequestStoredResourceCore(string resourceName, double amount, bool migrating)
         {
-            if (string.IsNullOrWhiteSpace(resourceName) || !KShared.IsFinite(amount)
+            // Verify parameters
+            if (string.IsNullOrWhiteSpace(resourceName)
+                || !KShared.IsFinite(amount)
                 || amount == 0.0)
                 return 0.0;
 
+            // Apply transfer limits unless disabled
             if (!migrating) amount = LimitTransfer(rateBudget, amount, false);
-            if (amount == 0) return 0;
+
+            // Handle transfer limits completely stopping request
+            if (amount == 0) return 0.0;
+
+            // Get the resource to operate on
             resourceName = resourceName.Trim();
             Dictionary<string, double> resources = GetStoredResources();
             resources.TryGetValue(resourceName, out double current);
 
+            // Set up retrn value
+            double returnTmp = 0.0;
+
+            // Remove the resource from the fluid cell
             if (amount > 0.0)
             {
+                // Get amount being removed, limiting it at how much is currently stored
                 double removed = Math.Min(amount, current);
                 if (removed <= 0.0) return 0.0;
+
+                // Get remaining resource amount
                 double remaining = current - removed;
+
+                // Remove the resource from the cell
                 if (remaining <= 1e-9) resources.Remove(resourceName);
                 else resources[resourceName] = remaining;
-                StoredResourcesData = SerializeResources(resources);
-                if (!migrating) RecordTransfer(rateBudget, removed, false);
-                return removed;
+                returnTmp = removed;
             }
-
-            if (!CanAddResource(resourceName, resources.Keys)) return 0.0;
-            double total = GetResourceTotal(resources);
-            if (!KShared.IsFinite(total) || !KShared.IsFinite(ResourceMaxAmount)
-                || ResourceMaxAmount <= 0f)
-                return 0.0;
-            double added = Math.Min(-amount,
-                Math.Max(0.0, ResourceMaxAmount - total));
-            if (added <= 0.0 || !KShared.IsFinite(current + added)) return 0.0;
-            resources[resourceName] = current + added;
+            else
+            {
+                // Ensure resource can be added to the cell
+                if (!CanAddResource(resourceName, resources.Keys)) return 0.0;
+    
+                // Get the total amount of resources for capacity restriction
+                double total = GetResourceTotal(resources);
+                if (!KShared.IsFinite(total) || !KShared.IsFinite(ResourceMaxAmount)
+                    || ResourceMaxAmount <= 0f)
+                    return 0.0;
+    
+                // Get the amount being added with capacity restriction
+                double added = Math.Min(-amount,
+                    Math.Max(0.0, ResourceMaxAmount - total)
+                );
+    
+                // Stop if cell is full or new amount would no longer be finite
+                if (added <= 0.0 || !KShared.IsFinite(current + added)) return 0.0;
+    
+                // Add the resource
+                resources[resourceName] = current + added;
+                returnTmp = -added;
+            }
+            
+            // Update serialized contents
             StoredResourcesData = SerializeResources(resources);
-            if (!migrating) RecordTransfer(rateBudget, -added, false);
-            return -added;
+
+            // Record transfer for rate limiter unless disabled
+            if (!migrating) RecordTransfer(rateBudget, returnTmp, false);
+
+            // Return the resource amount removed from or added to the cell
+            return returnTmp;
         }
 
-        [KSPEvent(guiActive = true, guiActiveEditor = false,
-            guiName = "Cell Contents")]
-        public void OpenCellContents()
-        {
-            KShared.Instance?.ShowResourceContents("Cell Contents",
-                () => part == null ? null : GetStoredResources());
-        }
-
-        private static double ValidateRate(double rate, string name)
+        ////////// Small Helper Functions //////////
+        
+        /// <summary>
+        /// Validate and return a rate value, disabling it if it is invalid.
+        /// </summary>
+        private static double ValidateRate(double rate, string rateName)
         {
             if (KShared.IsFinite(rate)) return rate;
-            KShared.LogError("Invalid fluid-cell " + name + "; using zero (blocked).", "KhemistryFluidCell/OnLoad");
-            return 0;
+            KShared.LogError($"Invalid fluid cell {rateName}; using -1 (rate is disabled).", "KhemistryFluidCell/OnLoad");
+            return -1;
         }
+
+        /// <summary>
+        /// Add a supported resource group to the fluid cell.
+        /// </summary>
+        private static void AddSupportedResourceGroup(HashSet<string> group)
+        {
+            if (group.Count == 0)
+                KShared.LogError("The provided supported resources group is empty, skipping.",
+                    "KhemistryFluidCell/AddSupportedResourceGroup");
+            else
+                _supportedResourceGroups.Add(group);
+                SupportedResources.UnionWith(group);
+        }
+        
+        ////////// Overriden PartModule Functions //////////
 
         public override void OnLoad(ConfigNode node)
         {
             base.OnLoad(node);
+
+            // Load transfer rates
             maxInputRate = ValidateRate(maxInputRate, "maxInputRate");
             maxOutputRate = ValidateRate(maxOutputRate, "maxOutputRate");
             maxInputRateInternal = ValidateRate(maxInputRateInternal, "maxInputRateInternal");
             maxOutputRateInternal = ValidateRate(maxOutputRateInternal, "maxOutputRateInternal");
+
+            // Prepare supported resource groups
             _supportedResourceGroups.Clear();
             SupportedResources.Clear();
 
+            // Load normal supported resource groups
             foreach (ConfigNode supportedNode in node.GetNodes("SUPPORTED_RESOURCES"))
             {
-                var group = new HashSet<string>(StringComparer.Ordinal);
+                // Set up the supported resources group
+                HashSet<string> group = new HashSet<string>(StringComparer.Ordinal);
+
+                // Load all supported resources from the node
                 foreach (string name in supportedNode.GetValues("name"))
                 {
+                    // Clean up string
                     string trimmed = name?.Trim();
-                    if (!string.IsNullOrEmpty(trimmed)) group.Add(trimmed);
+
+                    // Verify string and add supported resource to group
+                    if (!string.IsNullOrEmpty(trimmed))
+                        group.Add(trimmed);
+                    else
+                        KShared.LogError($"Part \"{part.name}\" "
+                            + "has an empty SUPPORTED_RESOURCES resource, skipping.",
+                            "KhemistryFluidCell/OnLoad");
                 }
-                if (group.Count == 0) continue;
-                _supportedResourceGroups.Add(group);
-                SupportedResources.UnionWith(group);
+
+                // Add the supported resources group
+                AddSupportedResourceGroup(group);
             }
             
+            // Load SUPPORTED_RESOURCES_SINGULAR and make each of its entries a separate group
             foreach (ConfigNode supportedSNode in node.GetNodes("SUPPORTED_RESOURCES_SINGULAR"))
             {
+                // Get all the values
                 foreach (string name in supportedSNode.GetValues("name"))
                 {
+                    // Clean up string
                     string trimmed = name?.Trim();
+
+                    // Verify string and add supported resource group
                     if (!string.IsNullOrEmpty(trimmed))
-                    {
-                        // Each entry must be a different set. Reusing and clearing one set
-                        // made all earlier groups change along with the final entry.
-                        var singularGroup = new HashSet<string>(StringComparer.Ordinal)
-                        {
-                            trimmed
-                        };
-                        _supportedResourceGroups.Add(singularGroup);
-                        SupportedResources.UnionWith(singularGroup);
-                    }
+                        AddSupportedResourceGroup(
+                            new HashSet<string>(StringComparer.Ordinal) { trimmed }
+                        );
+                    else
+                        KShared.LogError($"Part \"{part.name}\" "
+                            + "has an empty SUPPORTED_RESOURCES_SINGULAR resource, skipping.",
+                            "KhemistryFluidCell/OnLoad");
                 }
             }
 
+            // No clue what this accomplishes
             StoredResourcesData = SerializeResources(
                 DeserializeResources(StoredResourcesData));
-            if (_supportedResourceGroups.Count > 0)
+
+            // Print how many supported resources were loaded (or not)
+            if (HasSupportedResourceGroups())
                 KShared.Log(
-                    "Loaded " + SupportedResources.Count + " resources in "
-                    + _supportedResourceGroups.Count + " supported resource groups.",
+                    $"Loaded {SupportedResources.Count} resources in "
+                    $"{_supportedResourceGroups.Count} supported resource groups.",
+                    "KhemistryFluidCell/OnLoad");
+            else
+                KShared.Log(
+                    "Loaded no supported resource groups whatsoever, "
+                    + "fluid cell can now store anything!",
                     "KhemistryFluidCell/OnLoad");
         }
 
@@ -266,45 +415,43 @@ namespace Khemistry
         {
             base.OnStart(state);
 
-            if (_supportedResourceGroups.Count == 0)
+            // Get supported resource groups from prefab if there aren't any
+            if (!HasSupportedResourceGroups())
             {
                 KhemistryFluidCell prefab = part.partInfo?.partPrefab
                     ?.FindModuleImplementing<KhemistryFluidCell>();
                 if (prefab != null && prefab != this)
-                {
                     foreach (HashSet<string> prefabGroup in prefab._supportedResourceGroups)
-                    {
-                        var group = new HashSet<string>(prefabGroup,
-                            StringComparer.Ordinal);
-                        _supportedResourceGroups.Add(group);
-                        SupportedResources.UnionWith(group);
-                    }
-                }
+                        AddSupportedResourceGroup(
+                            new HashSet<string>(prefabGroup, StringComparer.Ordinal)
+                        );
             }
 
-            if (float.IsNaN(ResourceMaxAmount) || float.IsInfinity(ResourceMaxAmount)
-                || ResourceMaxAmount <= 0f)
+            // Verify ResourceMaxAmount
+            if (!KShared.IsFinitePositive(ResourceMaxAmount))
             {
-                KShared.LogError("Part \"" + part.name
-                    + "\" has an invalid KhemistryFluidCell ResourceMaxAmount; using 100.",
+                KShared.LogError($"Part \"{part.name}\" "
+                    + "has an invalid KhemistryFluidCell ResourceMaxAmount; using 100.",
                     "KhemistryFluidCell/OnStart");
                 ResourceMaxAmount = 100f;
             }
-            if (float.IsNaN(TransferDistance) || float.IsInfinity(TransferDistance)
-                || TransferDistance < 0f)
+            
+            // Verify TransferDistance
+            if (!KShared.IsFiniteNonNegative(TransferDistance))
             {
-                KShared.LogError("Part \"" + part.name
-                    + "\" has an invalid KhemistryFluidCell TransferDistance; using 10.",
+                KShared.LogError($"Part \"{part.name}\" has an invalid KhemistryFluidCell TransferDistance; using 10.",
                     "KhemistryFluidCell/OnStart");
                 TransferDistance = 10f;
             }
 
-            // Migrate only the obsolete module fields. PartResources are intentionally not
-            // consulted: a tank on the same part is separate from this cell's contents.
+            // Migrate obsolete fields
             ResourceName = ResourceName?.Trim() ?? "";
-            if (!string.IsNullOrEmpty(ResourceName) && ResourceAmount > 0f
-                && !float.IsNaN(ResourceAmount) && !float.IsInfinity(ResourceAmount))
+            if (!string.IsNullOrEmpty(ResourceName)
+                && !KShared.IsFinitePositive(ResourceAmount))
             {
+                KShared.LogWarning("Obsolete fields detected, they will be migrated but "
+                    + "please consider updating to the new format to remove this warning.",
+                    "KhemistryFluidCell/OnStart");
                 double added = -RequestStoredResourceCore(ResourceName, -ResourceAmount, true);
                 double remainder = Math.Max(0.0, ResourceAmount - added);
                 ResourceAmount = remainder >= float.MaxValue
