@@ -147,6 +147,14 @@ namespace Khemistry
 {
     public partial class KShared
     {
+        public static bool ContainsInterpolation(string value)
+            => !string.IsNullOrEmpty(value) && value.IndexOf('[') >= 0;
+        public static double Multiply(double a, double b)
+        {
+            if (a == 0 || b == 0) return 0;
+            double result = a * b;
+            return double.IsInfinity(result) ? double.MaxValue : result;
+        }
         public enum ChargablePartState { Off, On, Charging }
         public static void LogFatalError(string message, string context) => throw new Exception(message);
         public static double RandomDouble(double a, double b) => (a + b) / 2;

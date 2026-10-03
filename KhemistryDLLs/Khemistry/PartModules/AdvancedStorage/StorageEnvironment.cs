@@ -17,15 +17,15 @@ namespace Khemistry
         private double EffectiveChargeRate => KShared.Multiply(chargeRate, EffectiveMultiplier("chargeRateMul"));
         private double EffectiveChargeDecayRate => KShared.Multiply(chargeDecayRate, EffectiveMultiplier("chargeDecayRateMul"));
         private double EffectivePassiveMultiplier => EffectiveMultiplier("passiveConsumptionRateMul");
-        private double EffectiveCapacity => GetResourceCapacity(storageType == "multiShared"
-            ? _supportedResources.FirstOrDefault() : activeResource);
+        private double EffectiveCapacity => storageType == "multiShared"
+            ? SharedCapacity : GetResourceCapacity(activeResource);
 
         private bool CheckStorageEnvironment()
         {
             _environment.Update(part);
             if (!_environment.Configured || !HighLogic.LoadedSceneIsFlight || part?.vessel == null) return true;
             double capacity = EffectiveCapacity;
-            bool overfilled = _resources.Values.Sum() > capacity;
+            bool overfilled = UsedCapacity > capacity;
             if ((!_environment.Operational || overfilled) && HasAnyStoredResources())
             {
                 _resources.Clear(); _unreadableContents.Clear();

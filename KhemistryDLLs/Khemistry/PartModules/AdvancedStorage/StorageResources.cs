@@ -114,8 +114,9 @@ namespace Khemistry
             if (storageType != "multiShared"
                 && _resources.Any(pair => pair.Key != name && pair.Value > 0.0)) return 0.0;
             RefreshRateBudget();
-            double capacity = GetResourceCapacity(name) * Math.Min(1.0, fillAmount);
-            double space = Math.Max(0.0, capacity - _resources.Values.Sum());
+            double capacity = (storageType == "multiShared" ? SharedCapacity : GetResourceCapacity(name))
+                * Math.Min(1.0, fillAmount);
+            double space = Math.Max(0.0, capacity - UsedCapacity) / ResourceVolumeMultiplier(name);
             double budget = EffectiveInputRate < 0f ? double.PositiveInfinity
                 : Math.Max(0.0, EffectiveInputRate * TimeWarp.fixedDeltaTime - _inputThisTick);
             return Math.Min(space, budget);

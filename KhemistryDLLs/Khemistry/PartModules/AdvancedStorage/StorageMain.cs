@@ -750,18 +750,16 @@ namespace Khemistry
 
         private void UpdateUI()
         {
-            double total = 0.0;
             List<string> parts = new List<string>();
 
             foreach (var resource in _resources)
             {
                 if (resource.Value <= 0.0) continue;
                 parts.Add(string.Format("{0}: {1:F2}", resource.Key, resource.Value));
-                total += resource.Value;
             }
 
             contentsDisplay = parts.Count == 0 ? "Empty" : string.Join(", ", parts.ToArray());
-            volumeDisplay = string.Format("{0:F2} / {1:F2}", total,
+            volumeDisplay = string.Format("{0:F2} / {1:F2}", UsedCapacity,
                 EffectiveCapacity);
 
             chargeDisplay = chargingRequired
