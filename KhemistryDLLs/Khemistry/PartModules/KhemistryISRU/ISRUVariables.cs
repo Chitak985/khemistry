@@ -51,8 +51,11 @@ namespace Khemistry
         [KSPField(isPersistant = true)]
         public KShared.ChargablePartState state = KShared.ChargablePartState.Off;
 
+        /// <summary> Main name of the ISRU </summary>
         [KSPField(isPersistant = false)] public string ConverterName = "Converter";
+        /// <summary> Name of the button to start the ISRU </summary>
         [KSPField(isPersistant = false)] public string StartActionName = "Start working";
+        /// <summary> Name of the button to stop the ISRU </summary>
         [KSPField(isPersistant = false)] public string StopActionName = "Stop working";
 
         /// <summary>
@@ -89,39 +92,54 @@ namespace Khemistry
         [KSPField(isPersistant = false)]
         public float chargeRate = 0f;
 
-        /// <summary> Charge decay rate in decimal percent </summary>
+        /// <summary> Charge decay rate in decimal percent when not fully charged </summary>
         [KSPField(isPersistant = false)]
         public float chargeDecayRate = 0f;
 
+        /// <summary> Charge decay rate when ISRU is inactive (on but no recipe running) </summary>
         [KSPField] public float chargeDecayRateInactive = 0f;
+        /// <summary> Charge decay rate when ISRU is active (recipe is running) </summary>
         [KSPField] public float chargeDecayRateActive = 0f;
+        /// <summary> Threshold after which the ISRU is considered charged </summary>
         [KSPField] public float chargeThreshold = 90f;
+        /// <summary> Can the ISRU charge while running a recipe </summary>
         [KSPField] public bool chargeWhileRunning = false;
 
+        /// <summary> List of resource names used in charging </summary>
         protected List<string> _chargeNames = new List<string>();
+        /// <summary> List of resurce amounts used in charging, these correspond to each <see cref="_chargeNames"/> resource in order </summary>
         protected List<float> _chargeAmounts = new List<float>();
+        /// <summary> Is charging required for the module to function </summary>
         protected bool _moduleChargingRequired = false;
+        /// <summary> Current charge rate of the module </summary>
         protected float _moduleChargeRate = 0f;
+        /// <summary> Current charge decay rate of the module </summary>
         protected float _moduleChargeDecayRate = 0f;
+        /// <summary> Current charge resources of the module </summary>
         protected readonly List<string> _moduleChargeNames = new List<string>();
+        /// <summary> Current charge resource amounts of the module </summary>
         protected readonly List<float> _moduleChargeAmounts = new List<float>();
 
         /// <summary> Percentage of current charge </summary>
         [KSPField(isPersistant = true)]
         public float chargePercent = 0f;
 
+        /// <summary> Whether controls are shown on PAW (vessel view) </summary>
         protected bool _controlsShowPAW = true;
+        /// <summary> Whether controls are shown on EVA (outside vessel) </summary>
         protected bool _controlsShowEVA = false;
 
         /// <summary> Runtime data reference </summary>
         protected KhemistryRuntimeData _runtimeData = null;
 
-        // The actual values, multiplied by a multiplier
+        /// <summary> Current max interaction distance to use </summary>
         protected float _maxInteractionDistance = 7f;
+        /// <summary> Current max display distance to use </summary>
         protected float _maxDisplayDistance = 10f;
 
-        // The values loaded from the config
+        /// <summary> The configuration value for max interaction distance </summary>
         protected float _configMaxInteractionDistance = 7f;
+        /// <summary> The configuration value for max display distance </summary>
         protected float _configMaxDisplayDistance = 10f;
 
         /// <summary> List of recipes used by the ISRU </summary>
@@ -131,43 +149,62 @@ namespace Khemistry
         protected bool _fatalConfigError = false;
 
         ///// Recipe importing /////
+        /// <summary> Recipe types to load </summary>
         [KSPField(isPersistant = false)] public string recipeType = null;
+        /// <summary> Recipe subtypes to load </summary>
         [KSPField(isPersistant = false)] public string recipeSubtype = null;
+        /// <summary> Recipe subsubtypes to load </summary>
         [KSPField(isPersistant = false)] public string recipeSubsubtype = null;
 
+        /// <summary> Multiply all recipe inputs and outputs by this value </summary>
         [KSPField(isPersistant = false)] public float recipeMultiplier = 1f;
 
+        /// <summary> Do workers need to be on the same part as the ISRU </summary>
         [KSPField(isPersistant = false)] public bool workersCrewSamePart = false;
 
+        /// <summary> Recipe names to load by the ISRU (defined in config) </summary>
         protected readonly List<string> _recipeNames = new List<string>();
+        /// <summary> Recipe multipliers corresponding to each recipe in <see cref="_recipeNames"/> (defined in config) </summary>
         protected readonly List<float> _recipeMultipliers = new List<float>();
 
         ///// Active recipe /////
+        /// <summary> Name of the active recipe </summary>
         [KSPField(isPersistant = true)] public string activeRecipeName = null;
+        /// <summary> Batch progress of the active recipe in seconds </summary>
         [KSPField(isPersistant = true)] public double batchProgress = 0.0;
+        /// <summary> Recipe time of the active recipe in seconds </summary>
         [KSPField(isPersistant = true)] public double resolvedRecipeTime = 0.0;
+        
         [KSPField(isPersistant = true)] public bool hasLastBiome = false;
         [KSPField(isPersistant = true)] public string lastBiomePlanet = "";
         [KSPField(isPersistant = true)] public string lastBiomeName = "";
 
+        /// <summary> Reference to the active <see cref="KhemistryISRURecipe"/> </summary>
         protected KhemistryISRURecipe _activeRecipe = null;
 
-        // Player-selected values are kept per recipe so two recipes may safely reuse the
-        // same SETTING var. These are serialized through RECIPE_SETTING_VALUES.
+        /// <summary>
+        /// Player-selected values are kept per recipe so two recipes may safely reuse the
+        /// same SETTING var. These are serialized through RECIPE_SETTING_VALUES.
+        /// </summary>
         protected readonly Dictionary<string, Dictionary<string, double>>
             _recipeSettingValues =
                 new Dictionary<string, Dictionary<string, double>>(
                     System.StringComparer.Ordinal);
 
-        // Parallel to _activeRecipe._passiveInputs; serialized through PASSIVE_INPUT_STATE.
+        /// <summary> Parallel to _activeRecipe._passiveInputs; serialized through PASSIVE_INPUT_STATE. </summary>
         protected readonly List<double> _passiveTimers = new List<double>();
 
-        // Cumulative amount actually withdrawn per passive input since the last time
-        // batchProgress was reset to 0 — needed so STOP can refund exactly what was taken
-        // during the in-progress batch, while VOID/MAINT discard it instead.
+        /// <summary>
+        /// Cumulative amount actually withdrawn per passive input since the last time
+        /// batchProgress was reset to 0 — needed so STOP can refund exactly what was taken
+        /// during the in-progress batch, while VOID/MAINT discard it instead.
+        /// </summary>
         protected readonly List<double> _passiveConsumedThisBatch = new List<double>();
 
-        // Named save records survive recipe input reordering.
+        /// <summary>
+        /// Saved states of passive inputs used by the ISRU.
+        /// Named save records survive recipe input reordering.
+        /// </summary>
         protected sealed class PassiveInputSaveState
         {
             public string resourceName;
@@ -182,9 +219,11 @@ namespace Khemistry
             new List<PassiveInputSaveState>();
         protected readonly List<ConfigNode> _opaquePassiveInputNodes = new List<ConfigNode>();
 
-        // Resource that could not be returned immediately when a saved recipe/input changed.
-        // Keeping this debt separate prevents it from being attached to a different recipe on
-        // the next load.
+        /// <summary>
+        /// Resource that could not be returned immediately when a saved recipe/input changed.
+        /// Keeping this debt separate prevents it from being attached to a different recipe on
+        /// the next load.
+        /// </summary>
         protected sealed class PassiveRefundSaveState
         {
             public string resourceName;
