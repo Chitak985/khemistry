@@ -36,7 +36,11 @@ namespace Khemistry
         {
             while (messages.TryDequeue(out string message)) KShared.Log(message, "DiscordPresence");
         }
-        public void OnApplicationQuit() { client?.Dispose(); }
+        public void OnApplicationQuit()
+        {
+            client?.Dispose();
+            KShared.Log("Discord shutdown requested; game thread released.", "DiscordPresence");
+        }
         public void OnDestroy()
         {
             if (instance != this) return;

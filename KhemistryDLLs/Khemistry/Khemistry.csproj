@@ -107,6 +107,7 @@
   <ItemGroup>
     <Compile Include="Deposits.cs" />
     <Compile Include="Discord\DiscordRpcClient.cs" />
+    <Compile Include="..\Shared\PollingPipeStream.cs"><Link>Discord\PollingPipeStream.cs</Link></Compile>
     <Compile Include="Discord\KhemistryDiscordPresence.cs" />
     <Compile Include="Persistance\DepositPersistence.cs" />
     <Compile Include="Persistance\KerbalSuitPersistence.cs" />

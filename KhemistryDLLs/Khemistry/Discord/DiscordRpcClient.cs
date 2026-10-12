@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
-using System.IO.Pipes;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -251,10 +250,8 @@ namespace Khemistry
                 for (int i = 0; i < 10; i++)
                 {
                     token.ThrowIfCancellationRequested();
-                    var pipe = new NamedPipeClientStream(".", "discord-ipc-" + i, PipeDirection.InOut,
-                        PipeOptions.Asynchronous);
-                    try { pipe.Connect(150); return pipe; }
-                    catch { pipe.Dispose(); }
+                    try { return PollingPipeStream.Connect("discord-ipc-" + i); }
+                    catch (IOException) { }
                 }
             }
             else

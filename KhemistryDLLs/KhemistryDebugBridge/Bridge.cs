@@ -24,7 +24,9 @@ namespace Khemistry.DebugBridge
         private readonly Queue<PendingCommand> pending = new Queue<PendingCommand>();
         private Thread serverThread;
         private volatile bool stopping;
-        private NamedPipeServerStream listeningPipe;
+        // Keep the connected pipe too, so shutdown also interrupts a partial request.
+        private Stream activePipe;
+        private int shutdownStarted;
         private string pipeName;
         private string token;
         private string sessionPath;
@@ -75,16 +77,33 @@ namespace Khemistry.DebugBridge
             }
         }
 
-        public void OnDestroy()
+        public void OnApplicationQuit() { StopBridge(); }
+        public void OnDestroy() { StopBridge(); }
+
+        private void StopBridge()
         {
+            if (Interlocked.Exchange(ref shutdownStarted, 1) != 0) return;
             stopping = true;
-            try { listeningPipe?.Dispose(); } catch { }
+            Stream pipe = Interlocked.Exchange(ref activePipe, null);
+            if (pipe is PollingPipeStream)
+            {
+                // NOWAIT handles have no blocked native read/accept to cancel.
+                try { pipe.Dispose(); } catch { }
+            }
+            else if (pipe != null)
+            {
+                // Preserve non-Windows support without closing a blocking Mono pipe
+                // on Unity's thread. Windows never takes this fallback.
+                new Thread(() => { try { pipe.Dispose(); } catch { } })
+                    { IsBackground = true, Name = "Khemistry debug shutdown" }.Start();
+            }
             try
             {
                 if (!string.IsNullOrEmpty(sessionPath) && File.Exists(sessionPath))
                     File.Delete(sessionPath);
             }
             catch { }
+            UnityEngine.Debug.Log("[Khemistry Debug] Bridge shutdown requested; game thread released.");
         }
 
         private void ServerLoop()
@@ -93,12 +112,16 @@ namespace Khemistry.DebugBridge
             {
                 try
                 {
-                    using (var pipe = new NamedPipeServerStream(pipeName, PipeDirection.InOut, 1,
-                        PipeTransmissionMode.Byte, PipeOptions.None, 8192, 8192))
+                    using (Stream pipe = Environment.OSVersion.Platform == PlatformID.Win32NT
+                        ? (Stream)PollingPipeStream.CreateServer(pipeName)
+                        : new NamedPipeServerStream(pipeName, PipeDirection.InOut, 1,
+                            PipeTransmissionMode.Byte, PipeOptions.None, 8192, 8192))
                     {
-                        listeningPipe = pipe;
-                        pipe.WaitForConnection();
-                        listeningPipe = null;
+                        Interlocked.Exchange(ref activePipe, pipe);
+                        if (stopping) return; // Shutdown can race with server creation.
+                        if (pipe is PollingPipeStream polling) polling.WaitForConnection();
+                        else ((NamedPipeServerStream)pipe).WaitForConnection();
+                        if (stopping) return;
                         using (var reader = new BinaryReader(pipe, Encoding.UTF8, true))
                         using (var writer = new BinaryWriter(pipe, Encoding.UTF8, true))
                         {
@@ -115,7 +138,12 @@ namespace Khemistry.DebugBridge
 
                             var request = new PendingCommand { command = command, arguments = arguments };
                             lock (pending) pending.Enqueue(request);
-                            if (!request.completed.WaitOne(TimeSpan.FromSeconds(30)))
+                            var deadline = System.Diagnostics.Stopwatch.StartNew();
+                            bool completed = false;
+                            while (!stopping && deadline.ElapsedMilliseconds < 30000
+                                && !(completed = request.completed.WaitOne(50))) { }
+                            if (stopping) return;
+                            if (!completed)
                             {
                                 writer.Write(false);
                                 writer.Write("Timed out waiting for KSP's main thread.");
@@ -136,6 +164,7 @@ namespace Khemistry.DebugBridge
                     if (!stopping) UnityEngine.Debug.LogError("[Khemistry Debug] Pipe error: " + exception);
                     Thread.Sleep(250);
                 }
+                finally { Interlocked.Exchange(ref activePipe, null); }
             }
         }
 

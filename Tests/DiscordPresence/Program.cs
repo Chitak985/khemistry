@@ -66,8 +66,7 @@ static class Program
         using (var client = new DiscordRpcClient(12345, statuses.Enqueue, token =>
         {
             Interlocked.Increment(ref attempts);
-            var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
-            try { pipe.Connect(500); return pipe; } catch { pipe.Dispose(); throw; }
+            return PollingPipeStream.Connect(pipeName);
         }, 20, 1000))
         {
             await server.WaitForConnectionAsync().WaitAsync(TimeSpan.FromSeconds(3));
@@ -128,8 +127,7 @@ static class Program
             PipeTransmissionMode.Byte, PipeOptions.Asynchronous))
         using (var client = new DiscordRpcClient(12345, statuses.Enqueue, token =>
         {
-            var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
-            try { pipe.Connect(500); return pipe; } catch { pipe.Dispose(); throw; }
+            return PollingPipeStream.Connect(pipeName);
         }, 10000, 100))
         {
             await server.WaitForConnectionAsync().WaitAsync(TimeSpan.FromSeconds(3));
@@ -175,6 +173,98 @@ static class Program
             client.Dispose();
             await client.Completion.WaitAsync(TimeSpan.FromSeconds(3));
             Check(offline.Count == 1, "missing Discord logs once rather than spamming");
+        }
+        await PipeShutdownTests();
+    }
+
+    static async Task PipeShutdownTests()
+    {
+        string name = "khemistry-shutdown-test-" + Guid.NewGuid().ToString("N");
+        // The actual MCP client uses managed NamedPipeClientStream, not our helper.
+        using (var server = PollingPipeStream.CreateServer(name))
+        using (var client = new NamedPipeClientStream(".", name, PipeDirection.InOut, PipeOptions.Asynchronous))
+        {
+            client.Connect(500);
+            server.WaitForConnection();
+            await Send(client, 3, "bridge interoperability");
+            var request = await Read(server);
+            Check(Encoding.UTF8.GetString(request.payload) == "bridge interoperability", "managed debug client can send requests");
+            await Send(server, 4, "reply");
+            Check((await Read(client)).opcode == 4, "managed debug client can read responses");
+            client.Dispose();
+            using (var deadline = new CancellationTokenSource(3000))
+                Check(await server.ReadAsync(new byte[1], 0, 1, deadline.Token) == 0, "disconnected debug client returns EOF");
+        }
+        using (var server = PollingPipeStream.CreateServer(name))
+        {
+            var waiting = Task.Run(() => server.WaitForConnection());
+            await Task.Delay(100);
+            Check(!waiting.IsCompleted, "debug bridge waiting without a client");
+            var elapsed = Stopwatch.StartNew();
+            server.Dispose();
+            Check(elapsed.ElapsedMilliseconds < 500, "closing a listening server cannot block Unity");
+            await Throws<ObjectDisposedException>(() => waiting.WaitAsync(TimeSpan.FromSeconds(3)),
+                "debug accept worker exits when pipe is closed");
+        }
+
+        using (var server = PollingPipeStream.CreateServer(name))
+        using (var client = PollingPipeStream.Connect(name))
+        {
+            server.WaitForConnection();
+            byte[] buffer = new byte[4];
+            using (var stop = new CancellationTokenSource())
+            {
+                var read = client.ReadAsync(buffer, 0, buffer.Length, stop.Token);
+                await Task.Delay(60);
+                Check(!read.IsCompleted, "idle client is waiting for data");
+                stop.Cancel();
+                await Throws<OperationCanceledException>(() => read.WaitAsync(TimeSpan.FromSeconds(3)),
+                    "idle native client read cancels without pending OS I/O");
+            }
+            client.Write(new byte[] { 42 }, 0, 1);
+            Check(server.Read(buffer, 0, buffer.Length) == 1 && buffer[0] == 42, "debug pipe handles partial requests");
+            var blocked = Task.Run(() => server.Read(buffer, 0, buffer.Length));
+            await Task.Delay(60);
+            Check(!blocked.IsCompleted, "debug worker waits for remaining request data");
+            server.Dispose();
+            await Throws<ObjectDisposedException>(() => blocked.WaitAsync(TimeSpan.FromSeconds(3)),
+                "debug read worker exits on shutdown with incomplete request");
+        }
+
+        using (var server = PollingPipeStream.CreateServer(name))
+        using (var client = PollingPipeStream.Connect(name))
+        using (var stop = new CancellationTokenSource())
+        {
+            server.WaitForConnection();
+            byte[] payload = Enumerable.Range(0, 131072).Select(i => (byte)i).ToArray();
+            var write = client.WriteAsync(payload, 0, payload.Length, stop.Token);
+            await Task.Delay(100);
+            Check(!write.IsCompleted, "full pipe waits in managed code rather than native WriteFile");
+            byte[] received = new byte[payload.Length];
+            int offset = 0;
+            using (var deadline = new CancellationTokenSource(3000))
+                while (offset < received.Length)
+                    offset += await server.ReadAsync(received, offset, received.Length - offset, deadline.Token);
+            await write.WaitAsync(TimeSpan.FromSeconds(3));
+            Check(payload.SequenceEqual(received), "partial writes resume without duplicating or losing bytes");
+
+            write = client.WriteAsync(payload, 0, payload.Length, stop.Token);
+            await Task.Delay(60);
+            stop.Cancel();
+            await Throws<OperationCanceledException>(() => write.WaitAsync(TimeSpan.FromSeconds(3)),
+                "full pipe write cancels without peer cooperation");
+        }
+
+        using (var server = PollingPipeStream.CreateServer(name))
+        using (var client = PollingPipeStream.Connect(name))
+        {
+            server.WaitForConnection();
+            var write = Task.Run(() => server.Write(new byte[131072], 0, 131072));
+            await Task.Delay(100);
+            Check(!write.IsCompleted, "debug response writer is waiting for a non-reading peer");
+            server.Dispose();
+            await Throws<ObjectDisposedException>(() => write.WaitAsync(TimeSpan.FromSeconds(3)),
+                "debug response writer exits on shutdown");
         }
     }
     sealed class FragmentStream : MemoryStream
