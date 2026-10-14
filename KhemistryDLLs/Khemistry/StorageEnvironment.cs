@@ -2,20 +2,20 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 
-namespace Khemistry
+namespace ChitakTech
 {
     // One condition parser (the ISRU biome config) and one runtime condition evaluator.
     // Storage-specific multipliers are kept separate from recipe multipliers.
-    internal static class KhemistryEnvironmentConditions
+    internal static class ChitakTechEnvironmentConditions
     {
-        internal static bool Destructive(KhemistryISRUBiomeConfig c, KhemistryRuntimeData d)
+        internal static bool Destructive(ChitakTechISRUBiomeConfig c, ChitakTechRuntimeData d)
             => c.situationDestructive.Contains(d.sitCon)
                 || d.alt < c.minAltitude || d.alt > c.maxAltitude
                 || d.g < c.minG || d.g > c.maxG
                 || d.temperature < c.minTemperature || d.temperature > c.maxTemperature
                 || d.pressure < c.minPressure || d.pressure > c.maxPressure;
 
-        internal static string OperatingFailure(KhemistryISRUBiomeConfig c, KhemistryRuntimeData d)
+        internal static string OperatingFailure(ChitakTechISRUBiomeConfig c, ChitakTechRuntimeData d)
         {
             if (c.disabled) return "Disabled in this biome";
             if (c.situationOperating.Count > 0 && !c.situationOperating.Contains(d.sitCon))
@@ -43,13 +43,13 @@ namespace Khemistry
                 if (!node.HasValue(name)) continue;
                 if (!(name == "volumeMul" ? volume : rates))
                 {
-                    KShared.LogError(name + " is not supported here.", context);
+                    CTShared.LogError(name + " is not supported here.", context);
                     return false;
                 }
                 if (!double.TryParse(node.GetValue(name), NumberStyles.Float, CultureInfo.InvariantCulture,
-                        out double value) || !KShared.IsFinite(value) || value < 0.0)
+                        out double value) || !CTShared.IsFinite(value) || value < 0.0)
                 {
-                    KShared.LogError(name + " must be finite and nonnegative.", context);
+                    CTShared.LogError(name + " must be finite and nonnegative.", context);
                     return false;
                 }
                 values[name] = value;
@@ -62,7 +62,7 @@ namespace Khemistry
     {
         private sealed class Entry
         {
-            internal KhemistryISRUBiomeConfig conditions;
+            internal ChitakTechISRUBiomeConfig conditions;
             internal StorageMultipliers multipliers;
         }
         private readonly Dictionary<string, Dictionary<string, Entry>> planets = new Dictionary<string, Dictionary<string, Entry>>();
@@ -91,11 +91,11 @@ namespace Khemistry
                     var multipliers = new StorageMultipliers();
                     if (!multipliers.Load(config, advanced, true, "StorageEnvironment/Load")) return false;
                     ConfigNode conditions = new ConfigNode(); config.CopyTo(conditions);
-                    foreach (string key in KhemistryISRUBiomeConfig.MultiplierFields.Keys)
+                    foreach (string key in ChitakTechISRUBiomeConfig.MultiplierFields.Keys)
                     {
                         if (conditions.HasValue(key) && key != "chargeRateMul")
                         {
-                            KShared.LogError("ISRU multiplier " + key + " is not supported by storage.", "StorageEnvironment/Load");
+                            CTShared.LogError("ISRU multiplier " + key + " is not supported by storage.", "StorageEnvironment/Load");
                             return false;
                         }
                         while (conditions.HasValue(key)) conditions.RemoveValue(key);
@@ -103,13 +103,13 @@ namespace Khemistry
                     // Storage has no conversion batches; biome resource recipes have no meaning here.
                     if (config.HasNode("INPUT_RESOURCE") || config.HasNode("OUTPUT_RESOURCE"))
                     {
-                        KShared.LogError("Storage BIOME_CONFIG cannot contain converter INPUT_RESOURCE/OUTPUT_RESOURCE nodes.", "StorageEnvironment/Load");
+                        CTShared.LogError("Storage BIOME_CONFIG cannot contain converter INPUT_RESOURCE/OUTPUT_RESOURCE nodes.", "StorageEnvironment/Load");
                         return false;
                     }
-                    var parsed = new KhemistryISRUBiomeConfig(conditions, "Storage", "Storage");
+                    var parsed = new ChitakTechISRUBiomeConfig(conditions, "Storage", "Storage");
                     if (biomes.ContainsKey(parsed.biomeName))
                     {
-                        KShared.LogError("Duplicate storage biome " + planetName + "/" + parsed.biomeName, "StorageEnvironment/Load");
+                        CTShared.LogError("Duplicate storage biome " + planetName + "/" + parsed.biomeName, "StorageEnvironment/Load");
                         return false;
                     }
                     biomes.Add(parsed.biomeName, new Entry { conditions = parsed, multipliers = multipliers });
@@ -135,18 +135,18 @@ namespace Khemistry
             double tick = UnityEngine.Time.fixedTime;
             if (checkedTick == tick) return;
             checkedTick = tick;
-            var data = new KhemistryRuntimeData(part.vessel);
+            var data = new ChitakTechRuntimeData(part.vessel);
             active = Find(data.planet, data.biome);
             Reason = active == null ? "No configuration for this biome"
-                : KhemistryEnvironmentConditions.OperatingFailure(active.conditions, data);
-            if (active != null && KhemistryEnvironmentConditions.Destructive(active.conditions, data))
+                : ChitakTechEnvironmentConditions.OperatingFailure(active.conditions, data);
+            if (active != null && ChitakTechEnvironmentConditions.Destructive(active.conditions, data))
             {
                 Reason = "Outside storage survival limits";
                 if (!destroyed) { destroyed = true; part.explode(); }
             }
             if (Reason == null && active.conditions.depositConditions.Count > 0)
             {
-                KShared shared = KShared.Instance;
+                CTShared shared = CTShared.Instance;
                 Vessel vessel = part.vessel;
                 List<string> here = shared?.SurfaceDepositsAtPoint(
                     (float)vessel.latitude,
@@ -169,7 +169,7 @@ namespace Khemistry
         {
             string message = (part.partInfo?.title ?? part.name) + ": storage contents voided — " + reason + ".";
             ScreenMessages.PostScreenMessage(message, 6f, ScreenMessageStyle.UPPER_CENTER);
-            KShared.LogWarning(message, "StorageEnvironment");
+            CTShared.LogWarning(message, "StorageEnvironment");
         }
     }
 }

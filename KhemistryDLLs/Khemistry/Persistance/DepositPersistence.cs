@@ -3,10 +3,10 @@ using System.Collections.Generic;
 using System.Globalization;
 using UnityEngine;
 
-namespace Khemistry
+namespace ChitakTech
 {
     /// <summary>
-    /// Persists procedural deposit positions per save. KShared lives across save changes, so
+    /// Persists procedural deposit positions per save. CTShared lives across save changes, so
     /// keeping this data only in that singleton caused one save to inherit another save's
     /// deposits and caused locations to change after restarting the game.
     /// </summary>
@@ -14,10 +14,10 @@ namespace Khemistry
         GameScenes.EDITOR, GameScenes.FLIGHT, GameScenes.TRACKSTATION)]
     public class KhemistryDepositsScenario : ScenarioModule
     {
-        private readonly List<KhemistryUDeposit> _loadedUnderground =
-            new List<KhemistryUDeposit>();
-        private readonly List<KhemistryGDeposit> _loadedSurface =
-            new List<KhemistryGDeposit>();
+        private readonly List<ChitakTechUDeposit> _loadedUnderground =
+            new List<ChitakTechUDeposit>();
+        private readonly List<ChitakTechGDeposit> _loadedSurface =
+            new List<ChitakTechGDeposit>();
         private bool _loadedDepositsPending;
         private bool _newSaveResetPending;
 
@@ -43,11 +43,11 @@ namespace Khemistry
             }
 
             int invalidNodes = 0;
-            List<KhemistryUDeposit> undergroundBySavedIndex =
-                new List<KhemistryUDeposit>();
+            List<ChitakTechUDeposit> undergroundBySavedIndex =
+                new List<ChitakTechUDeposit>();
             foreach (ConfigNode depositNode in node.GetNodes("UNDERGROUND_DEPOSIT"))
             {
-                if (TryLoadUnderground(depositNode, out KhemistryUDeposit deposit))
+                if (TryLoadUnderground(depositNode, out ChitakTechUDeposit deposit))
                 {
                     undergroundBySavedIndex.Add(deposit);
                     _loadedUnderground.Add(deposit);
@@ -61,7 +61,7 @@ namespace Khemistry
 
             foreach (ConfigNode depositNode in node.GetNodes("SURFACE_DEPOSIT"))
             {
-                if (!TryLoadSurface(depositNode, out KhemistryGDeposit deposit,
+                if (!TryLoadSurface(depositNode, out ChitakTechGDeposit deposit,
                         out int pairIndex))
                 {
                     invalidNodes++;
@@ -90,7 +90,7 @@ namespace Khemistry
             }
 
             if (invalidNodes > 0)
-                KShared.LogError("Ignored " + invalidNodes
+                CTShared.LogError("Ignored " + invalidNodes
                     + " invalid saved deposit nodes while restoring the save.",
                     "KhemistryDepositsScenario/OnLoad");
 
@@ -106,13 +106,13 @@ namespace Khemistry
             TryApplyLoadedDeposits();
             if (_newSaveResetPending)
             {
-                KShared.LogError("Could not save deposits because their per-save generation has not completed yet.",
+                CTShared.LogError("Could not save deposits because their per-save generation has not completed yet.",
                     "KhemistryDepositsScenario/OnSave");
                 return;
             }
 
-            IList<KhemistryUDeposit> underground;
-            IList<KhemistryGDeposit> surface;
+            IList<ChitakTechUDeposit> underground;
+            IList<ChitakTechGDeposit> surface;
             if (_loadedDepositsPending)
             {
                 underground = _loadedUnderground;
@@ -120,10 +120,10 @@ namespace Khemistry
             }
             else
             {
-                KShared shared = KShared.Instance;
+                CTShared shared = CTShared.Instance;
                 if (shared == null)
                 {
-                    KShared.LogError("Could not save deposits because KShared is unavailable.",
+                    CTShared.LogError("Could not save deposits because CTShared is unavailable.",
                         "KhemistryDepositsScenario/OnSave");
                     return;
                 }
@@ -136,14 +136,14 @@ namespace Khemistry
             while (node.HasNode("SURFACE_DEPOSIT")) node.RemoveNode("SURFACE_DEPOSIT");
             node.AddValue("initialized", true);
 
-            Dictionary<KhemistryUDeposit, int> undergroundIndexes =
-                new Dictionary<KhemistryUDeposit, int>();
+            Dictionary<ChitakTechUDeposit, int> undergroundIndexes =
+                new Dictionary<ChitakTechUDeposit, int>();
             int savedUndergroundCount = 0;
-            foreach (KhemistryUDeposit deposit in underground)
+            foreach (ChitakTechUDeposit deposit in underground)
             {
                 if (!IsValid(deposit))
                 {
-                    KShared.LogError("Skipped an invalid underground deposit while saving.",
+                    CTShared.LogError("Skipped an invalid underground deposit while saving.",
                         "KhemistryDepositsScenario/OnSave");
                     continue;
                 }
@@ -154,11 +154,11 @@ namespace Khemistry
                 savedNode.AddValue("depthStart", Format(deposit.DepthStart));
             }
 
-            foreach (KhemistryGDeposit deposit in surface)
+            foreach (ChitakTechGDeposit deposit in surface)
             {
                 if (!IsValid(deposit))
                 {
-                    KShared.LogError("Skipped an invalid surface deposit while saving.",
+                    CTShared.LogError("Skipped an invalid surface deposit while saving.",
                         "KhemistryDepositsScenario/OnSave");
                     continue;
                 }
@@ -170,7 +170,7 @@ namespace Khemistry
                     && !undergroundIndexes.TryGetValue(deposit.PairGDeposit, out pairIndex))
                 {
                     pairIndex = -1;
-                    KShared.LogError("A surface deposit's underground pair was not saved; preserving the surface deposit without the link.",
+                    CTShared.LogError("A surface deposit's underground pair was not saved; preserving the surface deposit without the link.",
                         "KhemistryDepositsScenario/OnSave");
                 }
                 savedNode.AddValue("pairIndex", pairIndex.ToString(CultureInfo.InvariantCulture));
@@ -185,36 +185,36 @@ namespace Khemistry
 
         private void TryApplyLoadedDeposits()
         {
-            KShared shared = KShared.Instance;
+            CTShared shared = CTShared.Instance;
             if (shared == null) return;
 
             if (_newSaveResetPending)
             {
-                if (!KSharedMainMenu.GenerateConfiguredDeposits(shared)) return;
+                if (!CTSharedMainMenu.GenerateConfiguredDeposits(shared)) return;
                 _newSaveResetPending = false;
             }
 
             if (!_loadedDepositsPending) return;
             shared.undergroundDeposits.Clear();
-            foreach (KhemistryUDeposit deposit in _loadedUnderground)
+            foreach (ChitakTechUDeposit deposit in _loadedUnderground)
                 shared.undergroundDeposits.Add(deposit);
             shared.surfaceDeposits.Clear();
-            foreach (KhemistryGDeposit deposit in _loadedSurface)
+            foreach (ChitakTechGDeposit deposit in _loadedSurface)
                 shared.surfaceDeposits.Add(deposit);
             _loadedDepositsPending = false;
         }
 
         private static bool TryLoadUnderground(ConfigNode node,
-            out KhemistryUDeposit deposit)
+            out ChitakTechUDeposit deposit)
         {
             deposit = null;
             if (!TryLoadCommon(node, out string planet, out string resource,
                     out Vector2 position, out float radius, out float depth)
-                || !KShared.TryReadFloat(node, "depthStart", out float depthStart)
-                || depthStart < 0f || !KShared.IsFinite(depthStart + depth))
+                || !CTShared.TryReadFloat(node, "depthStart", out float depthStart)
+                || depthStart < 0f || !CTShared.IsFinite(depthStart + depth))
                 return false;
 
-            deposit = new KhemistryUDeposit
+            deposit = new ChitakTechUDeposit
             {
                 Planet = planet,
                 Resource = resource,
@@ -226,7 +226,7 @@ namespace Khemistry
             return true;
         }
 
-        private static bool TryLoadSurface(ConfigNode node, out KhemistryGDeposit deposit,
+        private static bool TryLoadSurface(ConfigNode node, out ChitakTechGDeposit deposit,
             out int pairIndex)
         {
             deposit = null;
@@ -241,7 +241,7 @@ namespace Khemistry
                         out pairIndex) || pairIndex < -1))
                 return false;
 
-            deposit = new KhemistryGDeposit
+            deposit = new ChitakTechGDeposit
             {
                 Planet = planet,
                 Resource = resource,
@@ -261,11 +261,11 @@ namespace Khemistry
             radius = 0f;
             depth = 0f;
             if (string.IsNullOrEmpty(planet) || string.IsNullOrEmpty(resource)
-                || !KShared.IsKnownBody(planet)
-                || !KShared.TryReadFloat(node, "latitude", out float latitude)
-                || !KShared.TryReadFloat(node, "longitude", out float longitude)
-                || !KShared.TryReadFloat(node, "radius", out radius) || radius <= 0f
-                || !KShared.TryReadFloat(node, "depth", out depth) || depth <= 0f
+                || !CTShared.IsKnownBody(planet)
+                || !CTShared.TryReadFloat(node, "latitude", out float latitude)
+                || !CTShared.TryReadFloat(node, "longitude", out float longitude)
+                || !CTShared.TryReadFloat(node, "radius", out radius) || radius <= 0f
+                || !CTShared.TryReadFloat(node, "depth", out depth) || depth <= 0f
                 || latitude < -90f || latitude > 90f
                 || longitude < -180f || longitude > 180f)
                 return false;
@@ -273,23 +273,23 @@ namespace Khemistry
             return true;
         }
 
-        private static bool IsValid(KhemistryDeposit deposit)
+        private static bool IsValid(ChitakTechDeposit deposit)
         {
             if (deposit == null || string.IsNullOrWhiteSpace(deposit.Planet)
-                || string.IsNullOrWhiteSpace(deposit.Resource) || !KShared.IsKnownBody(deposit.Planet)
-                || !KShared.IsFinite(deposit.Position.x) || deposit.Position.x < -90f
-                || deposit.Position.x > 90f || !KShared.IsFinite(deposit.Position.y)
+                || string.IsNullOrWhiteSpace(deposit.Resource) || !CTShared.IsKnownBody(deposit.Planet)
+                || !CTShared.IsFinite(deposit.Position.x) || deposit.Position.x < -90f
+                || deposit.Position.x > 90f || !CTShared.IsFinite(deposit.Position.y)
                 || deposit.Position.y < -180f || deposit.Position.y > 180f
-                || !KShared.IsFinite(deposit.Radius) || deposit.Radius <= 0f
-                || !KShared.IsFinite(deposit.Depth) || deposit.Depth <= 0f)
+                || !CTShared.IsFinite(deposit.Radius) || deposit.Radius <= 0f
+                || !CTShared.IsFinite(deposit.Depth) || deposit.Depth <= 0f)
                 return false;
-            return !(deposit is KhemistryUDeposit underground) || (KShared.IsFinite(underground.DepthStart)
+            return !(deposit is ChitakTechUDeposit underground) || (CTShared.IsFinite(underground.DepthStart)
                 && underground.DepthStart >= 0f
-                && KShared.IsFinite(underground.DepthStart + underground.Depth));
+                && CTShared.IsFinite(underground.DepthStart + underground.Depth));
         }
 
-        private static bool HasMatchingFootprint(KhemistryGDeposit surface,
-            KhemistryUDeposit underground)
+        private static bool HasMatchingFootprint(ChitakTechGDeposit surface,
+            ChitakTechUDeposit underground)
         {
             if (surface == null || underground == null
                 || !string.Equals(surface.Planet, underground.Planet,
@@ -302,7 +302,7 @@ namespace Khemistry
                     <= Math.Max(tolerance, Math.Abs(surface.Radius) * 1e-6f);
         }
 
-        private static void SaveCommon(ConfigNode node, KhemistryDeposit deposit)
+        private static void SaveCommon(ConfigNode node, ChitakTechDeposit deposit)
         {
             node.AddValue("planet", deposit.Planet.Trim());
             node.AddValue("resource", deposit.Resource.Trim());

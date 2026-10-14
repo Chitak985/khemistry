@@ -1,0 +1,190 @@
+﻿namespace ChitakTech
+{
+    public partial class ChitakTechISRU
+    {
+        /// <summary>Formats batch progress as "0% (1.2 / 3.4 sec)", or "Off" if there's no valid recipeTime.</summary>
+        protected static string FormatProgress(double progress, double recipeTime)
+        {
+            if (recipeTime <= 0.0) return "Off";
+            double pct = 100.0 * progress / recipeTime;
+            return string.Format("{0:F0}% ({1:F1} / {2:F1} sec)", pct, progress, recipeTime);
+        }
+
+        private static void ApplyShowRule(BaseEvent ev, bool showPAW, bool showEVA)
+        {
+            ev.guiActive = showPAW;
+            ev.guiActiveUnfocused = showEVA;
+            ev.externalToEVAOnly = showEVA && !showPAW;
+            ev.active = showPAW || showEVA;
+        }
+
+        /// <summary>
+        /// Requests (positive amount) or produces (negative amount) a resource from wherever
+        /// this converter actually draws from: the vessel resource network normally, or the
+        /// kerbal's fluid suit cell when moduleType == "kerbalEVA", or the held part's fluid
+        /// cell plus its kerbal's suit cell for partEVA. Same amount/return contract as
+        /// <see cref="Part.RequestResource(string, double)"/>.
+        /// </summary>
+        private double RequestResourceRouted(string name, double amount,
+            ResourceFlowMode flowMode = ResourceFlowMode.STAGE_PRIORITY_FLOW)
+        {
+            _lastResourceTransfers = null;
+            if (moduleType == "kerbalEVA" && _kerbalHost != null)
+                return _kerbalHost.RequestSuitCellResource(name, amount);
+            if (moduleType == "partEVA" && _inventorySessionActive
+                && _kerbalHost != null && _inventoryStoredPart != null)
+            {
+                _lastResourceTransfers = new System.Collections.Generic.List<ChitakTechResourceNetwork.Transfer>();
+                return _kerbalHost.RequestInventoryProcessorResource(
+                    _inventoryStoredPart, name, amount, useSuitCell, _lastResourceTransfers);
+            }
+            _lastResourceTransfers = new System.Collections.Generic.List<ChitakTechResourceNetwork.Transfer>();
+            return ChitakTechResourceNetwork.Request(part, name, amount, flowMode,
+                _lastResourceTransfers);
+        }
+
+        internal static bool IsPartEVAConfig(ConfigNode moduleNode)
+        {
+            if (moduleNode == null) return false;
+            string configuredModuleType = moduleNode.GetValue("moduleType")?.Trim();
+            if (string.Equals(configuredModuleType, "partEVA",
+                    System.StringComparison.OrdinalIgnoreCase))
+                return true;
+            foreach (string value in moduleNode.GetValues("recipeType"))
+                if (string.Equals(value?.Trim(), "partEVA",
+                        System.StringComparison.OrdinalIgnoreCase))
+                    return true;
+            return false;
+        }
+
+        internal static bool IsKerbalEVAConfig(ConfigNode moduleNode)
+        {
+            if (moduleNode == null) return false;
+            string configuredModuleType = moduleNode.GetValue("moduleType")?.Trim();
+            if (string.Equals(configuredModuleType, "kerbalEVA",
+                    System.StringComparison.OrdinalIgnoreCase))
+                return true;
+            foreach (string value in moduleNode.GetValues("recipeType"))
+                if (string.Equals(value?.Trim(), "kerbalEVA",
+                        System.StringComparison.OrdinalIgnoreCase))
+                    return true;
+            return false;
+        }
+
+        private bool IsEVAModuleType()
+            => moduleType == "kerbalEVA" || moduleType == "partEVA";
+
+        private Part GetPowerfailContextPart()
+            => moduleType == "partEVA" && _inventorySessionActive
+                ? _kerbalHost?.part : part;
+
+        private Vessel GetProcessingVessel()
+            => moduleType == "partEVA" && _inventorySessionActive
+                ? _kerbalHost?.vessel : vessel;
+
+        private void ApplyInteractionRanges()
+        {
+            Fields["statusDisplay"].guiUnfocusedRange = _maxDisplayDistance;
+            Fields["chargeDisplay"].guiUnfocusedRange = _maxDisplayDistance;
+            Fields["progressDisplay"].guiUnfocusedRange = _maxDisplayDistance;
+            Fields["stateDisplay"].guiUnfocusedRange = _maxDisplayDistance;
+
+            Events["StartConverter"].unfocusedRange = _maxInteractionDistance;
+            Events["StopConverter"].unfocusedRange = _maxInteractionDistance;
+            Events["PerformMaintenance"].unfocusedRange = _maxInteractionDistance;
+            Events["SwitchRecipe"].unfocusedRange = _maxInteractionDistance;
+            Events["ChangeRecipeParameters"].unfocusedRange = _maxInteractionDistance;
+        }
+
+        /// <summary>
+        /// Fully hides this converter from the PAW: disables every event/action and every
+        /// displayed KSPField (including statusDisplay itself, so the error message the caller
+        /// sets afterward via the field's raw value is never actually rendered).
+        /// </summary>
+        protected void DisableAllUI()
+        {
+            foreach (BaseEvent e in Events)
+                e.active = false;
+            foreach (BaseField f in Fields)
+                f.guiActive = f.guiActiveEditor = false;
+        }
+
+        /// <summary>
+        /// For EVA module types: strips out worker-count/worker-type/control-rule and
+        /// distance-multiplier fields that don't make sense for suit-cell-routed EVA ISRU
+        /// (logging a warning per field actually present in the config), and forces any MAINT
+        /// powerfailResult to VOID since there's no Engineer to perform EVA self-maintenance.
+        /// </summary>
+        private void StripEVAIncompatibleFields(ConfigNode moduleNode)
+        {
+            string evaType = moduleType == "partEVA" ? "partEVA" : "kerbalEVA";
+            void WarnIfPresent(ConfigNode n, string key, string context)
+            {
+                if (n != null && n.HasValue(key))
+                    CTShared.LogError(
+                        "Converter \"" + ConverterName + "\" (moduleType=" + evaType + "): \"" + key
+                        + "\" in " + context + " is ignored for EVA converters.",
+                        "ChitakTechISRU/StripEVAIncompatibleFields");
+            }
+
+            WarnIfPresent(moduleNode, "workersType", "the MODULE node");
+            WarnIfPresent(moduleNode, "controlRules", "the MODULE node");
+
+            foreach (ConfigNode recipeNode in moduleNode.GetNodes("RECIPE"))
+            {
+                WarnIfPresent(recipeNode, "workersEngineers", "a RECIPE node");
+                WarnIfPresent(recipeNode, "workersPilots", "a RECIPE node");
+                WarnIfPresent(recipeNode, "workersScientists", "a RECIPE node");
+                WarnIfPresent(recipeNode, "workersType", "a RECIPE node");
+                WarnIfPresent(recipeNode, "controlRules", "a RECIPE node");
+
+                foreach (ConfigNode planetNode in recipeNode.GetNodes("PLANET_CONFIG"))
+                    foreach (ConfigNode biomeNode in planetNode.GetNodes("BIOME_CONFIG"))
+                        WarnBiomeMultipliers(biomeNode);
+                foreach (ConfigNode biomeNode in recipeNode.GetNodes("BIOME_CONFIG"))
+                    WarnBiomeMultipliers(biomeNode);
+
+                void WarnBiomeMultipliers(ConfigNode biomeNode)
+                {
+                    WarnIfPresent(biomeNode, "maxDisplayDistanceMul", "a BIOME_CONFIG node");
+                    WarnIfPresent(biomeNode, "maxInteractionDistanceMul", "a BIOME_CONFIG node");
+                    WarnIfPresent(biomeNode, "workersScientistsMul", "a BIOME_CONFIG node");
+                    WarnIfPresent(biomeNode, "workersPilotsMul", "a BIOME_CONFIG node");
+                    WarnIfPresent(biomeNode, "workersEngineersMul", "a BIOME_CONFIG node");
+                }
+            }
+
+            foreach (KhemistryISRURecipe recipe in recipes)
+            {
+                recipe._workersEngineers = 0;
+                recipe._workersPilots = 0;
+                recipe._workersScientists = 0;
+                recipe._workersEVA = false;
+                recipe._workersCREW = false;
+
+                for (int i = 0; i < recipe._passiveInputs.Count; i++)
+                {
+                    var pinp = recipe._passiveInputs[i];
+                    if (pinp.powerfail == KhemistryISRURecipe.PowerfailResult.Maint)
+                    {
+                        CTShared.LogError(
+                            "Converter \"" + ConverterName + "\" (moduleType=" + evaType + "): Recipe \"" + recipe._name
+                            + "\" has a MAINT powerfailResult, which requires an Engineer and doesn't apply here — treating as VOID.",
+                            "ChitakTechISRU/StripEVAIncompatibleFields");
+                        pinp.powerfail = KhemistryISRURecipe.PowerfailResult.Void;
+                        recipe._passiveInputs[i] = pinp;
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Discards the tracked in-progress-batch consumption without refunding it.
+        /// </summary>
+        protected void ClearPassiveConsumption()
+        {
+            for (int i = 0; i < _passiveConsumedThisBatch.Count; i++)
+                _passiveConsumedThisBatch[i] = 0.0;
+        }
+    }
+}

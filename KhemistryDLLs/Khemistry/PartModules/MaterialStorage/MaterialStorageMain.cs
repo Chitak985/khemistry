@@ -2,13 +2,13 @@
 using System.Collections.Generic;
 using System.Linq;
 
-namespace Khemistry
+namespace ChitakTech
 {
     /// <summary>
     /// A PartModule that stores <see cref="KhemistryMaterialInstance"/> and merges them as needed.
     /// Uses a completely different resource system than stock KSP.
     /// </summary>
-    public partial class KhemistryMaterialStorage : PartModule
+    public partial class ChitakTechMaterialStorage : PartModule
     {
         /// <summary>Maximum volume held by this storage.</summary>
         [KSPField(isPersistant = false)]
@@ -94,7 +94,7 @@ namespace Khemistry
             foreach (ConfigNode savedNode in savedContents)
             {
                 if (!KhemistryMaterialInstance.TryFromConfigNode(savedNode, out KhemistryMaterialInstance material,
-                        "KhemistryMaterialStorage/RestoreSavedContents"))
+                        "ChitakTechMaterialStorage/RestoreSavedContents"))
                 {
                     _pendingSavedContents.Add(savedNode);
                     continue;
@@ -102,9 +102,9 @@ namespace Khemistry
 
                 if (!AddMaterial(material))
                 {
-                    KShared.LogError(
+                    CTShared.LogError(
                         "Saved material \"" + material.material.name + "\" no longer fits or is no longer supported by part \"" + part.name + "\".",
-                        "KhemistryMaterialStorage/RestoreSavedContents");
+                        "ChitakTechMaterialStorage/RestoreSavedContents");
                     _pendingSavedContents.Add(savedNode);
                 }
             }
@@ -146,9 +146,9 @@ namespace Khemistry
                     if (exactMerge || receiver.ContaminatedMerge(incoming))
                     {
                         if (!exactMerge)
-                            KShared.Log(
+                            CTShared.Log(
                                 $"Instance of {incoming.material.name} was contamination-merged into {receiver.material.name}.",
-                                "KhemistryMaterialStorage/FixedUpdate/contaminatedMergeLogic"
+                                "ChitakTechMaterialStorage/FixedUpdate/contaminatedMergeLogic"
                             );
 
                         contents.RemoveAt(j);
@@ -165,28 +165,28 @@ namespace Khemistry
         {
             if (part.partInfo?.partConfig == null)
             {
-                KShared.LogError("partInfo.partConfig is null!",
-                    "KhemistryMaterialStorage/LoadConfigFromPartInfo");
+                CTShared.LogError("partInfo.partConfig is null!",
+                    "ChitakTechMaterialStorage/LoadConfigFromPartInfo");
                 _fatalConfigError = true;
                 return;
             }
 
-            ConfigNode moduleNode = KShared.FindModuleConfigNode(this,
-                "KhemistryMaterialStorage");
+            ConfigNode moduleNode = CTShared.FindModuleConfigNode(this,
+                "ChitakTechMaterialStorage");
 
             if (moduleNode == null)
             {
-                KShared.LogError("Could not find MODULE node in partConfig!",
-                    "KhemistryMaterialStorage/LoadConfigFromPartInfo");
+                CTShared.LogError("Could not find MODULE node in partConfig!",
+                    "ChitakTechMaterialStorage/LoadConfigFromPartInfo");
                 _fatalConfigError = true;
                 return;
             }
 
             if (float.IsNaN(volume) || float.IsInfinity(volume) || volume <= 0f)
             {
-                KShared.LogError(
-                    "Part \"" + part.name + "\" has an invalid KhemistryMaterialStorage volume. This module will not load.",
-                    "KhemistryMaterialStorage/LoadConfigFromPartInfo");
+                CTShared.LogError(
+                    "Part \"" + part.name + "\" has an invalid ChitakTechMaterialStorage volume. This module will not load.",
+                    "ChitakTechMaterialStorage/LoadConfigFromPartInfo");
                 _fatalConfigError = true;
                 return;
             }
@@ -195,9 +195,9 @@ namespace Khemistry
             supportedNames.Clear();
             if (!moduleNode.HasNode("SUPPORTED_NAMES"))
             {
-                KShared.LogError(
-                    "Part \"" + part.name + "\" has KhemistryMaterialStorage but no SUPPORTED_NAMES node. This module will not load.",
-                    "KhemistryMaterialStorage/LoadConfigFromPartInfo");
+                CTShared.LogError(
+                    "Part \"" + part.name + "\" has ChitakTechMaterialStorage but no SUPPORTED_NAMES node. This module will not load.",
+                    "ChitakTechMaterialStorage/LoadConfigFromPartInfo");
                 _fatalConfigError = true;
                 return;
             }
@@ -209,9 +209,9 @@ namespace Khemistry
             }
             if (supportedNames.Count == 0)
             {
-                KShared.LogError(
-                    "Part \"" + part.name + "\" has KhemistryMaterialStorage with an empty SUPPORTED_NAMES node. This module will not load.",
-                    "KhemistryMaterialStorage/LoadConfigFromPartInfo");
+                CTShared.LogError(
+                    "Part \"" + part.name + "\" has ChitakTechMaterialStorage with an empty SUPPORTED_NAMES node. This module will not load.",
+                    "ChitakTechMaterialStorage/LoadConfigFromPartInfo");
                 _fatalConfigError = true;
                 return;
             }
@@ -219,9 +219,9 @@ namespace Khemistry
             supportedShapes.Clear();
             if (!moduleNode.HasNode("SUPPORTED_SHAPES"))
             {
-                KShared.LogError(
-                    "Part \"" + part.name + "\" has KhemistryMaterialStorage but no SUPPORTED_SHAPES node. This module will not load.",
-                    "KhemistryMaterialStorage/LoadConfigFromPartInfo");
+                CTShared.LogError(
+                    "Part \"" + part.name + "\" has ChitakTechMaterialStorage but no SUPPORTED_SHAPES node. This module will not load.",
+                    "ChitakTechMaterialStorage/LoadConfigFromPartInfo");
                 _fatalConfigError = true;
                 return;
             }
@@ -233,9 +233,9 @@ namespace Khemistry
             }
             if (supportedShapes.Count == 0)
             {
-                KShared.LogError(
-                    "Part \"" + part.name + "\" has KhemistryMaterialStorage with an empty SUPPORTED_SHAPES node. This module will not load.",
-                    "KhemistryMaterialStorage/LoadConfigFromPartInfo");
+                CTShared.LogError(
+                    "Part \"" + part.name + "\" has ChitakTechMaterialStorage with an empty SUPPORTED_SHAPES node. This module will not load.",
+                    "ChitakTechMaterialStorage/LoadConfigFromPartInfo");
                 _fatalConfigError = true;
                 return;
             }
@@ -243,12 +243,12 @@ namespace Khemistry
             paramRequirements.Clear();
             if (!moduleNode.HasNode("PARAM_REQUIREMENTS")) return;
 
-            paramRequirements = KShared.NodeToDictionary(moduleNode.GetNode("PARAM_REQUIREMENTS"));
+            paramRequirements = CTShared.NodeToDictionary(moduleNode.GetNode("PARAM_REQUIREMENTS"));
             if (paramRequirements.Keys.Count == 0)
             {
-                KShared.LogError(
-                    "Part \"" + part.name + "\" has KhemistryMaterialStorage with an empty PARAM_REQUIREMENTS node. This module will not load.",
-                    "KhemistryMaterialStorage/LoadConfigFromPartInfo");
+                CTShared.LogError(
+                    "Part \"" + part.name + "\" has ChitakTechMaterialStorage with an empty PARAM_REQUIREMENTS node. This module will not load.",
+                    "ChitakTechMaterialStorage/LoadConfigFromPartInfo");
                 _fatalConfigError = true;
                 return;
             }
@@ -306,11 +306,11 @@ namespace Khemistry
             if (!supportedNames.Contains(mat.material.name) || !supportedShapes.Contains(mat.shape))
                 return false;
 
-            mat.UpdateParams("KhemistryMaterialStorage/AcceptsMaterial");
+            mat.UpdateParams("ChitakTechMaterialStorage/AcceptsMaterial");
             foreach (KeyValuePair<string, string> requirement in paramRequirements)
             {
                 if (!mat.parameters.TryGetValue(requirement.Key, out string value)
-                    || !KShared.EvaluateParamComparison(value, requirement.Value))
+                    || !CTShared.EvaluateParamComparison(value, requirement.Value))
                     return false;
             }
             return true;
@@ -323,7 +323,7 @@ namespace Khemistry
                   groupStartCollapsed = false)]
         public void OpenMaterialStorageContents()
         {
-            KShared.Instance?.ShowMaterialContents("Material Storage Contents",
+            CTShared.Instance?.ShowMaterialContents("Material Storage Contents",
                 () => part == null ? null : contents,
                 (material, amount) => part != null && MaterialDrop.TryDrop(contents, material, amount));
         }
@@ -335,12 +335,12 @@ namespace Khemistry
                 || material.shape != shape || material.size != size)
                 return false;
 
-            material.UpdateParams("KhemistryMaterialStorage/MatchesMaterial");
+            material.UpdateParams("ChitakTechMaterialStorage/MatchesMaterial");
             foreach (KeyValuePair<string, string> condition in
                      paramConditions ?? new Dictionary<string, string>())
             {
                 if (!material.parameters.TryGetValue(condition.Key, out string value)
-                    || !KShared.EvaluateParamComparison(value, condition.Value))
+                    || !CTShared.EvaluateParamComparison(value, condition.Value))
                     return false;
             }
             return true;
@@ -379,14 +379,14 @@ namespace Khemistry
 
                 int take = Math.Min(remaining, stored.amount);
                 KhemistryMaterialInstance piece = new KhemistryMaterialInstance(stored) { amount = take };
-                piece.UpdateParams("KhemistryMaterialStorage/TryRemoveMaterial");
+                piece.UpdateParams("ChitakTechMaterialStorage/TryRemoveMaterial");
                 removed.Add(piece);
 
                 if (take == stored.amount) contents.Remove(stored);
                 else
                 {
                     stored.amount -= take;
-                    stored.UpdateParams("KhemistryMaterialStorage/TryRemoveMaterial");
+                    stored.UpdateParams("ChitakTechMaterialStorage/TryRemoveMaterial");
                 }
 
                 remaining -= take;
@@ -426,7 +426,7 @@ namespace Khemistry
             foreach (KhemistryMaterialInstance m in contents)
             {
                 if (m?.material == null || m.amount <= 0) continue;
-                m.UpdateParams("KhemistryMaterialStorage/UpdateUI");
+                m.UpdateParams("ChitakTechMaterialStorage/UpdateUI");
             }
             double usedVolume = ComputeCurrentVolume();
             volumeDisplay = double.IsNaN(usedVolume) || double.IsInfinity(usedVolume)

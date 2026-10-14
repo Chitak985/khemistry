@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 
-namespace Khemistry
+namespace ChitakTech
 {
     /// <summary>
     /// A material usually loaded from configs. It defines its name, allowed shapes, and allowed parameters.
@@ -23,7 +23,7 @@ namespace Khemistry
         /// <summary>
         /// List of parameters of the material.
         /// The value is either a default value or the equation to derive it from.
-        /// A derived value starts with DER. Each bracketed segment after DER is a KMathExpr
+        /// A derived value starts with DER. Each bracketed segment after DER is a CTMathExpr
         /// whose result is inserted into the surrounding string.
         /// </summary>
         public Dictionary<string, string> parameters = new Dictionary<string, string>();
@@ -32,7 +32,7 @@ namespace Khemistry
         /// <summary>
         /// List of equations to merge parameters of the material.
         /// If one isn't loaded for a numeric parameter, it defaults to a weighted average by amount.
-        /// Each bracketed segment in a merge value is a KMathExpr and can include the current
+        /// Each bracketed segment in a merge value is a CTMathExpr and can include the current
         /// variables and the other material's variables with an O suffix.
         /// </summary>
         public Dictionary<string, string> parameterMergers = new Dictionary<string, string>();
@@ -51,22 +51,22 @@ namespace Khemistry
             // Check if the config node is valid
             if (configNode == null)
             {
-                KShared.LogError("KhemistryMaterial loading failed because the ConfigNode provided is null!", "KhemistryMaterial/constructor");
+                CTShared.LogError("KhemistryMaterial loading failed because the ConfigNode provided is null!", "KhemistryMaterial/constructor");
                 return;
             }
             if (configNode.name != "KHEMISTRY_MATERIAL")
             {
-                KShared.LogError("KhemistryMaterial loading failed because the node isn't named KHEMISTRY_MATERIAL!", "KhemistryMaterial/constructor");
+                CTShared.LogError("KhemistryMaterial loading failed because the node isn't named KHEMISTRY_MATERIAL!", "KhemistryMaterial/constructor");
                 return;
             }
             if (!configNode.HasNode("SHAPES"))
             {
-                KShared.LogError("KhemistryMaterial loading failed because node SHAPES isn't present!", "KhemistryMaterial/constructor");
+                CTShared.LogError("KhemistryMaterial loading failed because node SHAPES isn't present!", "KhemistryMaterial/constructor");
                 return;
             }
             if (!configNode.HasValue("name"))
             {
-                KShared.LogError("KhemistryMaterial loading failed because value name isn't present!", "KhemistryMaterial/constructor");
+                CTShared.LogError("KhemistryMaterial loading failed because value name isn't present!", "KhemistryMaterial/constructor");
                 return;
             }
 
@@ -74,7 +74,7 @@ namespace Khemistry
             name = configNode.GetValue("name")?.Trim();
             if (string.IsNullOrEmpty(name))
             {
-                KShared.LogError("KhemistryMaterial loading failed because its name is null or empty!", "KhemistryMaterial/constructor");
+                CTShared.LogError("KhemistryMaterial loading failed because its name is null or empty!", "KhemistryMaterial/constructor");
                 return;
             }
 
@@ -87,7 +87,7 @@ namespace Khemistry
             }
             if (shapes.Count == 0)
             {
-                KShared.LogError("Material \"" + name + "\" has no valid shapes!", "KhemistryMaterial/constructor");
+                CTShared.LogError("Material \"" + name + "\" has no valid shapes!", "KhemistryMaterial/constructor");
                 return;
             }
 
@@ -102,7 +102,7 @@ namespace Khemistry
                         || !System.Text.RegularExpressions.Regex.IsMatch(key,
                             @"^[A-Za-z_][A-Za-z0-9_]*$"))
                     {
-                        KShared.LogError("Material \"" + name
+                        CTShared.LogError("Material \"" + name
                             + "\" has an invalid parameter name \"" + (key ?? "") + "\".",
                             "KhemistryMaterial/constructor");
                         configurationError = true;
@@ -110,7 +110,7 @@ namespace Khemistry
                     }
                     if (IsReservedParameterName(key) || !parameterNames.Add(key))
                     {
-                        KShared.LogError("Material \"" + name
+                        CTShared.LogError("Material \"" + name
                             + "\" has a reserved or case-insensitively duplicated parameter name \""
                             + key + "\".", "KhemistryMaterial/constructor");
                         configurationError = true;
@@ -123,7 +123,7 @@ namespace Khemistry
                 foreach (string parameterName in parameters.Keys)
                     if (parameterNames.Contains(parameterName + "O"))
                     {
-                        KShared.LogError("Material \"" + name + "\" parameters \""
+                        CTShared.LogError("Material \"" + name + "\" parameters \""
                             + parameterName + "\" and \"" + parameterName
                             + "O\" collide in contaminated-merge expressions.",
                             "KhemistryMaterial/constructor");
@@ -143,7 +143,7 @@ namespace Khemistry
                         string.Equals(parameterName, configuredKey, StringComparison.OrdinalIgnoreCase));
                     if (key == null)
                     {
-                        KShared.LogError(
+                        CTShared.LogError(
                             "Material \"" + name + "\" has a PARAM_MERGING equation for unknown parameter \""
                             + configuredKey + "\".",
                             "KhemistryMaterial/constructor");
@@ -152,7 +152,7 @@ namespace Khemistry
                     }
                     if (!mergerNames.Add(key))
                     {
-                        KShared.LogError("Material \"" + name
+                        CTShared.LogError("Material \"" + name
                             + "\" has duplicate PARAM_MERGING equations for parameter \"" + key + "\".",
                             "KhemistryMaterial/constructor");
                         configurationError = true;
@@ -161,7 +161,7 @@ namespace Khemistry
                     string expression = merger.value?.Trim();
                     if (string.IsNullOrWhiteSpace(expression))
                     {
-                        KShared.LogError("Material \"" + name
+                        CTShared.LogError("Material \"" + name
                             + "\" has an empty PARAM_MERGING equation for parameter \"" + key + "\".",
                             "KhemistryMaterial/constructor");
                         configurationError = true;
@@ -172,7 +172,7 @@ namespace Khemistry
                         && !string.Equals(expression, "DERIVE",
                             StringComparison.OrdinalIgnoreCase))
                     {
-                        KShared.LogError(
+                        CTShared.LogError(
                             "Material \"" + name + "\" has a PARAM_MERGING equation for derived parameter \""
                             + key + "\"; use \"" + key
                             + " = DERIVE\" to recalculate it at that point.",
@@ -184,7 +184,7 @@ namespace Khemistry
                         && string.Equals(expression, "DERIVE",
                             StringComparison.OrdinalIgnoreCase))
                     {
-                        KShared.LogError("Material \"" + name
+                        CTShared.LogError("Material \"" + name
                             + "\" uses DERIVE for non-derived parameter \"" + key + "\".",
                             "KhemistryMaterial/constructor");
                         configurationError = true;
@@ -212,11 +212,11 @@ namespace Khemistry
                 if (!IsDerivedParameter(parameterName))
                 {
                     string configuredValue = parameters[parameterName];
-                    if (!KShared.ContainsInterpolation(configuredValue)
-                        || KMathExpr.TryInterpolate(configuredValue, out _,
+                    if (!CTShared.ContainsInterpolation(configuredValue)
+                        || CTMathExpr.TryInterpolate(configuredValue, out _,
                             out string defaultExpressionError, syntaxVariables))
                         continue;
-                    KShared.LogError("Material \"" + name
+                    CTShared.LogError("Material \"" + name
                         + "\": default value for parameter \"" + parameterName
                         + "\" is invalid: " + defaultExpressionError,
                         "KhemistryMaterial/constructor");
@@ -224,11 +224,11 @@ namespace Khemistry
                     continue;
                 }
                 string expression = GetDerivationExpression(parameterName);
-                if (KMathExpr.TryInterpolate(expression, out _, out string expressionError,
+                if (CTMathExpr.TryInterpolate(expression, out _, out string expressionError,
                         syntaxVariables))
                     continue;
 
-                KShared.LogError("Material \"" + name + "\": expression for parameter \""
+                CTShared.LogError("Material \"" + name + "\": expression for parameter \""
                     + parameterName + "\" is invalid: " + expressionError,
                     "KhemistryMaterial/constructor");
                 configurationError = true;
@@ -240,11 +240,11 @@ namespace Khemistry
                         StringComparison.OrdinalIgnoreCase))
                     continue;
 
-                if (KMathExpr.TryInterpolate(expression, out _,
+                if (CTMathExpr.TryInterpolate(expression, out _,
                         out string expressionError, syntaxVariables))
                     continue;
 
-                KShared.LogError("Material \"" + name
+                CTShared.LogError("Material \"" + name
                     + "\": merge expression for parameter \"" + parameterName
                     + "\" is invalid: " + expressionError,
                     "KhemistryMaterial/constructor");
@@ -331,7 +331,7 @@ namespace Khemistry
             }
             else if (!string.Equals(_lastDerivedParameterError, error, StringComparison.Ordinal))
             {
-                KShared.LogError("Not all derived parameters could be updated: " + error, location);
+                CTShared.LogError("Not all derived parameters could be updated: " + error, location);
                 _lastDerivedParameterError = error;
             }
         }
@@ -348,7 +348,7 @@ namespace Khemistry
         public KhemistryMaterialInstance(KhemistryMaterial material, string shape, string size, float volume, Dictionary<string, string> parameters)
         {
             if (material == null)
-                KShared.LogFatalError("Material is null.", "KhemistryMaterialInstance/constructor");
+                CTShared.LogFatalError("Material is null.", "KhemistryMaterialInstance/constructor");
 
             // Assign values
             this.material = material;
@@ -361,14 +361,14 @@ namespace Khemistry
 
             // Check shape validity
             if (!material.shapes.Contains(shape))
-                KShared.LogError("Material instance of material " + material.name + " has an invalid shape " + shape + "!", "KhemistryMaterialInstance/constructor");
+                CTShared.LogError("Material instance of material " + material.name + " has an invalid shape " + shape + "!", "KhemistryMaterialInstance/constructor");
 
             // Set keys that exist to the passed parameters values
             foreach (string key in (parameters ?? new Dictionary<string, string>()).Keys)
                 if (this.parameters.ContainsKey(key))
                     this.parameters[key] = parameters[key];
                 else
-                    KShared.LogError("Material instance of material " + material.name + " has an invalid parameter " + key + " with value " + parameters[key] + "!", "KhemistryMaterialInstance/constructor");
+                    CTShared.LogError("Material instance of material " + material.name + " has an invalid parameter " + key + " with value " + parameters[key] + "!", "KhemistryMaterialInstance/constructor");
 
             // Non-derived defaults and supplied values may contain embedded expressions.
             // Resolve them from top to bottom so later parameters see earlier results.
@@ -376,13 +376,13 @@ namespace Khemistry
             {
                 if (material.IsDerivedParameter(parameterName)) continue;
                 string configured = this.parameters[parameterName];
-                if (!KShared.ContainsInterpolation(configured)) continue;
-                if (KMathExpr.TryInterpolate(configured, out string resolved,
+                if (!CTShared.ContainsInterpolation(configured)) continue;
+                if (CTMathExpr.TryInterpolate(configured, out string resolved,
                         out string interpolationError,
                         BuildVariableList(this.parameters, amount)))
                     this.parameters[parameterName] = resolved;
                 else
-                    KShared.LogError("Could not evaluate default parameter \""
+                    CTShared.LogError("Could not evaluate default parameter \""
                         + parameterName + "\": " + interpolationError,
                         "KhemistryMaterialInstance/constructor");
             }
@@ -407,7 +407,7 @@ namespace Khemistry
         }
 
         /// <summary>
-        /// Gets the material-related variable list to use in <see cref="KMathExpr"/> expressions.
+        /// Gets the material-related variable list to use in <see cref="CTMathExpr"/> expressions.
         /// This includes:
         /// <list type="bullet">Parameters</list>
         /// <list type="bullet">Amount</list>
@@ -415,7 +415,7 @@ namespace Khemistry
         /// <list type="bullet">Any additional ones provided in the argument</list>
         /// </summary>
         /// <param name="additional"></param>
-        /// <returns>The variables available to embedded KMathExpr expressions.</returns>
+        /// <returns>The variables available to embedded CTMathExpr expressions.</returns>
         public Dictionary<string, string> GetVariableList(Dictionary<string, string> additional = null)
         {
             return BuildVariableList(parameters, amount, additional);
@@ -477,7 +477,7 @@ namespace Khemistry
             Dictionary<string, string> variables =
                 new Dictionary<string, string>(sourceParameters);
             variables.Remove(canonicalName);
-            if (!KMathExpr.TryInterpolate(material.GetDerivationExpression(canonicalName),
+            if (!CTMathExpr.TryInterpolate(material.GetDerivationExpression(canonicalName),
                     out string value, out string evaluationError,
                     BuildVariableList(variables, sourceAmount)))
             {
@@ -504,7 +504,7 @@ namespace Khemistry
                 string parameterName = GetCanonicalParameterName(assignment.Key);
                 if (parameterName == null)
                 {
-                    KShared.LogError("Material instance of material " + material.name
+                    CTShared.LogError("Material instance of material " + material.name
                         + " has an invalid parameter " + assignment.Key + ".", location);
                     return false;
                 }
@@ -516,16 +516,16 @@ namespace Khemistry
                     if (!TryDeriveParameter(parameters, amount, parameterName,
                             out string deriveError))
                     {
-                        KShared.LogError("Could not apply OUTPUT_MATERIAL DERIVE: "
+                        CTShared.LogError("Could not apply OUTPUT_MATERIAL DERIVE: "
                             + deriveError, location);
                         return false;
                     }
                 }
-                else if (!KMathExpr.TryInterpolate(assignment.Value,
+                else if (!CTMathExpr.TryInterpolate(assignment.Value,
                              out string resolvedValue, out string interpolationError,
                              BuildVariableList(parameters, amount), randomFunction))
                 {
-                    KShared.LogError("Could not apply OUTPUT_MATERIAL parameter \""
+                    CTShared.LogError("Could not apply OUTPUT_MATERIAL parameter \""
                         + parameterName + "\": " + interpolationError, location);
                     return false;
                 }
@@ -556,7 +556,7 @@ namespace Khemistry
                 foreach (string parameterName in pending.ToList())
                 {
                     string expression = material.GetDerivationExpression(parameterName);
-                    if (!KMathExpr.TryInterpolate(expression, out string value,
+                    if (!CTMathExpr.TryInterpolate(expression, out string value,
                             out string evaluationError,
                             BuildVariableList(updated, sourceAmount)))
                     {
@@ -603,7 +603,7 @@ namespace Khemistry
             {
                 if (!string.Equals(_lastDerivedParameterError, error, StringComparison.Ordinal))
                 {
-                    KShared.LogError("Could not derive material parameters: " + error,
+                    CTShared.LogError("Could not derive material parameters: " + error,
                         "KhemistryMaterialInstance/DeriveAllParameters");
                     _lastDerivedParameterError = error;
                 }
@@ -686,7 +686,7 @@ namespace Khemistry
                 if (!complete && !string.Equals(_lastDerivedParameterError, error,
                         StringComparison.Ordinal))
                 {
-                    KShared.LogError("Not all derived parameters could be updated after merging: "
+                    CTShared.LogError("Not all derived parameters could be updated after merging: "
                         + error, "KhemistryMaterialInstance/Merge");
                     _lastDerivedParameterError = error;
                 }
@@ -796,7 +796,7 @@ namespace Khemistry
 
                 Dictionary<string, string> mergeVariables = BuildVariableList(
                     mergedParameters, amount, otherVariables);
-                if (!KMathExpr.TryInterpolate(expression, out string mergedValue,
+                if (!CTMathExpr.TryInterpolate(expression, out string mergedValue,
                         out string mergeError, mergeVariables))
                     return FailContaminatedMerge("Parameter \"" + parameterName + "\": " + mergeError);
                 mergedParameters[parameterName] = mergedValue;
@@ -811,7 +811,7 @@ namespace Khemistry
             if (!derivationComplete && !string.Equals(_lastDerivedParameterError,
                     derivationError, StringComparison.Ordinal))
             {
-                KShared.LogError("Not all derived parameters could be updated after contaminated merging: "
+                CTShared.LogError("Not all derived parameters could be updated after contaminated merging: "
                     + derivationError, "KhemistryMaterialInstance/ContaminatedMerge");
                 _lastDerivedParameterError = derivationError;
             }
@@ -825,7 +825,7 @@ namespace Khemistry
         {
             if (!string.Equals(_lastContaminatedMergeError, error, StringComparison.Ordinal))
             {
-                KShared.LogError(error, "KhemistryMaterialInstance/ContaminatedMerge");
+                CTShared.LogError(error, "KhemistryMaterialInstance/ContaminatedMerge");
                 _lastContaminatedMergeError = error;
             }
             return false;
@@ -884,18 +884,18 @@ namespace Khemistry
             if (node == null) return false;
 
             string materialName = node.GetValue("name");
-            KhemistryMaterial definition = KShared.Instance?.materialList
+            KhemistryMaterial definition = CTShared.Instance?.materialList
                 .FirstOrDefault(m => m.name == materialName);
             if (definition == null)
             {
-                KShared.LogError("Saved material \"" + materialName + "\" has no loaded KHEMISTRY_MATERIAL definition.", logContext);
+                CTShared.LogError("Saved material \"" + materialName + "\" has no loaded KHEMISTRY_MATERIAL definition.", logContext);
                 return false;
             }
 
             string shape = node.GetValue("shape");
             if (string.IsNullOrEmpty(shape) || !definition.shapes.Contains(shape))
             {
-                KShared.LogError("Saved material \"" + materialName + "\" has invalid shape \""
+                CTShared.LogError("Saved material \"" + materialName + "\" has invalid shape \""
                     + (shape ?? "") + "\".", logContext);
                 return false;
             }
@@ -903,14 +903,14 @@ namespace Khemistry
             if (!float.TryParse(node.GetValue("volume"), NumberStyles.Float, CultureInfo.InvariantCulture, out float volume)
                 || float.IsNaN(volume) || float.IsInfinity(volume) || volume <= 0f)
             {
-                KShared.LogError("Saved material \"" + materialName + "\" has an invalid per-unit volume.", logContext);
+                CTShared.LogError("Saved material \"" + materialName + "\" has an invalid per-unit volume.", logContext);
                 return false;
             }
 
             if (!int.TryParse(node.GetValue("amount"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int amount)
                 || amount <= 0)
             {
-                KShared.LogError("Saved material \"" + materialName + "\" has an invalid amount.", logContext);
+                CTShared.LogError("Saved material \"" + materialName + "\" has an invalid amount.", logContext);
                 return false;
             }
 
@@ -923,7 +923,7 @@ namespace Khemistry
                     if (string.IsNullOrEmpty(key) || savedParameters.ContainsKey(key)
                         || !definition.parameters.ContainsKey(key))
                     {
-                        KShared.LogError("Saved material \"" + materialName
+                        CTShared.LogError("Saved material \"" + materialName
                             + "\" has an unknown, empty, or duplicated parameter \""
                             + (key ?? "") + "\"; preserving its save record unchanged.",
                             logContext);
@@ -936,7 +936,7 @@ namespace Khemistry
             string size = node.GetValue("size")?.Trim();
             if (string.IsNullOrEmpty(size))
             {
-                KShared.LogError("Saved material \"" + materialName + "\" has an empty size.",
+                CTShared.LogError("Saved material \"" + materialName + "\" has an empty size.",
                     logContext);
                 return false;
             }
@@ -948,7 +948,7 @@ namespace Khemistry
             };
             // Derived expressions may use amount, so recalculate after restoring the saved amount.
             if (!instance.DeriveAllParameters())
-                KShared.LogWarning("Saved material \"" + materialName
+                CTShared.LogWarning("Saved material \"" + materialName
                     + "\" has one or more currently undefined derived helpers; it was restored with those helpers unresolved.",
                     logContext);
             return true;
@@ -971,7 +971,7 @@ namespace Khemistry
 
         public KhemistryAllowedMaterial(ConfigNode node)
         {
-            name = KShared.GetStrValueFromCFG(node, "name", null)?.Trim();
+            name = CTShared.GetStrValueFromCFG(node, "name", null)?.Trim();
             if (node == null) return;
 
             if (node.HasNode("SUPPORTED_SHAPES"))
@@ -1019,7 +1019,7 @@ namespace Khemistry
                 bool anyPassed = false;
                 foreach (string comparison in kv.Value)
                 {
-                    if (KShared.EvaluateParamComparison(paramValue, comparison))
+                    if (CTShared.EvaluateParamComparison(paramValue, comparison))
                     {
                         anyPassed = true;
                         break;

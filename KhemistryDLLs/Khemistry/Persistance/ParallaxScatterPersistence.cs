@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using UnityEngine;
 
-namespace Khemistry
+namespace ChitakTech
 {
     /// <summary>Per-save record of Parallax scatter instances harvested by Khemistry.</summary>
     [KSPScenario(ScenarioCreationOptions.AddToAllGames, GameScenes.SPACECENTER,
@@ -42,7 +42,7 @@ namespace Khemistry
                 }
             }
             if (invalid > 0)
-                KShared.LogError("Ignored " + invalid
+                CTShared.LogError("Ignored " + invalid
                     + " invalid or duplicate harvested Parallax scatter record(s).",
                     "KhemistryParallaxScenario/OnLoad");
             IsReady = true;

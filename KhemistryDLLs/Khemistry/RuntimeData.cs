@@ -1,21 +1,21 @@
-﻿namespace Khemistry
+﻿namespace ChitakTech
 {
     /// <summary>
-    /// Runtime data used by <see cref="KhemistryISRU"/>.
-    /// This is checked by <see cref="KhemistryISRUBiomeConfig"/> to see if a recipe can run.
+    /// Runtime data used by <see cref="ChitakTechISRU"/>.
+    /// This is checked by <see cref="ChitakTechISRUBiomeConfig"/> to see if a recipe can run.
     /// </summary>
-    public class KhemistryRuntimeData
+    public class ChitakTechRuntimeData
     {
         // While vessel is null this tries to mimick Kerbin
         public double alt = 0;
         public double g = 0;
         public double temperature = 293.15;
         public double pressure = 104;
-        public KShared.SituationCondition sitCon = new KShared.SituationCondition();
+        public CTShared.SituationCondition sitCon = new CTShared.SituationCondition();
         public string planet = "Kerbin";
         public string biome = "Grasslands";
 
-        public KhemistryRuntimeData(Vessel vessel)
+        public ChitakTechRuntimeData(Vessel vessel)
         {
             // If vessel is null just don't update
             if (vessel != null)
@@ -30,7 +30,7 @@
                 g = vessel.geeForce;  // Gs
                 temperature = vessel.externalTemperature;  // Kelvin
                 pressure = vessel.staticPressurekPa;  // kPa
-                sitCon = KShared.GetVesselSituation(vessel);
+                sitCon = CTShared.GetVesselSituation(vessel);
                 CelestialBody body = vessel.mainBody;
                 planet = body?.name ?? "";
                 biome = body == null

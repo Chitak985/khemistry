@@ -4,7 +4,7 @@ using System.Linq;
 using System.Globalization;
 using UnityEngine;
 
-namespace Khemistry
+namespace ChitakTech
 {
     /// <summary>
     /// A <see cref="PartModule"/> applied to kerbals, it handles all EVA-side logic and rendering.
@@ -37,7 +37,7 @@ namespace Khemistry
             = new List<HashSet<string>>();
 
         ///// Material suit cell (behaves like SUIT_CELL, but stores KhemistryMaterialInstance /////
-        ///// via KhemistryMaterialStorage-style logic instead of fluid resources)             /////
+        ///// via ChitakTechMaterialStorage-style logic instead of fluid resources)             /////
         ///<summary>Maxmimum volume in meters cubed the material suit cell can store.</summary>
         private float _materialSuitCellVolume = 0f;
         ///<summary>Maximum transfer distance in meters for the material suit cell.</summary>
@@ -55,11 +55,11 @@ namespace Khemistry
         public float MaterialSuitCellTransferDistance => _materialSuitCellTransferDistance;
 
         /// <summary>
-        /// Claim slot for the single allowed kerbalEVA-type KhemistryISRU on this kerbal.
+        /// Claim slot for the single allowed kerbalEVA-type ChitakTechISRU on this kerbal.
         /// Set by whichever such module's OnStart runs first; used to detect and disable
         /// duplicates regardless of instance/config duplication order.
         /// </summary>
-        public KhemistryISRU kerbalEVAISRU = null;
+        public ChitakTechISRU kerbalEVAISRU = null;
 
         private ModuleInventoryPart _inventory;
         private KerbalEVA eva;
@@ -77,7 +77,7 @@ namespace Khemistry
         private int _inventoryChangeBatchDepth;
         private bool _inventoryChangePending;
 
-        ///<summary>Reference to a <see cref="KhemistryFluidCell"/> on the kerbal. Used for various operations on it.</summary>
+        ///<summary>Reference to a <see cref="ChitakTechFluidCell"/> on the kerbal. Used for various operations on it.</summary>
         private struct FluidCellRef
         {
             public bool isSuit;
@@ -105,18 +105,18 @@ namespace Khemistry
         }
 
         ///<summary>Does the provided <see cref="PartResource"/> have a usable amount?</summary>
-        private static bool HasUsableAmount(KhemistryResourceNetwork.Endpoint resource)
-            => resource != null && KShared.IsFinite(resource.amount) && resource.amount > 0.0;
-        private static bool CanAcceptResource(KhemistryResourceNetwork.Endpoint resource)
-            => resource != null && KShared.IsFinite(resource.space) && resource.space > 0.0;
+        private static bool HasUsableAmount(ChitakTechResourceNetwork.Endpoint resource)
+            => resource != null && CTShared.IsFinite(resource.amount) && resource.amount > 0.0;
+        private static bool CanAcceptResource(ChitakTechResourceNetwork.Endpoint resource)
+            => resource != null && CTShared.IsFinite(resource.space) && resource.space > 0.0;
 
         private static bool HasUsableAmount(PartResource resource)
-            => resource != null && KShared.IsFinite(resource.amount) && resource.amount > 0.0;
+            => resource != null && CTShared.IsFinite(resource.amount) && resource.amount > 0.0;
 
         ///<summary>Can the provided <see cref="PartResource"/> be accepted?</summary>
         private static bool CanAcceptResource(PartResource resource)
-            => resource != null && KShared.IsFinite(resource.amount) && resource.amount >= 0.0
-                && KShared.IsFinite(resource.maxAmount) && resource.maxAmount >= 0.0
+            => resource != null && CTShared.IsFinite(resource.amount) && resource.amount >= 0.0
+                && CTShared.IsFinite(resource.maxAmount) && resource.maxAmount >= 0.0
                 && resource.amount < resource.maxAmount;
 
         private bool IsStoredPartCurrent(StoredPart stored)
@@ -131,7 +131,7 @@ namespace Khemistry
         private bool IsPartCurrentAndInRange(Part candidate, double range)
         {
             if (candidate == null || part == null || candidate == part
-                || !KShared.IsFinite(range) || range < 0.0 || candidate.vessel == null
+                || !CTShared.IsFinite(range) || range < 0.0 || candidate.vessel == null
                 || !FlightGlobals.VesselsLoaded.Contains(candidate.vessel)
                 || !candidate.vessel.parts.Contains(candidate))
                 return false;
@@ -166,16 +166,16 @@ namespace Khemistry
 
         ///<summary>Get the deserialized version of the resource dictionary used for the suit cell.</summary>
         internal static Dictionary<string, double> DeserializeResourceDictionary(string data)
-            => KhemistryFluidCell.DeserializeResources(data);
+            => ChitakTechFluidCell.DeserializeResources(data);
 
         ///<summary>Get the serialized version of the resource dictionary used for the suit cell.</summary>
         internal static string SerializeResourceDictionary(
             IDictionary<string, double> resources)
-            => KhemistryFluidCell.SerializeResources(resources);
+            => ChitakTechFluidCell.SerializeResources(resources);
 
         internal static double GetResourceDictionaryTotal(
             IDictionary<string, double> resources)
-            => KhemistryFluidCell.GetResourceTotal(resources);
+            => ChitakTechFluidCell.GetResourceTotal(resources);
 
         /// <summary>
         /// Routes a held partEVA converter request through the fluid cell on that same held
@@ -192,7 +192,7 @@ namespace Khemistry
 
         private void LoadConfigFromPartInfo()
         {
-            KShared.Log("Called!", "KhemistryKerbal/LoadConfigFromPartInfo");
+            CTShared.Log("Called!", "KhemistryKerbal/LoadConfigFromPartInfo");
             _suitCellMaxAmount = 0f;
             _suitCellTransferDistance = 10f;
             _suitCellSupportedResourceGroups.Clear();
@@ -230,7 +230,7 @@ namespace Khemistry
 
             if (moduleNode == null)
             {
-                KShared.LogError(
+                CTShared.LogError(
                     "Could not find KhemistryKerbal MODULE node for part \"" + part.name + "\".",
                     "KhemistryKerbal/LoadConfigFromPartInfo");
                 return;
@@ -239,12 +239,12 @@ namespace Khemistry
             if (moduleNode.HasNode("SUIT_CELL"))
             {
                 ConfigNode suitNode = moduleNode.GetNode("SUIT_CELL");
-                _suitCellMaxAmount = KShared.GetFloatValueFromCFG(suitNode, "maxAmount", 0f);
-                _suitCellTransferDistance = KShared.GetFloatValueFromCFG(suitNode, "transferDistance", 10f);
+                _suitCellMaxAmount = CTShared.GetFloatValueFromCFG(suitNode, "maxAmount", 0f);
+                _suitCellTransferDistance = CTShared.GetFloatValueFromCFG(suitNode, "transferDistance", 10f);
                 if (float.IsNaN(_suitCellMaxAmount) || float.IsInfinity(_suitCellMaxAmount)
                     || _suitCellMaxAmount <= 0f)
                 {
-                    KShared.LogError("Part \"" + part.name
+                    CTShared.LogError("Part \"" + part.name
                         + "\" has a SUIT_CELL with invalid maxAmount; the suit cell was disabled.",
                         "KhemistryKerbal/LoadConfigFromPartInfo");
                     _suitCellMaxAmount = 0f;
@@ -252,7 +252,7 @@ namespace Khemistry
                 if (float.IsNaN(_suitCellTransferDistance) || float.IsInfinity(_suitCellTransferDistance)
                     || _suitCellTransferDistance < 0f)
                 {
-                    KShared.LogError("Part \"" + part.name
+                    CTShared.LogError("Part \"" + part.name
                         + "\" has a negative SUIT_CELL transferDistance; using 10.",
                         "KhemistryKerbal/LoadConfigFromPartInfo");
                     _suitCellTransferDistance = 10f;
@@ -273,12 +273,12 @@ namespace Khemistry
             if (moduleNode.HasNode("MATERIAL_SUIT_CELL"))
             {
                 ConfigNode matSuitNode = moduleNode.GetNode("MATERIAL_SUIT_CELL");
-                _materialSuitCellVolume = KShared.GetFloatValueFromCFG(matSuitNode, "volume", 0f);
-                _materialSuitCellTransferDistance = KShared.GetFloatValueFromCFG(matSuitNode, "transferDistance", 2f);
+                _materialSuitCellVolume = CTShared.GetFloatValueFromCFG(matSuitNode, "volume", 0f);
+                _materialSuitCellTransferDistance = CTShared.GetFloatValueFromCFG(matSuitNode, "transferDistance", 2f);
                 if (float.IsNaN(_materialSuitCellVolume) || float.IsInfinity(_materialSuitCellVolume)
                     || _materialSuitCellVolume <= 0f)
                 {
-                    KShared.LogError("Part \"" + part.name
+                    CTShared.LogError("Part \"" + part.name
                         + "\" has a MATERIAL_SUIT_CELL with invalid volume; the material cell was disabled.",
                         "KhemistryKerbal/LoadConfigFromPartInfo");
                     _materialSuitCellVolume = 0f;
@@ -287,7 +287,7 @@ namespace Khemistry
                     || float.IsInfinity(_materialSuitCellTransferDistance)
                     || _materialSuitCellTransferDistance < 0f)
                 {
-                    KShared.LogError("Part \"" + part.name
+                    CTShared.LogError("Part \"" + part.name
                         + "\" has a negative MATERIAL_SUIT_CELL transferDistance; using 2.",
                         "KhemistryKerbal/LoadConfigFromPartInfo");
                     _materialSuitCellTransferDistance = 2f;
@@ -298,7 +298,7 @@ namespace Khemistry
                     var allowed = new KhemistryAllowedMaterial(allowedNode);
                     if (string.IsNullOrEmpty(allowed.name))
                     {
-                        KShared.LogError(
+                        CTShared.LogError(
                             "Part \"" + part.name + "\" has a MATERIAL_SUIT_CELL ALLOWED_MATERIAL with no name, skipping.",
                             "KhemistryKerbal/LoadConfigFromPartInfo");
                         continue;
@@ -307,12 +307,12 @@ namespace Khemistry
                 }
 
                 if (_materialSuitCellVolume > 0f && _materialSuitCellAllowed.Count == 0)
-                    KShared.LogError(
+                    CTShared.LogError(
                         "Part \"" + part.name + "\" has a MATERIAL_SUIT_CELL with no valid ALLOWED_MATERIAL entries — nothing will ever be accepted.",
                         "KhemistryKerbal/LoadConfigFromPartInfo");
             }
 
-            KShared.Log("Loaded kerbal resource storage.",
+            CTShared.Log("Loaded kerbal resource storage.",
                 "KhemistryKerbal/LoadConfigFromPartInfo");
         }
 
@@ -422,14 +422,14 @@ namespace Khemistry
             CacheCrewIdentity();
             if (_crewPersistentId == 0 && string.IsNullOrWhiteSpace(_crewName))
             {
-                KShared.LogError("Could not preserve suit-cell contents while boarding because the kerbal identity is unavailable.",
+                CTShared.LogError("Could not preserve suit-cell contents while boarding because the kerbal identity is unavailable.",
                     "KhemistryKerbal/OnCrewBoardVessel");
                 return;
             }
             KhemistryKerbalSuitScenario scenario = KhemistryKerbalSuitScenario.Instance;
             if (scenario == null || !scenario.IsReady)
             {
-                KShared.LogError("Could not preserve suit-cell contents while boarding because the per-save suit scenario is unavailable.",
+                CTShared.LogError("Could not preserve suit-cell contents while boarding because the per-save suit scenario is unavailable.",
                     "KhemistryKerbal/OnCrewBoardVessel");
                 return;
             }
@@ -454,7 +454,7 @@ namespace Khemistry
             var allHandlers = part.FindModulesImplementing<KhemistryKerbal>();
             if (allHandlers.Count > 1 && allHandlers[0] != this)
             {
-                KShared.LogError("Duplicate handler found; disabling this copy.", "KhemistryKerbal/OnStart");
+                CTShared.LogError("Duplicate handler found; disabling this copy.", "KhemistryKerbal/OnStart");
                 _disabledDuplicate = true;
                 enabled = false;
                 foreach (BaseEvent moduleEvent in Events) moduleEvent.active = false;
@@ -471,11 +471,11 @@ namespace Khemistry
 
             _inventory = part.FindModuleImplementing<ModuleInventoryPart>();
             if (_inventory == null)
-                KShared.LogError("No ModuleInventoryPart on Kerbal.", "KhemistryKerbal/OnStart");
+                CTShared.LogError("No ModuleInventoryPart on Kerbal.", "KhemistryKerbal/OnStart");
             else
-                KShared.Log("Inventory found.", "KhemistryKerbal/OnStart");
+                CTShared.Log("Inventory found.", "KhemistryKerbal/OnStart");
 
-            KShared.Log("OnStart complete!", "KhemistryKerbal/OnStart");
+            CTShared.Log("OnStart complete!", "KhemistryKerbal/OnStart");
         }
 
         public override void OnUpdate()
@@ -566,16 +566,16 @@ namespace Khemistry
             KhemistryDegradingBattery prefab = PartLoader.getPartInfoByName(stored.partName)?.partPrefab
                 .FindModuleImplementing<KhemistryDegradingBattery>();
             ProtoPartModuleSnapshot snapshot = GetModuleSnapshot(stored, "KhemistryDegradingBattery");
-            if (prefab == null || snapshot == null || !KShared.IsFinite(prefab.DegradeTime)
+            if (prefab == null || snapshot == null || !CTShared.IsFinite(prefab.DegradeTime)
                 || prefab.DegradeTime <= 0.0) return;
 
             ProtoPartResourceSnapshot resource = FindStoredPartResource(stored,
                 prefab.ResourceName);
-            if (resource == null || !KShared.IsFinite(resource.amount) || resource.amount < 0.0
-                || !KShared.IsFinite(resource.maxAmount) || resource.maxAmount < 0.0) return;
+            if (resource == null || !CTShared.IsFinite(resource.amount) || resource.amount < 0.0
+                || !CTShared.IsFinite(resource.maxAmount) || resource.maxAmount < 0.0) return;
 
             double now = Planetarium.GetUniversalTime();
-            if (!KShared.IsFinite(now) || now < 0.0) return;
+            if (!CTShared.IsFinite(now) || now < 0.0) return;
             bool changed = false;
             if (!double.TryParse(snapshot.moduleValues.GetValue("OriginalMaxAmount"),
                     NumberStyles.Float, CultureInfo.InvariantCulture, out double originalMax)
@@ -622,7 +622,7 @@ namespace Khemistry
         ///<summary>Get the total amount of resources stored in the provided part.</summary>
         private float ReadResourceAmount(StoredPart stored)
         {
-            double total = KhemistryFluidCell.GetResourceTotal(
+            double total = ChitakTechFluidCell.GetResourceTotal(
                 ReadCellResourceDictionary(stored));
             return total >= float.MaxValue ? float.MaxValue : (float)total;
         }
@@ -633,14 +633,14 @@ namespace Khemistry
             if (string.IsNullOrWhiteSpace(resourceName)) return 0.0;
             ReadCellResourceDictionary(stored).TryGetValue(resourceName.Trim(),
                 out double amount);
-            return KShared.IsFinite(amount) && amount > 0.0 ? amount : 0.0;
+            return CTShared.IsFinite(amount) && amount > 0.0 ? amount : 0.0;
         }
 
         private float ReadMaxAmount(StoredPart stored)
         {
             double capacity = ReadFluidCellPrefab(stored?.partName)
                 ?.ResourceMaxAmount ?? 0f;
-            if (!KShared.IsFinite(capacity) || capacity <= 0.0) return 0f;
+            if (!CTShared.IsFinite(capacity) || capacity <= 0.0) return 0f;
             return capacity >= float.MaxValue ? float.MaxValue : (float)capacity;
         }
 
@@ -649,7 +649,7 @@ namespace Khemistry
 
         private HashSet<string> ReadAddableResources(StoredPart stored)
         {
-            KhemistryFluidCell prefab = ReadFluidCellPrefab(stored?.partName);
+            ChitakTechFluidCell prefab = ReadFluidCellPrefab(stored?.partName);
             if (prefab == null) return new HashSet<string>();
             return prefab.GetAddableResources(ReadResourceNames(stored));
         }
@@ -657,7 +657,7 @@ namespace Khemistry
         ///<summary>Can a resource be added to the provided part?</summary>
         private bool IsResourceAllowedForAddition(StoredPart stored, string resourceName)
         {
-            KhemistryFluidCell prefab = ReadFluidCellPrefab(stored?.partName);
+            ChitakTechFluidCell prefab = ReadFluidCellPrefab(stored?.partName);
             return prefab != null
                 && prefab.CanAddResource(resourceName, ReadResourceNames(stored));
         }
@@ -667,11 +667,11 @@ namespace Khemistry
             double amount)
         {
             if (!IsStoredPartCurrent(stored) || string.IsNullOrWhiteSpace(resourceName)
-                || !KShared.IsFinite(amount) || amount < 0.0)
+                || !CTShared.IsFinite(amount) || amount < 0.0)
                 return false;
 
             ProtoPartModuleSnapshot module = GetCellModuleSnapshot(stored);
-            KhemistryFluidCell prefab = ReadFluidCellPrefab(stored.partName);
+            ChitakTechFluidCell prefab = ReadFluidCellPrefab(stored.partName);
             if (module?.moduleValues == null || prefab == null) return false;
 
             resourceName = resourceName.Trim();
@@ -682,8 +682,8 @@ namespace Khemistry
             if (increase > epsilon)
             {
                 if (!prefab.CanAddResource(resourceName, resources.Keys)) return false;
-                double total = KhemistryFluidCell.GetResourceTotal(resources);
-                if (!KShared.IsFinite(total)
+                double total = ChitakTechFluidCell.GetResourceTotal(resources);
+                if (!CTShared.IsFinite(total)
                     || increase > Math.Max(0.0,
                         prefab.ResourceMaxAmount - total) + epsilon)
                     return false;
@@ -692,7 +692,7 @@ namespace Khemistry
             if (amount <= epsilon) resources.Remove(resourceName);
             else resources[resourceName] = amount;
             module.moduleValues.SetValue("StoredResourcesData",
-                KhemistryFluidCell.SerializeResources(resources), true);
+                ChitakTechFluidCell.SerializeResources(resources), true);
             NotifyInventoryChanged();
             return true;
         }
@@ -700,7 +700,7 @@ namespace Khemistry
         ///<summary>Get all parts within a specific range of the kerbal.</summary>
         private List<Part> GetPartsInRange(float range)
         {
-            KShared.Log("Called with range " + range.ToString(), "KhemistryKerbal/GetPartsInRange");
+            CTShared.Log("Called with range " + range.ToString(), "KhemistryKerbal/GetPartsInRange");
             var result = new List<Part>();
             foreach (Vessel v in FlightGlobals.VesselsLoaded)
                 foreach (Part p in v.parts)
@@ -709,7 +709,7 @@ namespace Khemistry
                     if (Vector3.Distance(this.part.transform.position, p.transform.position) <= range)
                         result.Add(p);
                 }
-            KShared.Log("Acquired " + result.Count.ToString() + " parts.", "KhemistryKerbal/GetPartsInRange");
+            CTShared.Log("Acquired " + result.Count.ToString() + " parts.", "KhemistryKerbal/GetPartsInRange");
             return result;
         }
 
@@ -742,7 +742,7 @@ namespace Khemistry
                 labels.Add(label);
                 resourcesByLabel.Add(label, resourceName);
             }
-            KShared.Instance.ShowSelector("Which resource to send?", labels, label =>
+            CTShared.Instance.ShowSelector("Which resource to send?", labels, label =>
             {
                 if (resourcesByLabel.TryGetValue(label, out string resourceName))
                     ShowPartSelectorForSend(cell, resourceName);
@@ -756,9 +756,9 @@ namespace Khemistry
                 || ReadResourceAmountValue(cell.stored, resourceName) <= 0.0) return;
             float range = ReadTransferDistance(cell.stored.partName);
 
-            var targetParts = new Dictionary<string, KhemistryResourceNetwork.Endpoint>();
+            var targetParts = new Dictionary<string, ChitakTechResourceNetwork.Endpoint>();
             foreach (Part p in GetPartsInRange(range))
-                foreach (var pr in KhemistryResourceNetwork.GetEndpoints(p))
+                foreach (var pr in ChitakTechResourceNetwork.GetEndpoints(p))
                 {
                     if (pr.resourceName != resourceName) continue;
                     if (!CanAcceptResource(pr)) continue;
@@ -774,7 +774,7 @@ namespace Khemistry
                 return;
             }
 
-            KShared.Instance.ShowSelector("Send " + resourceName + " to...",
+            CTShared.Instance.ShowSelector("Send " + resourceName + " to...",
                 targetParts.Keys.ToList(), label =>
                 {
                     if (!targetParts.TryGetValue(label, out var targetResource)
@@ -799,10 +799,10 @@ namespace Khemistry
         {
             if (cell.isSuit) { ShowSuitCellPartSelectorForTake(); return; }
             if (!IsStoredPartCurrent(cell.stored)) return;
-            KShared.Log("Called!", "KhemistryKerbal/ShowPartSelectorForTake");
+            CTShared.Log("Called!", "KhemistryKerbal/ShowPartSelectorForTake");
 
             float range = ReadTransferDistance(cell.stored.partName);
-            KhemistryFluidCell prefab = ReadFluidCellPrefab(cell.stored.partName);
+            ChitakTechFluidCell prefab = ReadFluidCellPrefab(cell.stored.partName);
             HashSet<string> addable = ReadAddableResources(cell.stored);
             bool restrictResources = prefab != null && prefab.HasSupportedResourceGroups;
             if (ReadCellTotalFreeSpace(cell.stored) <= 1e-9)
@@ -813,11 +813,11 @@ namespace Khemistry
                 return;
             }
 
-            var optionParts = new Dictionary<string, KhemistryResourceNetwork.Endpoint>();
+            var optionParts = new Dictionary<string, ChitakTechResourceNetwork.Endpoint>();
             var optionResources = new Dictionary<string, string>();
 
             foreach (Part p in GetPartsInRange(range))
-                foreach (var pr in KhemistryResourceNetwork.GetEndpoints(p))
+                foreach (var pr in ChitakTechResourceNetwork.GetEndpoints(p))
                 {
                     if (!HasUsableAmount(pr)) continue;
                     if (restrictResources && !addable.Contains(pr.resourceName)) continue;
@@ -829,7 +829,7 @@ namespace Khemistry
 
             if (optionParts.Count == 0)
             {
-                KShared.Log("No compatible nearby resources with available cell capacity were detected.",
+                CTShared.Log("No compatible nearby resources with available cell capacity were detected.",
                     "KhemistryKerbal/ShowPartSelectorForTake");
                 ScreenMessages.PostScreenMessage(new ScreenMessage(
                     "No compatible resources with available cell capacity found within range.",
@@ -837,8 +837,8 @@ namespace Khemistry
                 return;
             }
 
-            KShared.Log("Calling ShowSelector to take resources from a part.", "KhemistryKerbal/ShowPartSelectorForTake");
-            KShared.Instance.ShowSelector("Take resources from...", optionParts.Keys.ToList(), label =>
+            CTShared.Log("Calling ShowSelector to take resources from a part.", "KhemistryKerbal/ShowPartSelectorForTake");
+            CTShared.Instance.ShowSelector("Take resources from...", optionParts.Keys.ToList(), label =>
             {
                 if (!optionParts.TryGetValue(label, out var sourceResource)
                     || !optionResources.TryGetValue(label, out string resourceName)
@@ -854,8 +854,8 @@ namespace Khemistry
                     ? float.MaxValue : (float)maxTakeValue;
                 if (maxTake <= 0f) return;
 
-                KShared.Log("Calling ShowAmountSelector to get exact amount.", "KhemistryKerbal/ShowPartSelectorForTake");
-                KShared.Instance.ShowAmountSelector(
+                CTShared.Log("Calling ShowAmountSelector to get exact amount.", "KhemistryKerbal/ShowPartSelectorForTake");
+                CTShared.Instance.ShowAmountSelector(
                     string.Format("How much {0} to take?", resourceName),
                     0f, maxTake, maxTake, amount =>
                     {

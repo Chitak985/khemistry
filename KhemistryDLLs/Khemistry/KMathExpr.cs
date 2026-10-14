@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 
-namespace Khemistry
+namespace ChitakTech
 {
     /// <summary>
     /// A minimal recursive-descent arithmetic expression evaluator supporting +, -, *, /,
@@ -13,7 +13,7 @@ namespace Khemistry
     /// The expressions it supports are in its three constant dictionaries at the top:
     /// constants, functions1Arg, and functions2Arg.
     /// </summary>
-    public static class KMathExpr
+    public static class CTMathExpr
     {
         /// <summary>The dictionary of supported constants.</summary>
         static readonly Dictionary<string, double> constants = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
@@ -26,7 +26,9 @@ namespace Khemistry
         {
             { "Sqrt", Monotone(Math.Sqrt) },
             { "Log", Monotone(Math.Log) },
-            { "Log10", Monotone(Math.Log10) }
+            { "Log10", Monotone(Math.Log10) },
+            { "Floor", Monotone(Math.Floor) },
+            { "Ceil", Monotone(Math.Ceiling) }
         };
         /// <summary>The dictionary of supported two-argument functions.</summary>
         static readonly Dictionary<string, BinaryFunction> functions2Arg = new Dictionary<string, BinaryFunction>(StringComparer.OrdinalIgnoreCase)
@@ -34,7 +36,7 @@ namespace Khemistry
             { "Pow", new BinaryFunction(Math.Pow, PowRange) },
             { "Min", CornerBounded(Math.Min) },
             { "Max", CornerBounded(Math.Max) },
-            { "randf", new BinaryFunction(KShared.RandomDouble,
+            { "randf", new BinaryFunction(CTShared.RandomDouble,
                 (a, b) => MakeRange(Math.Min(a.Minimum, b.Minimum),
                     Math.Max(a.Maximum, b.Maximum))) }
         };
@@ -76,7 +78,7 @@ namespace Khemistry
         }
 
         /// <summary>
-        /// Evaluates every <see cref="KMathExpr"/> segment and inserts its invariant numeric result into
+        /// Evaluates every <see cref="CTMathExpr"/> segment and inserts its invariant numeric result into
         /// the surrounding text. Text outside brackets is preserved verbatim.
         /// </summary>
         public static bool TryInterpolate(string template, out string result,
@@ -148,7 +150,7 @@ namespace Khemistry
         public static bool TryEvaluateNumericExpression(string expression, out double result,
             out string error)
         {
-            return KShared.ContainsInterpolation(expression)
+            return CTShared.ContainsInterpolation(expression)
                 ? TryInterpolateNumber(expression, out result, out error)
                 : TryEvaluate(expression, out result, out error);
         }
@@ -293,12 +295,12 @@ namespace Khemistry
             {
                 SkipWhitespace(s, ref pos);
                 if (pos >= s.Length || s[pos] != '(')
-                    KShared.LogFatalError($"Expected ( after {funcName} function at position {pos}! String: {s}", "KMathExpr/Parse1ArgFunction");
+                    CTShared.LogFatalError($"Expected ( after {funcName} function at position {pos}! String: {s}", "CTMathExpr/Parse1ArgFunction");
                 pos++;
                 double a = ParseExpr(s, ref pos, vars, randomFunction);
                 SkipWhitespace(s, ref pos);
                 if (pos >= s.Length || s[pos] != ')')
-                    KShared.LogFatalError($"Expected ) closing the {funcName} function at position {pos}! String: {s}", "KMathExpr/Parse1ArgFunction");
+                    CTShared.LogFatalError($"Expected ) closing the {funcName} function at position {pos}! String: {s}", "CTMathExpr/Parse1ArgFunction");
                 pos++;
                 result = functions1Arg[funcName].Evaluate(a);
                 return true;
@@ -314,17 +316,17 @@ namespace Khemistry
             {
                 SkipWhitespace(s, ref pos);
                 if (pos >= s.Length || s[pos] != '(')
-                    KShared.LogFatalError($"Expected ( after {funcName} function at position {pos}! String: {s}", "KMathExpr/Parse2ArgFunction");
+                    CTShared.LogFatalError($"Expected ( after {funcName} function at position {pos}! String: {s}", "CTMathExpr/Parse2ArgFunction");
                 pos++;
                 double a = ParseExpr(s, ref pos, vars, randomFunction);
                 SkipWhitespace(s, ref pos);
                 if (pos >= s.Length || s[pos] != ',')
-                    KShared.LogFatalError($"Expected , to separate arguments in {funcName} function at position {pos}! String: {s}", "KMathExpr/Parse2ArgFunction");
+                    CTShared.LogFatalError($"Expected , to separate arguments in {funcName} function at position {pos}! String: {s}", "CTMathExpr/Parse2ArgFunction");
                 pos++;
                 double b = ParseExpr(s, ref pos, vars, randomFunction);
                 SkipWhitespace(s, ref pos);
                 if (pos >= s.Length || s[pos] != ')')
-                    KShared.LogFatalError($"Expected ) closing the {funcName} function at position {pos}! String: {s}", "KMathExpr/Parse2ArgFunction");
+                    CTShared.LogFatalError($"Expected ) closing the {funcName} function at position {pos}! String: {s}", "CTMathExpr/Parse2ArgFunction");
                 pos++;
                 result = string.Equals(funcName, "randf", StringComparison.OrdinalIgnoreCase)
                     && randomFunction != null
@@ -340,7 +342,7 @@ namespace Khemistry
         {
             SkipWhitespace(s, ref pos);
             if (pos >= s.Length)
-                KShared.LogFatalError($"Unexpected end of expression at position {pos}! String: {s}", "KMathExpr/ParsePrimary");
+                CTShared.LogFatalError($"Unexpected end of expression at position {pos}! String: {s}", "CTMathExpr/ParsePrimary");
 
             if (s[pos] == '(')
             {
@@ -348,7 +350,7 @@ namespace Khemistry
                 double val = ParseExpr(s, ref pos, vars, randomFunction);
                 SkipWhitespace(s, ref pos);
                 if (pos >= s.Length || s[pos] != ')')
-                    KShared.LogFatalError($"Expected closing ) paranthesis at position {pos}! String: {s}", "KMathExpr/ParsePrimary");
+                    CTShared.LogFatalError($"Expected closing ) paranthesis at position {pos}! String: {s}", "CTMathExpr/ParsePrimary");
                 pos++;
                 return val;
             }
@@ -364,7 +366,7 @@ namespace Khemistry
                     int exponentStart = pos;
                     while (pos < s.Length && char.IsDigit(s[pos])) pos++;
                     if (pos == exponentStart)
-                        KShared.LogFatalError($"Expected digits after exponent marker at position {pos}! String: {s}", "KMathExpr/ParsePrimary");
+                        CTShared.LogFatalError($"Expected digits after exponent marker at position {pos}! String: {s}", "CTMathExpr/ParsePrimary");
                 }
                 return double.Parse(s.Substring(start, pos - start), CultureInfo.InvariantCulture);
             }
@@ -397,13 +399,13 @@ namespace Khemistry
                             CultureInfo.InvariantCulture, out double variableValue)
                         && !double.IsNaN(variableValue) && !double.IsInfinity(variableValue))
                         return variableValue;
-                    KShared.LogFatalError("Variable " + ident + " has invalid value: " + rawVariableValue, "KMathExpr/ParsePrimary"); return 0;
+                    CTShared.LogFatalError("Variable " + ident + " has invalid value: " + rawVariableValue, "CTMathExpr/ParsePrimary"); return 0;
                 }
 
-                KShared.LogFatalError("Unknown identifier \"" + ident + "\"! String: " + s, "KMathExpr/ParsePrimary"); return 0;
+                CTShared.LogFatalError("Unknown identifier \"" + ident + "\"! String: " + s, "CTMathExpr/ParsePrimary"); return 0;
             }
 
-            KShared.LogFatalError("Unexpected character '" + s[pos] + "'! String: " + s, "KMathExpr/ParsePrimary"); return 0;
+            CTShared.LogFatalError("Unexpected character '" + s[pos] + "'! String: " + s, "CTMathExpr/ParsePrimary"); return 0;
         }
 
         /// <summary>
@@ -427,8 +429,8 @@ namespace Khemistry
             foreach (KeyValuePair<string, ValueRange> variable in
                      vars ?? new Dictionary<string, ValueRange>())
             {
-                if (!KShared.IsFinite(variable.Value.Minimum)
-                    || !KShared.IsFinite(variable.Value.Maximum)
+                if (!CTShared.IsFinite(variable.Value.Minimum)
+                    || !CTShared.IsFinite(variable.Value.Maximum)
                     || variable.Value.Minimum > variable.Value.Maximum)
                 {
                     error = "Variable \"" + variable.Key + "\" has an invalid range.";
@@ -447,7 +449,7 @@ namespace Khemistry
                     error = "Unexpected trailing characters at position " + pos + ".";
                     return false;
                 }
-                if (!KShared.IsFinite(result.Minimum) || !KShared.IsFinite(result.Maximum)
+                if (!CTShared.IsFinite(result.Minimum) || !CTShared.IsFinite(result.Maximum)
                     || result.Minimum > result.Maximum)
                 {
                     error = "Expression range is not finite.";
@@ -520,7 +522,7 @@ namespace Khemistry
             SkipWhitespace(s, ref pos);
             if (pos >= s.Length)
             {
-                KShared.LogFatalError($"Unexpected end of expression at position {pos}! String: {s}", "KMathExpr/ParseRangePrimary");
+                CTShared.LogFatalError($"Unexpected end of expression at position {pos}! String: {s}", "CTMathExpr/ParseRangePrimary");
                 throw new OperationCanceledException();
             }
 
@@ -531,7 +533,7 @@ namespace Khemistry
                 SkipWhitespace(s, ref pos);
                 if (pos >= s.Length || s[pos] != ')')
                 {
-                    KShared.LogFatalError($"Expected a closing ')' at position {pos}! String: {s}", "KMathExpr/ParseRangePrimary");
+                    CTShared.LogFatalError($"Expected a closing ')' at position {pos}! String: {s}", "CTMathExpr/ParseRangePrimary");
                     throw new OperationCanceledException();
                 }
                 pos++;
@@ -550,7 +552,7 @@ namespace Khemistry
                     while (pos < s.Length && char.IsDigit(s[pos])) pos++;
                     if (pos == exponentStart)
                     {
-                        KShared.LogFatalError($"Expected digits after exponent marker at position {pos}! String: {s}", "KMathExpr/ParseRangePrimary");
+                        CTShared.LogFatalError($"Expected digits after exponent marker at position {pos}! String: {s}", "CTMathExpr/ParseRangePrimary");
                         throw new OperationCanceledException();
                     }
                 }
@@ -589,13 +591,13 @@ namespace Khemistry
 
                 if (vars.TryGetValue(identifier, out ValueRange variableValue))
                     return variableValue;
-                KShared.LogFatalError("Unknown identifier \"" + identifier
-                    + "\" at position " + pos + "! String: " + s, "KMathExpr/ParseRangePrimary");
+                CTShared.LogFatalError("Unknown identifier \"" + identifier
+                    + "\" at position " + pos + "! String: " + s, "CTMathExpr/ParseRangePrimary");
                 throw new OperationCanceledException();
             }
 
-            KShared.LogFatalError("Unexpected character '" + s[pos]
-                + "' at position " + pos + "! String: " + s, "KMathExpr/ParseRangePrimary");
+            CTShared.LogFatalError("Unexpected character '" + s[pos]
+                + "' at position " + pos + "! String: " + s, "CTMathExpr/ParseRangePrimary");
             throw new OperationCanceledException();
         }
 
@@ -605,11 +607,11 @@ namespace Khemistry
             double b = left.Minimum * right.Maximum;
             double c = left.Maximum * right.Minimum;
             double d = left.Maximum * right.Maximum;
-            if (!KShared.IsFinite(a) || !KShared.IsFinite(b) || !KShared.IsFinite(c) || !KShared.IsFinite(d))
-                KShared.LogFatalError($"Expression range overflow! " +
+            if (!CTShared.IsFinite(a) || !CTShared.IsFinite(b) || !CTShared.IsFinite(c) || !CTShared.IsFinite(d))
+                CTShared.LogFatalError($"Expression range overflow! " +
                                       ValueRangeToString("left", left) + ", " +
                                       ValueRangeToString("right", right),
-                                      "KMathExpr/MultiplyRanges");
+                                      "CTMathExpr/MultiplyRanges");
             return new ValueRange(Math.Min(Math.Min(a, b), Math.Min(c, d)),
                 Math.Max(Math.Max(a, b), Math.Max(c, d)));
         }
@@ -617,10 +619,10 @@ namespace Khemistry
         private static ValueRange DivideRanges(ValueRange numerator, ValueRange denominator)
         {
             if (denominator.Minimum <= 0.0 && denominator.Maximum >= 0.0)
-                KShared.LogFatalError("Expression can divide by zero! " +
+                CTShared.LogFatalError("Expression can divide by zero! " +
                                       ValueRangeToString("numerator", numerator) + ", " +
                                       ValueRangeToString("denominator", denominator),
-                                      "KMathExpr/DivideRanges");
+                                      "CTMathExpr/DivideRanges");
             ValueRange reciprocal = MakeRange(1.0 / denominator.Maximum,
                 1.0 / denominator.Minimum);
             return MultiplyRanges(numerator, reciprocal);
@@ -658,11 +660,11 @@ namespace Khemistry
 
         private static ValueRange MakeRange(double first, double second)
         {
-            if (!KShared.IsFinite(first) || !KShared.IsFinite(second))
-                KShared.LogFatalError("Expression range is not finite! " +
+            if (!CTShared.IsFinite(first) || !CTShared.IsFinite(second))
+                CTShared.LogFatalError("Expression range is not finite! " +
                                       "first is " + first + ", " +
                                       "second is " + second,
-                                      "KMathExpr/MakeRange");
+                                      "CTMathExpr/MakeRange");
             return new ValueRange(Math.Min(first, second), Math.Max(first, second));
         }
     }

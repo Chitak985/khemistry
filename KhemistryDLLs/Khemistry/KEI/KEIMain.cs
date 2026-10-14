@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 
-namespace Khemistry
+namespace ChitakTech
 {
     /// <summary>
     /// Contains every single resource and recipe currently loaded by the game.

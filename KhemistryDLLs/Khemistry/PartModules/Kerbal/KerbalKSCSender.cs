@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 
-namespace Khemistry
+namespace ChitakTech
 {
     // Registered by the optional ConstructionOverhaul assembly; no hard dependency on it.
     public static class KerbalKSCBridge
@@ -19,7 +19,7 @@ namespace Khemistry
 
         private bool CanSendToKSC()
         {
-            if (_disabledDuplicate || !KerbalKSCBridge.Available || KShared.Instance == null
+            if (_disabledDuplicate || !KerbalKSCBridge.Available || CTShared.Instance == null
                 || !HighLogic.LoadedSceneIsFlight) return false;
             var active = FlightGlobals.ActiveVessel;
             if (active == null || active != vessel || !active.isEVA
@@ -47,26 +47,26 @@ namespace Khemistry
         public void SendSuitResourcesToKSC()
         {
             if (!CanSendToKSC() || !HasFluidSuitCell) return;
-            if (!KShared.IsFinite(KSCResourceMaxAmount) || KSCResourceMaxAmount <= 0)
+            if (!CTShared.IsFinite(KSCResourceMaxAmount) || KSCResourceMaxAmount <= 0)
             { KSCMessage("KSCResourceMaxAmount must be finite and positive."); return; }
             var names = GetSuitCellDict().Where(p => p.Value > 0).Select(p => p.Key).OrderBy(n => n).ToList();
             if (names.Count == 0) { KSCMessage("No suit-cell resources are available to send."); return; }
-            KShared.Instance.ShowResourceSelector(names, SendSuitResource);
+            CTShared.Instance.ShowResourceSelector(names, SendSuitResource);
         }
 
         private void SendSuitResource(string name)
         {
-            if (!CanSendToKSC() || !HasFluidSuitCell || !KShared.IsFinite(KSCResourceMaxAmount)
+            if (!CanSendToKSC() || !HasFluidSuitCell || !CTShared.IsFinite(KSCResourceMaxAmount)
                 || KSCResourceMaxAmount <= 0 || PartResourceLibrary.Instance?.GetDefinition(name) == null) return;
             var contents = GetSuitCellDict();
             if (!contents.TryGetValue(name, out double available) || available <= 0) return;
-            var ledger = KShared.Instance.ResourceDict;
+            var ledger = CTShared.Instance.ResourceDict;
             if (ledger == null) return;
             ledger.TryGetValue(name, out double existing);
-            if (!KShared.IsFinite(existing) || existing < 0) return;
+            if (!CTShared.IsFinite(existing) || existing < 0) return;
             double sent = Math.Min(available, Math.Min(KSCResourceMaxAmount, double.MaxValue - existing));
             double total = existing + sent;
-            if (sent <= 0 || !KShared.IsFinite(total) || total <= existing)
+            if (sent <= 0 || !CTShared.IsFinite(total) || total <= existing)
             { KSCMessage("The KSC resource balance cannot accept this transfer."); return; }
             if (available == sent) contents.Remove(name); else contents[name] = available - sent;
             SetSuitCellFromDict(contents);
@@ -80,7 +80,7 @@ namespace Khemistry
         public void SendSuitMaterialsToKSC()
         {
             if (!CanSendToKSC() || !HasMaterialSuitCell) return;
-            if (!KShared.IsFinite(KSCMaterialMaxVolume) || KSCMaterialMaxVolume <= 0)
+            if (!CTShared.IsFinite(KSCMaterialMaxVolume) || KSCMaterialMaxVolume <= 0)
             { KSCMessage("KSCMaterialMaxVolume must be finite and positive."); return; }
             var options = new Dictionary<string, KhemistryMaterialInstance>();
             foreach (var material in materialSuitCellContents)
@@ -92,7 +92,7 @@ namespace Khemistry
                 options.Add(label, material);
             }
             if (options.Count == 0) { KSCMessage("No suit-cell materials are available to send."); return; }
-            KShared.Instance.ShowSelector("Send suit materials to the KSC", options.Keys.ToList(), label =>
+            CTShared.Instance.ShowSelector("Send suit materials to the KSC", options.Keys.ToList(), label =>
             {
                 if (options.TryGetValue(label, out var selected)) SendSuitMaterial(selected);
             });
@@ -102,8 +102,8 @@ namespace Khemistry
         {
             if (!CanSendToKSC() || !HasMaterialSuitCell || selected?.material == null
                 || !materialSuitCellContents.Any(m => ReferenceEquals(m, selected))
-                || selected.amount <= 0 || !KShared.IsFinite(KSCMaterialMaxVolume) || KSCMaterialMaxVolume <= 0
-                || !KShared.IsFinite(selected.volume) || selected.volume <= 0) return;
+                || selected.amount <= 0 || !CTShared.IsFinite(KSCMaterialMaxVolume) || KSCMaterialMaxVolume <= 0
+                || !CTShared.IsFinite(selected.volume) || selected.volume <= 0) return;
             double maxUnits = Math.Floor(KSCMaterialMaxVolume / selected.volume);
             int amount = (int)Math.Min(selected.amount, maxUnits);
             if (amount <= 0) { KSCMessage("One unit exceeds KSCMaterialMaxVolume."); return; }

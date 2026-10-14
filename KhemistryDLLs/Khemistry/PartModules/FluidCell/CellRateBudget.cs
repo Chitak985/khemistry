@@ -1,6 +1,6 @@
 using System;
 
-namespace Khemistry
+namespace ChitakTech
 {
     // Four independent aggregate budgets; unused time never accumulates into a burst.
     internal sealed class FluidCellRateBudget

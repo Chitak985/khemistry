@@ -1,0 +1,324 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using UnityEngine;
+
+namespace ChitakTech
+{
+    public partial class CTShared
+    {
+        /// <summary>
+        /// Check if bodyName is a known celestial body in the current game.
+        /// </summary>
+        /// <param name="bodyName">The name of the body to check.</param>
+        /// <returns>Whether it is a known body or not.</returns>
+        public static bool IsKnownBody(string bodyName)
+        {
+            try { return FlightGlobals.GetBodyByName(bodyName) != null; }
+            catch { return false; }
+        }
+
+        /// <summary>
+        /// Check if a double is finite (not NaN or infinite).
+        /// </summary>
+        /// <param name="value">The double to check</param>
+        /// <returns>If the double is finite (not NaN or infinite)</returns>
+        public static bool IsFinite(double value)
+            => !double.IsNaN(value) && !double.IsInfinity(value);
+
+        /// <summary>
+        /// Check if a float is finite (not NaN or infinite).
+        /// </summary>
+        /// <param name="value">The float to check</param>
+        /// <returns>If the float is finite (not NaN or infinite)</returns>
+        public static bool IsFiniteF(float value)
+            => !float.IsNaN(value) && !float.IsInfinity(value);
+
+        /// <summary>
+        /// Check if the float is finite (not NaN or infinite) and isn't negative.
+        /// </summary>
+        /// <param name="value">The float to check</param>
+        /// <returns>If the float is finite (not NaN or infinite) and isn't negative.</returns>
+        public static bool IsFiniteNonNegative(float value)
+            => IsFiniteF(value) && value >= 0f;
+
+        /// <summary>
+        /// Check if the float is finite (not NaN or infinite) and is positive.
+        /// </summary>
+        /// <param name="value">The float to check</param>
+        /// <returns>If the float is finite (not NaN or infinite) and is negative.</returns>
+        public static bool IsFinitePositive(float value)
+            => IsFiniteF(value) && value > 0f;
+
+        /// <summary>
+        /// Returns a biome name using a latitude-longitude position on a CelestialBody.
+        /// Returns null if the planet does not exist or has no biome map.
+        /// </summary>
+        /// <param name="planet">The planet used to find the biome.</param>
+        /// <param name="pos">The latitude-longitude Vector2 position to find the biome at.</param>
+        /// <returns>The name of the biome.</returns>
+        public static string GetBiomeNameFromLatLon(string planet, Vector2 pos)
+        {
+            CelestialBody body = FlightGlobals.GetBodyByName(planet);
+            if (body?.BiomeMap == null) return null;
+            return body.BiomeMap.GetAtt(pos[0] * Mathf.Deg2Rad, pos[1] * Mathf.Deg2Rad)?.name;
+        }
+
+        /// <summary>
+        /// Gets a list of biome names for a planet.
+        /// Will return an empty list if the planet does not exist or has no biomes.
+        /// </summary>
+        /// <param name="planet">The internal name of the planet to fetch biomes for.</param>
+        /// <returns>List of biomes for the planet.</returns>
+        public static List<string> GetBiomeNames(string planet)
+        {
+            CelestialBody body = FlightGlobals.GetBodyByName(planet);
+            if (body == null || body.BiomeMap == null)
+                return new List<string>();
+
+            return body.BiomeMap.Attributes
+                .Where(b => b != null)
+                .Select(b => b.name)
+                .ToList();
+        }
+
+        /// <summary>
+        /// Resolves an OUTPUT_MATERIAL outVolume template. Every bracketed segment is a
+        /// CTMathExpr; size and all material parameters are available as variables. The
+        /// interpolated string must be a finite number.
+        /// </summary>
+        public static bool TryEvaluateOutVolumeExpression(string rawExpr, string sizeValue,
+            Dictionary<string, string> parameters, string logContext, out double result,
+            Func<double, double, double> randomFunction = null)
+        {
+            result = 0.0;
+            if (string.IsNullOrEmpty(rawExpr)) return false;
+
+            var parameterLookup = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<string, string> parameter in
+                     parameters ?? new Dictionary<string, string>())
+            {
+                if (parameterLookup.ContainsKey(parameter.Key))
+                {
+                    LogError("outVolume expression \"" + rawExpr
+                        + "\": parameters \"" + parameterLookup.Keys.First(key =>
+                            string.Equals(key, parameter.Key, StringComparison.OrdinalIgnoreCase))
+                        + "\" and \"" + parameter.Key
+                        + "\" differ only by case and are ambiguous.", logContext);
+                    return false;
+                }
+                parameterLookup.Add(parameter.Key, parameter.Value);
+            }
+
+            if (parameterLookup.ContainsKey("size"))
+            {
+                LogError("outVolume expression \"" + rawExpr
+                    + "\": this material defines a parameter named \"size\", which is reserved for the material's size — rename it.",
+                    logContext);
+                return false;
+            }
+
+            parameterLookup["size"] = sizeValue;
+            if (!CTMathExpr.TryInterpolateNumber(rawExpr, out result,
+                    out string err, parameterLookup, randomFunction))
+            {
+                LogError("outVolume value \"" + rawExpr
+                    + "\" failed to resolve: " + err, logContext);
+                return false;
+            }
+
+            return true;
+        }
+
+
+        public static double LatLonDistanceMeters(
+            double lat1Deg,
+            double lon1Deg,
+            double lat2Deg,
+            double lon2Deg,
+            string body)
+        {
+            CelestialBody celestialBody = FlightGlobals.GetBodyByName(body);
+            if (celestialBody == null) return double.PositiveInfinity;
+            if (double.IsNaN(lat1Deg) || double.IsInfinity(lat1Deg)
+                || double.IsNaN(lon1Deg) || double.IsInfinity(lon1Deg)
+                || double.IsNaN(lat2Deg) || double.IsInfinity(lat2Deg)
+                || double.IsNaN(lon2Deg) || double.IsInfinity(lon2Deg))
+                return double.PositiveInfinity;
+
+            double lat1 = DegreesToRadians(lat1Deg);
+            double lon1 = DegreesToRadians(lon1Deg);
+            double lat2 = DegreesToRadians(lat2Deg);
+            double lon2 = DegreesToRadians(lon2Deg);
+
+            double dLat = lat2 - lat1;
+            double dLon = lon2 - lon1;
+
+            double a =
+                Math.Pow(Math.Sin(dLat / 2), 2) +
+                Math.Cos(lat1) * Math.Cos(lat2) *
+                Math.Pow(Math.Sin(dLon / 2), 2);
+
+            a = Math.Max(0.0, Math.Min(1.0, a));
+
+            double c = 2 * Math.Atan2(
+                Math.Sqrt(a),
+                Math.Sqrt(1 - a));
+
+            return celestialBody.Radius * c;
+        }
+
+        public static void ParseShowRule(string raw, out bool showPAW, out bool showEVA,
+            string fieldName, string moduleName = null)
+        {
+            string val = (raw ?? "PAW").Trim().Trim('"').ToUpperInvariant();
+            switch (val)
+            {
+                case "PAW":
+                    showPAW = true; showEVA = false; break;
+                case "EVA":
+                    showPAW = false; showEVA = true; break;
+                case "EVA+PAW":
+                case "PAW+EVA":
+                    showPAW = true; showEVA = true; break;
+                default:
+                    if (moduleName == null)
+                        CTShared.LogError("Unknown " + fieldName + " value \"" + raw + "\" — defaulting to PAW.", "CTShared/ParseShowRule");
+                    else
+                        CTShared.LogError("Converter \"" + moduleName + "\": Unknown " + fieldName + " value \"" + raw + "\" — defaulting to PAW.", "CTShared/ParseShowRule");
+                    showPAW = true; showEVA = false; break;
+            }
+        }
+
+        public static Dictionary<string, string> NodeToDictionary(ConfigNode node)
+        {
+            var dict = new Dictionary<string, string>();
+            if (node == null) return dict;
+            foreach (ConfigNode.Value value in node.values)
+                dict[value.name] = value.value;
+            return dict;
+        }
+
+        /// <summary>
+        /// Converts a list into a readable string.
+        /// Example: ["a", "b", "c"] becomes "a, b, c".
+        /// </summary>
+        /// <param name="list">The List<string> to convert into a string.</param>
+        /// <returns>The list as a readable string.</returns>
+        public static string ListToString(List<string> list) => string.Join(", ", list);
+
+        /// <summary>
+        /// Converts a dictionary into a readable string.
+        /// Example: {a: 1, b: 2, c: 3} becomes "a: 1, b: 2, c: 3".
+        /// </summary>
+        /// <param name="dict">The Dictionary<string, string> to convert into a string.</param>
+        /// <returns>The dictionary as a readable string.</returns>
+        public static string DictToString(Dictionary<string, string> dict)
+        {
+            List<string> tmp = new List<string>();
+            foreach (string key in dict.Keys)
+                tmp.Add(key + " = " + dict[key]);
+            return ListToString(tmp);
+        }
+
+        /// <summary>Maps a vessel's current KSP Vessel.Situations into a SituationCondition value.</summary>
+        public static SituationCondition GetVesselSituation(Vessel v)
+        {
+            Vessel.Situations sit = v.situation;
+            CelestialBody body = v.mainBody;
+            double alt = v.altitude;
+
+            switch (sit)
+            {
+                case Vessel.Situations.LANDED:
+                case Vessel.Situations.PRELAUNCH:
+                    return SituationCondition.Landed;
+                case Vessel.Situations.SPLASHED:
+                    return SituationCondition.Splashed;
+                case Vessel.Situations.FLYING:
+                    return (body != null && alt >= body.scienceValues.flyingAltitudeThreshold)
+                        ? SituationCondition.FlyingHigh : SituationCondition.FlyingLow;
+                case Vessel.Situations.SUB_ORBITAL:
+                    return SituationCondition.SubOrbital;
+                case Vessel.Situations.ORBITING:
+                case Vessel.Situations.ESCAPING:
+                    return (body != null && alt >= body.scienceValues.spaceAltitudeThreshold)
+                        ? SituationCondition.SpaceHigh : SituationCondition.SpaceLow;
+                default:
+                    return SituationCondition.Any;
+            }
+        }
+
+        /// <summary>
+        /// Destroys the given part and applies falling-off thermal damage to every other
+        /// loaded part within radiusMeters of it: centerTempCelsius (converted to Kelvin) is
+        /// applied at distance 0, linearly fading to no effect at radiusMeters. Any part whose
+        /// resulting temperature reaches its max temperature (or skin max temperature) explodes
+        /// as a consequence, same as it would from any other overheat in KSP.
+        /// </summary>
+        public static void TriggerExplosionWithHeat(Part contextPart, float radiusMeters, float centerTempCelsius)
+        {
+            if (contextPart == null) return;
+
+            if (radiusMeters <= 0f)
+            {
+                contextPart.explode();
+                return;
+            }
+
+            double centerTempKelvin = centerTempCelsius + 273.15;
+            Vector3 center = contextPart.transform.position;
+
+            var nearbyParts = new List<Part>();
+            foreach (Vessel v in FlightGlobals.Vessels)
+            {
+                if (v == null || !v.loaded) continue;
+                foreach (Part p in v.parts)
+                {
+                    if (p == null || p == contextPart) continue;
+                    if (Vector3.Distance(p.transform.position, center) <= radiusMeters)
+                        nearbyParts.Add(p);
+                }
+            }
+
+            contextPart.explode();
+
+            foreach (Part p in nearbyParts)
+            {
+                if (p == null) continue;
+
+                float dist = Vector3.Distance(p.transform.position, center);
+                double falloff = Math.Max(0.0, 1.0 - (dist / radiusMeters));
+                if (falloff <= 0.0) continue;
+
+                double appliedTempKelvin = p.temperature + (centerTempKelvin - p.temperature) * falloff;
+                if (appliedTempKelvin > p.temperature) p.temperature = appliedTempKelvin;
+                if (appliedTempKelvin > p.skinTemperature) p.skinTemperature = appliedTempKelvin;
+
+                if (p.temperature >= p.maxTemp || p.skinTemperature >= p.skinMaxTemp)
+                    p.explode();
+            }
+        }
+
+        public static double DoubleFarenheitToCelsius(double f) => (f - 32.0) * (5.0 / 9.0);
+        public static double DegreesToRadians(double degrees) => degrees * Math.PI / 180.0;
+
+        /// <summary>
+        /// Multiply two doubles safely.
+        /// </summary>
+        /// <param name="a">First number to multiply.</param>
+        /// <param name="b">Second number to multiply.</param>
+        /// <returns>Result of multiplication, can also be 0 or <c>double.MaxValue</c>.</returns>
+        internal static double Multiply(double a, double b)
+        {
+            if (a == 0 || b == 0) return 0;
+            double result = a * b;
+            return double.IsInfinity(result) ? double.MaxValue : result;
+        }
+
+        /// <summary>True when a value contains at least one bracketed <see cref="CTMathExpr"/>.</summary>
+        public static bool ContainsInterpolation(string value)
+            => !string.IsNullOrEmpty(value) && value.IndexOf('[') >= 0;
+    }
+}

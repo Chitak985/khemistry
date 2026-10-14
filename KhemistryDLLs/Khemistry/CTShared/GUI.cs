@@ -1,0 +1,424 @@
+﻿using KSP.UI.Screens;
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using UnityEngine;
+
+namespace ChitakTech
+{
+    public partial class CTShared
+    {
+        private void OnDepositsLauncherReady()
+        {
+            if (_depositsToolbarButton != null || ApplicationLauncher.Instance == null
+                || _depositsButtonTexture == null) return;
+            _depositsToolbarButton = ApplicationLauncher.Instance.AddModApplication(
+                () => _depositsVisible = true,
+                () => _depositsVisible = false,
+                null, null, null, null,
+                ApplicationLauncher.AppScenes.FLIGHT,
+                _depositsButtonTexture
+            );
+        }
+
+        private void OnDepositsLauncherDestroyed()
+        {
+            _depositsToolbarButton = null;
+            _depositsVisible = false;
+        }
+
+        private void OnGameSceneLoadRequested(GameScenes destination)
+        {
+            CloseTransientWindows();
+            DestroyDepositRenderers();
+        }
+
+        /// <summary>
+        /// Closes persistent CTShared windows and releases their callbacks before changing
+        /// scenes. A callback often captures a PartModule, so retaining it after the part's
+        /// vessel is destroyed can both keep stale objects alive and invoke invalid game state.
+        /// </summary>
+        private void CloseTransientWindows()
+        {
+            _selectorVisible = false;
+            _kcoSelectorVisible = false;
+            _amountVisible = false;
+            _recipeSettingsVisible = false;
+            _depositsVisible = false;
+            _selectorCallback = null;
+            _amountCallback = null;
+            _recipeSettingsCallback = null;
+            _selectorOptions = null;
+            _selectorResources = null;
+            _recipeSettings.Clear();
+            _recipeSettingWorkingValues.Clear();
+            CloseContentsWindows();
+        }
+
+        /// <summary>
+        /// Lists every loaded surface/underground deposit on the active vessel's current body,
+        /// nearest first, with distance in meters from the vessel.
+        /// </summary>
+        private void DrawDepositsWindow(int windowId)
+        {
+            Vessel v = FlightGlobals.ActiveVessel;
+            if (v == null || v.mainBody == null)
+            {
+                GUILayout.Label("No active vessel.", HighLogic.Skin.label);
+            }
+            else
+            {
+                var nearby = new List<(string label, float distance)>();
+                const float maxDepositDistance = 500000f;
+
+                foreach (ChitakTechGDeposit d in surfaceDeposits)
+                {
+                    if (d.Planet != v.mainBody.name) continue;
+                    float dist = d.DistanceFromDeposit((float)v.latitude, (float)v.longitude);
+                    if (dist > maxDepositDistance) continue;
+                    nearby.Add((d.Resource + " (surface)", dist));
+                }
+                foreach (ChitakTechUDeposit d in undergroundDeposits)
+                {
+                    if (d.Planet != v.mainBody.name) continue;
+                    float dist = d.DistanceFromDeposit((float)v.latitude, (float)v.longitude);
+                    if (dist > maxDepositDistance) continue;
+                    nearby.Add((d.Resource + " (underground)", dist));
+                }
+
+                nearby.Sort((a, b) => a.distance.CompareTo(b.distance));
+
+                GUILayout.Label("Deposits within 500 km of " + v.mainBody.name + ":", HighLogic.Skin.label);
+                _depositsScroll = GUILayout.BeginScrollView(_depositsScroll, GUILayout.Width(360f), GUILayout.Height(320f));
+                if (nearby.Count == 0)
+                    GUILayout.Label("No deposits within 500 km.", HighLogic.Skin.label);
+                else
+                    foreach (var entry in nearby)
+                        GUILayout.Label(string.Format("{0} — {1:F0} m", entry.label, entry.distance), HighLogic.Skin.label);
+                GUILayout.EndScrollView();
+            }
+
+            if (GUILayout.Button("Close", HighLogic.Skin.button))
+                _depositsVisible = false;
+
+            GUI.DragWindow();
+        }
+
+        private void DrawSelectorWindowKCO(int windowId)
+        {
+            GUILayout.Label("Select a resource to send to the KSC:", HighLogic.Skin.label);
+
+            // GUILayout.BeginScrollView is Unity's legacy IMGUI scroller,
+            // compatible with all KSP-supported Unity versions and reliably
+            // handles any number of items without content height issues.
+            _selectorScroll = GUILayout.BeginScrollView(
+                _selectorScroll,
+                HighLogic.Skin.scrollView,
+                GUILayout.Height(180f)
+            );
+            foreach (string res in _selectorResources ?? new List<string>())
+            {
+                if (GUILayout.Button(res, HighLogic.Skin.button))
+                {
+                    _kcoSelectorVisible = false;
+                    Action<string> callback = _selectorCallback;
+                    _selectorCallback = null;
+                    _selectorResources = null;
+                    callback?.Invoke(res);
+                }
+            }
+            GUILayout.EndScrollView();
+
+            if (GUILayout.Button("Cancel", HighLogic.Skin.button))
+            {
+                _kcoSelectorVisible = false;
+                _selectorCallback = null;
+                _selectorResources = null;
+            }
+
+            // Allow the player to drag the window around
+            GUI.DragWindow();
+        }
+
+        // Opens the resource selector window, centered on screen.
+        // onSelect is called with the chosen resource name when the player picks one.
+        // Used in ChitakTech
+        public void ShowResourceSelector(List<string> resources, Action<string> onSelect)
+        {
+            // Keep a snapshot. Callers commonly build this list from live vessel state, and an
+            // external mutation during an IMGUI pass would otherwise invalidate the enumerator.
+            _selectorResources = resources == null
+                ? new List<string>() : new List<string>(resources);
+            _selectorCallback = onSelect;
+            _selectorScroll = Vector2.zero;
+            _selectorTitle = "Send resources to the KSC";
+            _windowRect = new Rect(
+                (Screen.width - _windowRect.width) / 2f,
+                (Screen.height - _windowRect.height) / 2f,
+                _windowRect.width,
+                _windowRect.height
+            );
+            _selectorVisible = false;
+            _kcoSelectorVisible = true;
+        }
+
+        public void ShowSelector(string title, List<string> options, Action<string> onSelect)
+        {
+            _selectorTitle = title ?? "";
+            _selectorOptions = options == null
+                ? new List<string>() : new List<string>(options);
+            _selectorCallback = onSelect;
+            _selectorScroll = Vector2.zero;
+            _windowRect = new Rect(
+                (Screen.width - _windowRect.width) / 2f,
+                (Screen.height - _windowRect.height) / 2f,
+                _windowRect.width,
+                _windowRect.height
+            );
+            _kcoSelectorVisible = false;
+            _selectorVisible = true;
+        }
+
+        private void OnGUI()
+        {
+            if (_selectorVisible)
+                _windowRect = GUILayout.Window(
+                    _windowId,
+                    _windowRect,
+                    DrawSelectorWindow,
+                    _selectorTitle,
+                    HighLogic.Skin.window);
+
+            if (_amountVisible)
+                _amountRect = GUILayout.Window(
+                    _amountWindowId,
+                    _amountRect,
+                    DrawAmountWindow,
+                    _amountTitle,
+                    HighLogic.Skin.window);
+
+            if (_kcoSelectorVisible)
+                _windowRect = GUILayout.Window(
+                    _windowId,
+                    _windowRect,
+                    DrawSelectorWindowKCO,
+                    _selectorTitle,
+                    HighLogic.Skin.window);
+
+            if (_recipeSettingsVisible)
+                _recipeSettingsRect = GUILayout.Window(
+                    _recipeSettingsWindowId,
+                    _recipeSettingsRect,
+                    DrawRecipeSettingsWindow,
+                    _recipeSettingsTitle,
+                    HighLogic.Skin.window);
+
+            if (_depositsVisible)
+                _depositsRect = GUILayout.Window(
+                    _depositsWindowId,
+                    _depositsRect,
+                    DrawDepositsWindow,
+                    "Nearby Deposits",
+                    HighLogic.Skin.window);
+
+            DrawContentsWindows();
+        }
+
+        public void ShowAmountSelector(string title, float min, float max, float initial, Action<float> onConfirm)
+        {
+            if (float.IsNaN(min) || float.IsInfinity(min)) min = 0f;
+            if (float.IsNaN(max) || float.IsInfinity(max)) max = min;
+            if (max < min)
+            {
+                float swap = min;
+                min = max;
+                max = swap;
+            }
+            if (float.IsNaN(initial) || float.IsInfinity(initial)) initial = min;
+            _amountTitle = title ?? "";
+            _amountMin = min;
+            _amountMax = max;
+            _amountValue = Mathf.Clamp(initial, min, max);
+            _amountCallback = onConfirm;
+            _amountRect = new Rect(
+                (Screen.width - _amountRect.width) / 2f,
+                (Screen.height - _amountRect.height) / 2f,
+                _amountRect.width, _amountRect.height);
+            _amountVisible = true;
+        }
+
+        private void DrawAmountWindow(int windowId)
+        {
+            GUILayout.Label(
+                string.Format("{0:F3}  /  {1:F3}", _amountValue, _amountMax),
+                HighLogic.Skin.label);
+            _amountValue = GUILayout.HorizontalSlider(
+                _amountValue, _amountMin, _amountMax,
+                HighLogic.Skin.horizontalSlider,
+                HighLogic.Skin.horizontalSliderThumb);
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Confirm", HighLogic.Skin.button))
+            {
+                _amountVisible = false;
+                Action<float> callback = _amountCallback;
+                _amountCallback = null;
+                callback?.Invoke(_amountValue);
+            }
+            if (GUILayout.Button("Cancel", HighLogic.Skin.button))
+            {
+                _amountVisible = false;
+                _amountCallback = null;
+            }
+            GUILayout.EndHorizontal();
+            GUI.DragWindow();
+        }
+
+        public void ShowRecipeSettings(string title,
+            IEnumerable<KhemistryISRURecipe.RecipeSetting> settings,
+            IDictionary<string, double> values,
+            Action<Dictionary<string, double>> onDone)
+        {
+            _recipeSettingsTitle = title ?? "Recipe Parameters";
+            _recipeSettings = settings == null
+                ? new List<KhemistryISRURecipe.RecipeSetting>()
+                : new List<KhemistryISRURecipe.RecipeSetting>(settings);
+            _recipeSettingWorkingValues =
+                new Dictionary<string, double>(StringComparer.Ordinal);
+            foreach (KhemistryISRURecipe.RecipeSetting setting in _recipeSettings)
+            {
+                double value = setting.defaultValue;
+                if (values != null && values.TryGetValue(setting.variable,
+                        out double supplied))
+                    value = supplied;
+                _recipeSettingWorkingValues[setting.variable] = setting.Clamp(value);
+            }
+            _recipeSettingsCallback = onDone;
+            _openRecipeSettingDropdown = null;
+            _recipeSettingsScroll = Vector2.zero;
+            _recipeSettingsRect = new Rect(
+                (Screen.width - _recipeSettingsRect.width) / 2f,
+                (Screen.height - _recipeSettingsRect.height) / 2f,
+                _recipeSettingsRect.width,
+                _recipeSettingsRect.height);
+            _recipeSettingsVisible = true;
+        }
+
+        private void DrawRecipeSettingsWindow(int windowId)
+        {
+            GUIStyle centeredLabel = new GUIStyle(HighLogic.Skin.label)
+            {
+                alignment = TextAnchor.MiddleCenter
+            };
+            _recipeSettingsScroll = GUILayout.BeginScrollView(
+                _recipeSettingsScroll, HighLogic.Skin.scrollView,
+                GUILayout.Height(330f));
+            foreach (KhemistryISRURecipe.RecipeSetting setting in _recipeSettings)
+            {
+                if (!_recipeSettingWorkingValues.TryGetValue(setting.variable,
+                        out double current))
+                    current = setting.defaultValue;
+                if (setting.IsChoice)
+                {
+                    current = setting.Clamp(current);
+                    if (GUILayout.Button(setting.name + ": " + setting.SelectedOption(current) + " ▼", HighLogic.Skin.button))
+                        _openRecipeSettingDropdown = _openRecipeSettingDropdown == setting.variable ? null : setting.variable;
+                    if (_openRecipeSettingDropdown == setting.variable)
+                    {
+                        GUILayout.BeginVertical(HighLogic.Skin.box);
+                        for (int option = 0; option < setting.options.Count; option++)
+                            if (GUILayout.Button(setting.options[option], HighLogic.Skin.button))
+                            {
+                                _recipeSettingWorkingValues[setting.variable] = option;
+                                _openRecipeSettingDropdown = null;
+                            }
+                        GUILayout.EndVertical();
+                    }
+                    continue;
+                }
+                GUILayout.BeginHorizontal();
+                DrawRecipeSettingButton(setting, -setting.step * setting.multiplier2,
+                    ref current);
+                DrawRecipeSettingButton(setting, -setting.step * setting.multiplier1,
+                    ref current);
+                DrawRecipeSettingButton(setting, -setting.step, ref current);
+                GUILayout.FlexibleSpace();
+                GUILayout.Label(setting.name + ": " + FormatRecipeSettingNumber(current),
+                    centeredLabel, GUILayout.Width(220f));
+                GUILayout.FlexibleSpace();
+                DrawRecipeSettingButton(setting, setting.step, ref current);
+                DrawRecipeSettingButton(setting, setting.step * setting.multiplier1,
+                    ref current);
+                DrawRecipeSettingButton(setting, setting.step * setting.multiplier2,
+                    ref current);
+                GUILayout.EndHorizontal();
+                _recipeSettingWorkingValues[setting.variable] = current;
+            }
+            GUILayout.EndScrollView();
+
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Done", HighLogic.Skin.button))
+            {
+                _recipeSettingsVisible = false;
+                Action<Dictionary<string, double>> callback = _recipeSettingsCallback;
+                _recipeSettingsCallback = null;
+                callback?.Invoke(new Dictionary<string, double>(
+                    _recipeSettingWorkingValues, StringComparer.Ordinal));
+            }
+            if (GUILayout.Button("Cancel", HighLogic.Skin.button))
+            {
+                _recipeSettingsVisible = false;
+                _recipeSettingsCallback = null;
+            }
+            GUILayout.EndHorizontal();
+            GUI.DragWindow();
+        }
+
+        private static void DrawRecipeSettingButton(
+            KhemistryISRURecipe.RecipeSetting setting, double delta,
+            ref double current)
+        {
+            string label = delta < 0.0
+                ? "-" + FormatRecipeSettingNumber(Math.Abs(delta))
+                : "+" + FormatRecipeSettingNumber(delta);
+            if (!GUILayout.Button(label, HighLogic.Skin.button, GUILayout.Width(72f)))
+                return;
+            double changed = current + delta;
+            if (double.IsPositiveInfinity(changed)) changed = setting.max;
+            else if (double.IsNegativeInfinity(changed)) changed = setting.min;
+            current = setting.Clamp(changed);
+        }
+
+        private static string FormatRecipeSettingNumber(double value)
+            => value.ToString("G12", CultureInfo.InvariantCulture);
+
+        private void DrawSelectorWindow(int windowId)
+        {
+            _selectorScroll = GUILayout.BeginScrollView(
+                _selectorScroll,
+                HighLogic.Skin.scrollView,
+                GUILayout.Height(220f)
+            );
+            foreach (string option in _selectorOptions ?? new List<string>())
+            {
+                if (GUILayout.Button(option, HighLogic.Skin.button))
+                {
+                    _selectorVisible = false;
+                    Action<string> callback = _selectorCallback;
+                    _selectorCallback = null;
+                    _selectorOptions = null;
+                    callback?.Invoke(option);
+                }
+            }
+            GUILayout.EndScrollView();
+
+            if (GUILayout.Button("Cancel", HighLogic.Skin.button))
+            {
+                _selectorVisible = false;
+                _selectorCallback = null;
+                _selectorOptions = null;
+            }
+
+            GUI.DragWindow();
+        }
+    }
+}

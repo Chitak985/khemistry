@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 
-namespace Khemistry
+namespace ChitakTech
 {
     internal static class MaterialDrop
     {

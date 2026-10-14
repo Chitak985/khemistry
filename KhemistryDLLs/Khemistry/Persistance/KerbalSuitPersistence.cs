@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 
-namespace Khemistry
+namespace ChitakTech
 {
     /// <summary>
     /// Bridges Khemistry suit-cell and EVA-ISRU state across boarding. An EVA part is destroyed
@@ -62,7 +62,7 @@ namespace Khemistry
             }
 
             if (invalidCount > 0)
-                KShared.LogError("Ignored " + invalidCount
+                CTShared.LogError("Ignored " + invalidCount
                     + " invalid or duplicate saved kerbal suit snapshot(s).",
                     "KhemistryKerbalSuitScenario/OnLoad");
             IsReady = true;
@@ -123,7 +123,7 @@ namespace Khemistry
             return true;
         }
 
-        internal bool TryRestoreEVAISRUState(KhemistryISRU module)
+        internal bool TryRestoreEVAISRUState(ChitakTechISRU module)
         {
             if (!IsReady || module?.part == null
                 || !TryGetCrewIdentity(module.part, out uint persistentId,
@@ -164,11 +164,11 @@ namespace Khemistry
             ConfigNode[] moduleNodes = matchedState.GetNodes("MODULE");
             ConfigNode moduleNode = moduleNodes.Length == 1 ? moduleNodes[0] : null;
             if (moduleNode == null
-                || !string.Equals(moduleNode.GetValue("name"), "KhemistryISRU",
+                || !string.Equals(moduleNode.GetValue("name"), "ChitakTechISRU",
                     StringComparison.Ordinal)
                 || !module.LoadEVAISRUBoardingState(moduleNode))
             {
-                KShared.LogError("Could not restore a saved kerbal EVA ISRU state; the transfer record was preserved for a later attempt.",
+                CTShared.LogError("Could not restore a saved kerbal EVA ISRU state; the transfer record was preserved for a later attempt.",
                     "KhemistryKerbalSuitScenario/TryRestoreEVAISRUState");
                 return false;
             }
@@ -181,7 +181,7 @@ namespace Khemistry
         private static void CaptureEVAISRUStates(Part part, ConfigNode snapshot)
         {
             if (part == null || snapshot == null) return;
-            foreach (KhemistryISRU isru in part.FindModulesImplementing<KhemistryISRU>())
+            foreach (ChitakTechISRU isru in part.FindModulesImplementing<ChitakTechISRU>())
             {
                 if (!TryGetISRUIdentity(isru, out ISRUIdentity identity)) continue;
                 try
@@ -195,7 +195,7 @@ namespace Khemistry
                 }
                 catch (Exception ex)
                 {
-                    KShared.LogError("Could not capture kerbal EVA ISRU state while boarding: "
+                    CTShared.LogError("Could not capture kerbal EVA ISRU state while boarding: "
                         + ex.Message,
                         "KhemistryKerbalSuitScenario/CaptureEVAISRUStates");
                 }
@@ -328,16 +328,16 @@ namespace Khemistry
                         StringComparison.Ordinal);
         }
 
-        private static bool TryGetISRUIdentity(KhemistryISRU module,
+        private static bool TryGetISRUIdentity(ChitakTechISRU module,
             out ISRUIdentity identity)
         {
             identity = null;
             if (module?.part == null) return false;
 
-            var modules = module.part.FindModulesImplementing<KhemistryISRU>();
+            var modules = module.part.FindModulesImplementing<ChitakTechISRU>();
             int moduleOrdinal = modules.IndexOf(module);
             if (moduleOrdinal < 0) return false;
-            ConfigNode config = KShared.FindModuleConfigNode(module, "KhemistryISRU");
+            ConfigNode config = CTShared.FindModuleConfigNode(module, "ChitakTechISRU");
             if (config == null || !string.Equals(config.GetValue("moduleType")?.Trim(),
                     "kerbalEVA", StringComparison.Ordinal))
                 return false;
@@ -347,8 +347,8 @@ namespace Khemistry
             identity.identityOccurrence = 0;
             for (int i = 0; i < moduleOrdinal; i++)
             {
-                ConfigNode precedingConfig = KShared.FindModuleConfigNode(modules[i],
-                    "KhemistryISRU");
+                ConfigNode precedingConfig = CTShared.FindModuleConfigNode(modules[i],
+                    "ChitakTechISRU");
                 if (precedingConfig == null) continue;
                 ISRUIdentity preceding = ReadConfigIdentity(precedingConfig);
                 if (HasSameSignature(identity, preceding)) identity.identityOccurrence++;

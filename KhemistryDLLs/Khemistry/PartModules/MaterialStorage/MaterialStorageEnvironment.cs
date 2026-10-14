@@ -1,10 +1,10 @@
-namespace Khemistry
+namespace ChitakTech
 {
-    public partial class KhemistryMaterialStorage
+    public partial class ChitakTechMaterialStorage
     {
         private readonly StorageEnvironment _environment = new StorageEnvironment();
         private bool _restoringContents;
-        public double EffectiveVolume => KShared.Multiply(volume, _environment.Multiplier("volumeMul"));
+        public double EffectiveVolume => CTShared.Multiply(volume, _environment.Multiplier("volumeMul"));
         public bool TransfersEnabled => !_fatalConfigError && CheckStorageEnvironment();
         private bool CheckStorageEnvironment()
         {

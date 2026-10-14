@@ -9,7 +9,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Khemistry
+namespace ChitakTech
 {
     // Discord's documented local IPC protocol. No authentication tokens, SDK binaries,
     // social subscriptions, or remote network connections are needed for SET_ACTIVITY.

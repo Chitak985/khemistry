@@ -3,13 +3,13 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 
-namespace Khemistry
+namespace ChitakTech
 {
     /// <summary>
     /// A dictionary-backed resource cell that can be carried by a kerbal. Its contents are
     /// deliberately not PartResources; real KSP resources exist only at transfer endpoints.
     /// </summary>
-    public class KhemistryFluidCell : PartModule
+    public class ChitakTechFluidCell : PartModule
     {
         /// <summary>The maximum amount of resources the cell can hold.</summary>
         [KSPField(isPersistant = false)]
@@ -78,12 +78,12 @@ namespace Khemistry
                     || !double.TryParse(entry.Substring(separator + 1),
                         NumberStyles.Float, CultureInfo.InvariantCulture,
                         out double amount)
-                    || !KShared.IsFinite(amount) || amount <= 0.0)
+                    || !CTShared.IsFinite(amount) || amount <= 0.0)
                     continue;
 
                 result.TryGetValue(name, out double current);
                 double combined = current + amount;
-                if (KShared.IsFinite(combined)) result[name] = combined;
+                if (CTShared.IsFinite(combined)) result[name] = combined;
             }
             return result;
         }
@@ -94,7 +94,7 @@ namespace Khemistry
             if (resources == null) return "";
             return string.Join("|", resources
                 .Where(value => !string.IsNullOrWhiteSpace(value.Key)
-                    && KShared.IsFinite(value.Value) && value.Value > 0.0)
+                    && CTShared.IsFinite(value.Value) && value.Value > 0.0)
                 .OrderBy(value => value.Key, StringComparer.Ordinal)
                 .Select(value => value.Key.Trim() + ":"
                     + value.Value.ToString("R", CultureInfo.InvariantCulture))
@@ -108,9 +108,9 @@ namespace Khemistry
             double total = 0.0;
             foreach (KeyValuePair<string, double> value in resources)
             {
-                if (!KShared.IsFinite(value.Value) || value.Value <= 0.0) continue;
+                if (!CTShared.IsFinite(value.Value) || value.Value <= 0.0) continue;
                 total += value.Value;
-                if (!KShared.IsFinite(total)) return double.PositiveInfinity;
+                if (!CTShared.IsFinite(total)) return double.PositiveInfinity;
             }
             return total;
         }
@@ -160,7 +160,7 @@ namespace Khemistry
 
         private double RequestStoredResourceCore(string resourceName, double amount, bool migrating)
         {
-            if (string.IsNullOrWhiteSpace(resourceName) || !KShared.IsFinite(amount)
+            if (string.IsNullOrWhiteSpace(resourceName) || !CTShared.IsFinite(amount)
                 || amount == 0.0)
                 return 0.0;
 
@@ -184,12 +184,12 @@ namespace Khemistry
 
             if (!CanAddResource(resourceName, resources.Keys)) return 0.0;
             double total = GetResourceTotal(resources);
-            if (!KShared.IsFinite(total) || !KShared.IsFinite(ResourceMaxAmount)
+            if (!CTShared.IsFinite(total) || !CTShared.IsFinite(ResourceMaxAmount)
                 || ResourceMaxAmount <= 0f)
                 return 0.0;
             double added = Math.Min(-amount,
                 Math.Max(0.0, ResourceMaxAmount - total));
-            if (added <= 0.0 || !KShared.IsFinite(current + added)) return 0.0;
+            if (added <= 0.0 || !CTShared.IsFinite(current + added)) return 0.0;
             resources[resourceName] = current + added;
             StoredResourcesData = SerializeResources(resources);
             if (!migrating) RecordTransfer(rateBudget, -added, false);
@@ -200,14 +200,14 @@ namespace Khemistry
             guiName = "Cell Contents")]
         public void OpenCellContents()
         {
-            KShared.Instance?.ShowResourceContents("Cell Contents",
+            CTShared.Instance?.ShowResourceContents("Cell Contents",
                 () => part == null ? null : GetStoredResources());
         }
 
         private static double ValidateRate(double rate, string name)
         {
-            if (KShared.IsFinite(rate)) return rate;
-            KShared.LogError("Invalid fluid-cell " + name + "; using zero (blocked).", "KhemistryFluidCell/OnLoad");
+            if (CTShared.IsFinite(rate)) return rate;
+            CTShared.LogError("Invalid fluid-cell " + name + "; using zero (blocked).", "ChitakTechFluidCell/OnLoad");
             return 0;
         }
 
@@ -256,10 +256,10 @@ namespace Khemistry
             StoredResourcesData = SerializeResources(
                 DeserializeResources(StoredResourcesData));
             if (_supportedResourceGroups.Count > 0)
-                KShared.Log(
+                CTShared.Log(
                     "Loaded " + SupportedResources.Count + " resources in "
                     + _supportedResourceGroups.Count + " supported resource groups.",
-                    "KhemistryFluidCell/OnLoad");
+                    "ChitakTechFluidCell/OnLoad");
         }
 
         public override void OnStart(StartState state)
@@ -268,8 +268,8 @@ namespace Khemistry
 
             if (_supportedResourceGroups.Count == 0)
             {
-                KhemistryFluidCell prefab = part.partInfo?.partPrefab
-                    ?.FindModuleImplementing<KhemistryFluidCell>();
+                ChitakTechFluidCell prefab = part.partInfo?.partPrefab
+                    ?.FindModuleImplementing<ChitakTechFluidCell>();
                 if (prefab != null && prefab != this)
                 {
                     foreach (HashSet<string> prefabGroup in prefab._supportedResourceGroups)
@@ -285,17 +285,17 @@ namespace Khemistry
             if (float.IsNaN(ResourceMaxAmount) || float.IsInfinity(ResourceMaxAmount)
                 || ResourceMaxAmount <= 0f)
             {
-                KShared.LogError("Part \"" + part.name
-                    + "\" has an invalid KhemistryFluidCell ResourceMaxAmount; using 100.",
-                    "KhemistryFluidCell/OnStart");
+                CTShared.LogError("Part \"" + part.name
+                    + "\" has an invalid ChitakTechFluidCell ResourceMaxAmount; using 100.",
+                    "ChitakTechFluidCell/OnStart");
                 ResourceMaxAmount = 100f;
             }
             if (float.IsNaN(TransferDistance) || float.IsInfinity(TransferDistance)
                 || TransferDistance < 0f)
             {
-                KShared.LogError("Part \"" + part.name
-                    + "\" has an invalid KhemistryFluidCell TransferDistance; using 10.",
-                    "KhemistryFluidCell/OnStart");
+                CTShared.LogError("Part \"" + part.name
+                    + "\" has an invalid ChitakTechFluidCell TransferDistance; using 10.",
+                    "ChitakTechFluidCell/OnStart");
                 TransferDistance = 10f;
             }
 
@@ -315,9 +315,9 @@ namespace Khemistry
                     ResourceName = "";
                 }
                 else
-                    KShared.LogWarning("Only part of legacy fluid-cell resource \""
+                    CTShared.LogWarning("Only part of legacy fluid-cell resource \""
                         + ResourceName + "\" fit in the dictionary; preserving the remainder.",
-                        "KhemistryFluidCell/OnStart");
+                        "ChitakTechFluidCell/OnStart");
             }
         }
 

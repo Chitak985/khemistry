@@ -3,22 +3,22 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
 
-namespace Khemistry
+namespace ChitakTech
 {
     public partial class KhemistryKerbal
     {
         internal double RequestInventoryProcessorResource(StoredPart stored, string name,
             double amount, bool allowSuitCell,
-            List<KhemistryResourceNetwork.Transfer> transfers = null)
+            List<ChitakTechResourceNetwork.Transfer> transfers = null)
         {
             if (!IsStoredPartCurrent(stored) || string.IsNullOrWhiteSpace(name)
-                || !KShared.IsFinite(amount) || amount == 0.0)
+                || !CTShared.IsFinite(amount) || amount == 0.0)
                 return 0.0;
 
             name = name.Trim();
             bool hasPartCell = GetCellModuleSnapshot(stored) != null;
             double moved = 0.0;
-            KhemistryFluidCell rateCell = hasPartCell ? ReadFluidCellPrefab(stored.partName) : null;
+            ChitakTechFluidCell rateCell = hasPartCell ? ReadFluidCellPrefab(stored.partName) : null;
             double cellRequest = rateCell == null ? 0 : rateCell.LimitTransfer(CellBudget(stored), amount, true);
 
             if (hasPartCell && amount > 0.0)
@@ -33,8 +33,8 @@ namespace Khemistry
                 && IsResourceAllowedForAddition(stored, name))
             {
                 double current = ReadResourceAmountValue(stored, name);
-                KhemistryFluidCell cell = ReadFluidCellPrefab(stored.partName);
-                double totalSpace = cell == null || !KShared.IsFinite(cell.ResourceMaxAmount)
+                ChitakTechFluidCell cell = ReadFluidCellPrefab(stored.partName);
+                double totalSpace = cell == null || !CTShared.IsFinite(cell.ResourceMaxAmount)
                     || cell.ResourceMaxAmount <= 0f
                     ? 0.0
                     : Math.Max(0.0, cell.ResourceMaxAmount - ReadResourceAmount(stored));
@@ -48,7 +48,7 @@ namespace Khemistry
             {
                 double signed = amount > 0 ? moved : -moved;
                 rateCell.RecordTransfer(CellBudget(stored), signed, true);
-                transfers?.Add(new KhemistryResourceNetwork.Transfer { amount = signed,
+                transfers?.Add(new ChitakTechResourceNetwork.Transfer { amount = signed,
                     undo = value => UndoCellTransfer(stored, name, value, true) });
             }
             double remaining = Math.Abs(amount) - moved;
@@ -56,11 +56,11 @@ namespace Khemistry
             {
                 double suitMoved = RequestSuitCellResource(name,
                     amount > 0.0 ? remaining : -remaining);
-                if (KShared.IsFinite(suitMoved))
+                if (CTShared.IsFinite(suitMoved))
                 {
                     moved += Math.Abs(suitMoved);
                     if (suitMoved != 0)
-                        transfers?.Add(new KhemistryResourceNetwork.Transfer { amount = suitMoved,
+                        transfers?.Add(new ChitakTechResourceNetwork.Transfer { amount = suitMoved,
                             undo = value => {
                                 var contents = GetSuitCellDict();
                                 contents.TryGetValue(name, out double current);
@@ -87,8 +87,8 @@ namespace Khemistry
             double restored = current + signed;
             if (restored <= 0) contents.Remove(name); else contents[name] = restored;
             GetCellModuleSnapshot(stored).moduleValues.SetValue("StoredResourcesData",
-                KhemistryFluidCell.SerializeResources(contents), true);
-            CellBudget(stored).Record(KhemistryFluidCell.RateChannel(signed < 0, internalTransfer),
+                ChitakTechFluidCell.SerializeResources(contents), true);
+            CellBudget(stored).Record(ChitakTechFluidCell.RateChannel(signed < 0, internalTransfer),
                 -Math.Abs(signed), UnityEngine.Time.fixedTime);
             NotifyInventoryChanged();
         }
@@ -96,17 +96,17 @@ namespace Khemistry
         private sealed class CellTransfer
         {
             public StoredPart stored;
-            public KhemistryResourceNetwork.Endpoint endpoint;
+            public ChitakTechResourceNetwork.Endpoint endpoint;
             public bool input;
             public double remaining, moved;
             public float range;
         }
         private readonly List<CellTransfer> cellTransfers = new List<CellTransfer>();
 
-        private void StartCellTransfer(StoredPart stored, KhemistryResourceNetwork.Endpoint endpoint,
+        private void StartCellTransfer(StoredPart stored, ChitakTechResourceNetwork.Endpoint endpoint,
             bool input, double amount, float range)
         {
-            if (!KShared.IsFinite(amount) || amount <= 0
+            if (!CTShared.IsFinite(amount) || amount <= 0
                 || (stored != null ? !IsStoredPartCurrent(stored) : !HasFluidSuitCell)) return;
             var cell = stored == null ? null : ReadFluidCellPrefab(stored.partName);
             if (stored != null && (cell == null || cell.GetRate(input, false) == 0))

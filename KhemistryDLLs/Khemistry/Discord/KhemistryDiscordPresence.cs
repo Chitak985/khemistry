@@ -3,7 +3,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using UnityEngine;
 
-namespace Khemistry
+namespace ChitakTech
 {
     [KSPAddon(KSPAddon.Startup.MainMenu, true)]
     public sealed class KhemistryDiscordPresence : MonoBehaviour
@@ -28,18 +28,18 @@ namespace Khemistry
             }
             catch (Exception exception)
             {
-                KShared.LogWarning("Discord Rich Presence could not start: " + exception.GetType().Name,
+                CTShared.LogWarning("Discord Rich Presence could not start: " + exception.GetType().Name,
                     "DiscordPresence");
             }
         }
         public void Update()
         {
-            while (messages.TryDequeue(out string message)) KShared.Log(message, "DiscordPresence");
+            while (messages.TryDequeue(out string message)) CTShared.Log(message, "DiscordPresence");
         }
         public void OnApplicationQuit()
         {
             client?.Dispose();
-            KShared.Log("Discord shutdown requested; game thread released.", "DiscordPresence");
+            CTShared.Log("Discord shutdown requested; game thread released.", "DiscordPresence");
         }
         public void OnDestroy()
         {

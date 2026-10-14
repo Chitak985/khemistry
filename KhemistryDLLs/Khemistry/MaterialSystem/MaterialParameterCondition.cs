@@ -2,7 +2,7 @@ using System;
 using System.Globalization;
 using System.Text.RegularExpressions;
 
-namespace Khemistry
+namespace ChitakTech
 {
     /// <summary>INPUT_MATERIAL conditions: numeric expressions or interpolated string equality.</summary>
     internal static class MaterialParameterCondition
@@ -34,7 +34,7 @@ namespace Khemistry
                 {
                     string variable = match.Groups[1].Value.Trim();
                     double? number = settingValue?.Invoke(variable);
-                    if (!number.HasValue || !KShared.IsFinite(number.Value))
+                    if (!number.HasValue || !CTShared.IsFinite(number.Value))
                         throw new FormatException("Unknown or invalid SETTING var \"" + variable + "\".");
                     return number.Value.ToString("R", CultureInfo.InvariantCulture);
                 }, RegexOptions.IgnoreCase);
@@ -47,8 +47,8 @@ namespace Khemistry
             {
                 string expression = value.Substring(prefixLength);
                 if (validateOnly)
-                    return KMathExpr.TryEvaluateRange(expression, out _, out error);
-                if (!KMathExpr.TryEvaluate(expression, out double number, out error)) return false;
+                    return CTMathExpr.TryEvaluateRange(expression, out _, out error);
+                if (!CTMathExpr.TryEvaluate(expression, out double number, out error)) return false;
                 resolved = value.Substring(0, prefixLength) + number.ToString("R", CultureInfo.InvariantCulture);
                 return true;
             }
@@ -65,13 +65,13 @@ namespace Khemistry
                     { error = "Unexpected ']'."; return false; }
                     if (open < 0) return true;
                     if (close < 0) { error = "Expression has no closing ']'."; return false; }
-                    if (!KMathExpr.TryEvaluateRange(value.Substring(open + 1, close - open - 1),
+                    if (!CTMathExpr.TryEvaluateRange(value.Substring(open + 1, close - open - 1),
                             out _, out error)) return false;
                     position = close + 1;
                 }
                 return true;
             }
-            if (!KMathExpr.TryInterpolate(value, out string literal, out error)) return false;
+            if (!CTMathExpr.TryInterpolate(value, out string literal, out error)) return false;
             resolved = LiteralPrefix + literal;
             return true;
         }

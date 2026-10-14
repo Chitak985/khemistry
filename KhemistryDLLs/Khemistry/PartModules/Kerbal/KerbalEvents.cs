@@ -1,6 +1,6 @@
 ﻿using System.Collections.Generic;
 
-namespace Khemistry
+namespace ChitakTech
 {
     public partial class KhemistryKerbal
     {
@@ -34,7 +34,7 @@ namespace Khemistry
         public void OpenSuitCellContents()
         {
             if (!HasFluidSuitCell) return;
-            KShared.Instance?.ShowResourceContents("Suit Cell Contents",
+            CTShared.Instance?.ShowResourceContents("Suit Cell Contents",
                 () => part == null ? null : GetSuitCellDict());
         }
 
@@ -42,9 +42,9 @@ namespace Khemistry
                  groupName = "fluidcelleva", groupDisplayName = "Fluid Cells", groupStartCollapsed = false)]
         public void EVASendResources()
         {
-            KShared shared = KShared.Instance;
-            if (shared == null) { KShared.LogError("KShared is null!", "KhemistryKerbal/EVATakeResources"); return; }
-            KShared.Log("Called! (Transfer from ... to nearby part button)", "KhemistryKerbal/EVASendResources");
+            CTShared shared = CTShared.Instance;
+            if (shared == null) { CTShared.LogError("CTShared is null!", "KhemistryKerbal/EVATakeResources"); return; }
+            CTShared.Log("Called! (Transfer from ... to nearby part button)", "KhemistryKerbal/EVASendResources");
 
             var cells = GetAllCellRefs();
             if (cells.Count == 0)
@@ -95,9 +95,9 @@ namespace Khemistry
          groupName = "fluidcelleva", groupDisplayName = "Fluid Cells", groupStartCollapsed = false)]
         public void EVATakeResources()
         {
-            var shared = KShared.Instance;
-            if (shared == null) { KShared.LogError("KShared is null!", "KhemistryKerbal/EVATakeResources"); return; }
-            KShared.Log("Called! (Transfer from ... to cell button)", "KhemistryKerbal/EVATakeResources");
+            var shared = CTShared.Instance;
+            if (shared == null) { CTShared.LogError("CTShared is null!", "KhemistryKerbal/EVATakeResources"); return; }
+            CTShared.Log("Called! (Transfer from ... to cell button)", "KhemistryKerbal/EVATakeResources");
 
             var cells = GetAllCellRefs();
             if (cells.Count == 0)
@@ -146,7 +146,7 @@ namespace Khemistry
         public void OpenMaterialSuitCellContents()
         {
             if (!HasMaterialSuitCell) return;
-            KShared.Instance?.ShowMaterialContents("Material Suit Cell Contents",
+            CTShared.Instance?.ShowMaterialContents("Material Suit Cell Contents",
                 () => part == null ? null : materialSuitCellContents,
                 (material, amount) => part != null && HasMaterialSuitCell
                     && MaterialDrop.TryDrop(materialSuitCellContents, material, amount));
@@ -178,7 +178,7 @@ namespace Khemistry
             var byLabel = new Dictionary<string, HeldPartEVAProcessor>();
             foreach (HeldPartEVAProcessor processor in processors)
             {
-                KhemistryISRU.InventoryProcessorInfo info = processor.prefab
+                ChitakTechISRU.InventoryProcessorInfo info = processor.prefab
                     .ReadInventoryInfo(this, processor.stored, processor.snapshot,
                         processor.config);
                 string title = PartLoader.getPartInfoByName(processor.stored.partName)
@@ -190,7 +190,7 @@ namespace Khemistry
                 byLabel.Add(label, processor);
             }
 
-            KShared.Instance?.ShowSelector("Select held processor", labels, label =>
+            CTShared.Instance?.ShowSelector("Select held processor", labels, label =>
             {
                 if (byLabel.TryGetValue(label, out HeldPartEVAProcessor selected)
                     && IsStoredPartCurrent(selected.stored))

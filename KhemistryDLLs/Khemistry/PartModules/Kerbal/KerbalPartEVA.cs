@@ -2,14 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace Khemistry
+namespace ChitakTech
 {
     public partial class KhemistryKerbal
     {
         private sealed class HeldPartEVAProcessor
         {
             public StoredPart stored;
-            public KhemistryISRU prefab;
+            public ChitakTechISRU prefab;
             public ProtoPartModuleSnapshot snapshot;
             public ConfigNode config;
         }
@@ -29,20 +29,20 @@ namespace Khemistry
                 if (stored?.snapshot == null || prefabPart == null || partConfig == null)
                     continue;
 
-                List<KhemistryISRU> prefabModules = prefabPart.Modules
-                    .OfType<KhemistryISRU>().ToList();
+                List<ChitakTechISRU> prefabModules = prefabPart.Modules
+                    .OfType<ChitakTechISRU>().ToList();
                 List<ConfigNode> moduleConfigs = partConfig.GetNodes("MODULE")
-                    .Where(node => node.GetValue("name") == "KhemistryISRU")
+                    .Where(node => node.GetValue("name") == "ChitakTechISRU")
                     .ToList();
                 List<ProtoPartModuleSnapshot> savedModules = stored.snapshot.modules
-                    .Where(module => module.moduleName == "KhemistryISRU")
+                    .Where(module => module.moduleName == "ChitakTechISRU")
                     .ToList();
 
                 int moduleCount = Math.Min(prefabModules.Count, moduleConfigs.Count);
                 for (int moduleIndex = 0; moduleIndex < moduleCount; moduleIndex++)
                 {
                     ConfigNode config = moduleConfigs[moduleIndex];
-                    if (!KhemistryISRU.IsPartEVAConfig(config)) continue;
+                    if (!ChitakTechISRU.IsPartEVAConfig(config)) continue;
 
                     while (savedModules.Count <= moduleIndex)
                     {
@@ -70,7 +70,7 @@ namespace Khemistry
 
         private void EnsureHeldFluidCellSnapshots(StoredPart stored, Part prefabPart)
         {
-            KhemistryFluidCell cell = prefabPart?.FindModuleImplementing<KhemistryFluidCell>();
+            ChitakTechFluidCell cell = prefabPart?.FindModuleImplementing<ChitakTechFluidCell>();
             if (cell == null || stored?.snapshot == null) return;
 
             bool changed = false;
@@ -112,7 +112,7 @@ namespace Khemistry
             var remaining = DeserializeResourceDictionary(
                 legacy.moduleValues.GetValue("storedResourcesData"));
             ProtoPartModuleSnapshot cellSnapshot = GetCellModuleSnapshot(stored);
-            KhemistryFluidCell cell = ReadFluidCellPrefab(stored.partName);
+            ChitakTechFluidCell cell = ReadFluidCellPrefab(stored.partName);
             Dictionary<string, double> cellContents = ReadCellResourceDictionary(stored);
             foreach (KeyValuePair<string, double> value in remaining.ToList())
             {
@@ -120,7 +120,7 @@ namespace Khemistry
                     || !cell.CanAddResource(value.Key, cellContents.Keys))
                     continue;
                 double totalSpace = Math.Max(0.0, cell.ResourceMaxAmount
-                    - KhemistryFluidCell.GetResourceTotal(cellContents));
+                    - ChitakTechFluidCell.GetResourceTotal(cellContents));
                 double add = Math.Min(value.Value, totalSpace);
                 if (add <= 0.0) continue;
                 cellContents.TryGetValue(value.Key, out double current);
@@ -131,7 +131,7 @@ namespace Khemistry
             }
             if (cellSnapshot?.moduleValues != null)
                 cellSnapshot.moduleValues.SetValue("StoredResourcesData",
-                    KhemistryFluidCell.SerializeResources(cellContents), true);
+                    ChitakTechFluidCell.SerializeResources(cellContents), true);
             legacy.moduleValues.SetValue("storedResourcesData",
                 SerializeResourceDictionary(remaining), true);
 
@@ -144,7 +144,7 @@ namespace Khemistry
             {
                 target.moduleValues.SetValue("isRunning", "True", true);
                 target.moduleValues.SetValue("state",
-                    KShared.ChargablePartState.On.ToString(), true);
+                    CTShared.ChargablePartState.On.ToString(), true);
             }
 
             if (remaining.Count == 0)
@@ -156,7 +156,7 @@ namespace Khemistry
         private void ShowPartEVAProcessorMenu(HeldPartEVAProcessor processor)
         {
             if (!IsStoredPartCurrent(processor.stored)) return;
-            KhemistryISRU.InventoryProcessorInfo info = processor.prefab
+            ChitakTechISRU.InventoryProcessorInfo info = processor.prefab
                 .ReadInventoryInfo(this, processor.stored, processor.snapshot,
                     processor.config);
             if (info == null) return;
@@ -164,14 +164,14 @@ namespace Khemistry
             var actions = new List<string>();
             if (info.chargingRequired)
             {
-                if (info.state == KShared.ChargablePartState.Charging)
+                if (info.state == CTShared.ChargablePartState.Charging)
                     actions.Add("Disable Charging");
                 else if (info.chargePercent < 100f)
                     actions.Add("Enable Charging");
-                if (info.state != KShared.ChargablePartState.On
+                if (info.state != CTShared.ChargablePartState.On
                     && info.chargePercent >= info.chargeThreshold)
                     actions.Add("Prepare Converter");
-                if (info.state != KShared.ChargablePartState.Off)
+                if (info.state != CTShared.ChargablePartState.Off)
                     actions.Add("Turn Off Converter");
             }
             if (info.isRunning)
@@ -191,24 +191,24 @@ namespace Khemistry
                 + (info.activeRecipeName ?? "No recipe") + " — "
                 + (info.status ?? "Stopped") + " — " + info.progress
                 + (info.hasMaintenance ? " — " + info.maintenance : "");
-            KShared.Instance?.ShowSelector(title, actions, action =>
+            CTShared.Instance?.ShowSelector(title, actions, action =>
                 ExecutePartEVAProcessorAction(processor, info, action));
         }
 
         private void ExecutePartEVAProcessorAction(HeldPartEVAProcessor processor,
-            KhemistryISRU.InventoryProcessorInfo info, string action)
+            ChitakTechISRU.InventoryProcessorInfo info, string action)
         {
             if (!IsStoredPartCurrent(processor.stored)) return;
             if (action == "Switch Recipe")
             {
                 List<string> choices = info.recipeNames
                     .Where(name => name != info.activeRecipeName).ToList();
-                KShared.Instance?.ShowSelector("Select recipe", choices, recipe =>
+                CTShared.Instance?.ShowSelector("Select recipe", choices, recipe =>
                 {
                     if (IsStoredPartCurrent(processor.stored))
                     {
                         bool switched = RunPartEVAProcessorAction(processor,
-                            KhemistryISRU.InventoryAction.SwitchRecipe, recipe);
+                            ChitakTechISRU.InventoryAction.SwitchRecipe, recipe);
                         if (switched) ShowPartEVARecipeSettings(processor);
                     }
                 });
@@ -220,26 +220,26 @@ namespace Khemistry
                 return;
             }
 
-            KhemistryISRU.InventoryAction selected;
+            ChitakTechISRU.InventoryAction selected;
             switch (action)
             {
                 case "Fix maintenance":
-                    selected = KhemistryISRU.InventoryAction.FixMaintenance; break;
+                    selected = ChitakTechISRU.InventoryAction.FixMaintenance; break;
                 case "Auto maintenance fixing: On":
                 case "Auto maintenance fixing: Off":
-                    selected = KhemistryISRU.InventoryAction.ToggleAutoMaintenanceFixing; break;
+                    selected = ChitakTechISRU.InventoryAction.ToggleAutoMaintenanceFixing; break;
                 case "Enable Charging":
-                    selected = KhemistryISRU.InventoryAction.EnableCharging; break;
+                    selected = ChitakTechISRU.InventoryAction.EnableCharging; break;
                 case "Disable Charging":
-                    selected = KhemistryISRU.InventoryAction.DisableCharging; break;
+                    selected = ChitakTechISRU.InventoryAction.DisableCharging; break;
                 case "Prepare Converter":
-                    selected = KhemistryISRU.InventoryAction.TurnOn; break;
+                    selected = ChitakTechISRU.InventoryAction.TurnOn; break;
                 case "Turn Off Converter":
-                    selected = KhemistryISRU.InventoryAction.TurnOff; break;
+                    selected = ChitakTechISRU.InventoryAction.TurnOff; break;
                 case "Start Converter":
-                    selected = KhemistryISRU.InventoryAction.Start; break;
+                    selected = ChitakTechISRU.InventoryAction.Start; break;
                 case "Stop Converter":
-                    selected = KhemistryISRU.InventoryAction.Stop; break;
+                    selected = ChitakTechISRU.InventoryAction.Stop; break;
                 default:
                     return;
             }
@@ -247,7 +247,7 @@ namespace Khemistry
         }
 
         private bool RunPartEVAProcessorAction(HeldPartEVAProcessor processor,
-            KhemistryISRU.InventoryAction action, string recipeName = null)
+            ChitakTechISRU.InventoryAction action, string recipeName = null)
         {
             bool succeeded = processor.prefab.ExecuteInventoryAction(this,
                 processor.stored, processor.snapshot, processor.config, action,
@@ -260,7 +260,7 @@ namespace Khemistry
         }
 
         private void ShowPartEVARecipeSettings(HeldPartEVAProcessor processor,
-            KhemistryISRU.InventoryProcessorInfo info = null)
+            ChitakTechISRU.InventoryProcessorInfo info = null)
         {
             if (!IsStoredPartCurrent(processor.stored)) return;
             if (info == null)
@@ -268,12 +268,12 @@ namespace Khemistry
                     processor.snapshot, processor.config);
             if (info == null || info.recipeSettings.Count == 0) return;
             string expectedRecipe = info.activeRecipeName;
-            KShared.Instance?.ShowRecipeSettings(
+            CTShared.Instance?.ShowRecipeSettings(
                 (expectedRecipe ?? "Recipe") + " Parameters",
                 info.recipeSettings, info.recipeSettingValues, values =>
                 {
                     if (!IsStoredPartCurrent(processor.stored)) return;
-                    KhemistryISRU.InventoryProcessorInfo current = processor.prefab
+                    ChitakTechISRU.InventoryProcessorInfo current = processor.prefab
                         .ReadInventoryInfo(this, processor.stored,
                             processor.snapshot, processor.config);
                     bool saved = current != null && !current.isRunning

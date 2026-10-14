@@ -5,7 +5,7 @@ using System.Linq;
 using Parallax;
 using UnityEngine;
 
-namespace Khemistry
+namespace ChitakTech
 {
     internal readonly struct KhemistryParallaxScatterIdentity : IEquatable<KhemistryParallaxScatterIdentity>
     {
@@ -280,7 +280,7 @@ namespace Khemistry
                 if (target.colliderObject != null)
                     target.colliderObject.SetActive(colliderWasActive);
                 scenario.UnmarkHarvested(target.identity);
-                KShared.LogError("Could not suppress harvested Parallax scatter \""
+                CTShared.LogError("Could not suppress harvested Parallax scatter \""
                     + target.identity.scatterName + "\": " + ex.Message,
                     "KhemistryParallaxIntegration/TryHarvest");
                 return false;
@@ -346,7 +346,7 @@ namespace Khemistry
                             catch (Exception ex)
                             {
                                 applied = false;
-                                KShared.LogError("Could not reapply harvested Parallax scatter suppression: "
+                                CTShared.LogError("Could not reapply harvested Parallax scatter suppression: "
                                     + ex.Message,
                                     "KhemistryParallaxIntegration/ReapplyHarvestedScatters");
                             }
@@ -544,7 +544,7 @@ namespace Khemistry
                 }
                 catch (Exception ex)
                 {
-                    KShared.LogError("Could not roll back Parallax scatter suppression: "
+                    CTShared.LogError("Could not roll back Parallax scatter suppression: "
                         + ex.Message,
                         "KhemistryParallaxIntegration/RestoreBufferChanges");
                 }
@@ -569,14 +569,14 @@ namespace Khemistry
                         out double radius)
                     || !TryReadPositiveDouble(heightText, out double height))
                 {
-                    KShared.LogError("Ignored invalid KHEMISTRY_PARALLAX_TREE definition.",
+                    CTShared.LogError("Ignored invalid KHEMISTRY_PARALLAX_TREE definition.",
                         "KhemistryParallaxIntegration/EnsureDefinitionsLoaded");
                     continue;
                 }
                 string key = MakeDefinitionKey(bodyName, scatterName);
                 if (TreeDefinitions.ContainsKey(key))
                 {
-                    KShared.LogError("Ignored duplicate KHEMISTRY_PARALLAX_TREE definition for "
+                    CTShared.LogError("Ignored duplicate KHEMISTRY_PARALLAX_TREE definition for "
                         + bodyName + "/" + scatterName + ".",
                         "KhemistryParallaxIntegration/EnsureDefinitionsLoaded");
                     continue;
@@ -597,7 +597,7 @@ namespace Khemistry
             string key = MakeDefinitionKey(bodyName, scatterName);
             if (TreeDefinitions.TryGetValue(key, out definition)) return true;
             if (MissingDefinitionWarnings.Add(key))
-                KShared.LogError("No KHEMISTRY_PARALLAX_TREE definition exists for "
+                CTShared.LogError("No KHEMISTRY_PARALLAX_TREE definition exists for "
                     + bodyName + "/" + scatterName + ".",
                     "KhemistryParallaxIntegration/TryGetTreeDefinition");
             return false;

@@ -6,7 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
 
-namespace Khemistry
+namespace ChitakTech
 {
     // KSP's Mono can leave blocking NamedPipeStream operations alive during domain
     // shutdown. These local Windows handles deliberately use synchronous NOWAIT

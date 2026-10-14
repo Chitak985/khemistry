@@ -1,6 +1,6 @@
 ﻿using System.Collections.Generic;
 
-namespace Khemistry
+namespace ChitakTech
 {
     /// <summary>
     /// Information about a resource shown in the Resource Library.

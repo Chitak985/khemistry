@@ -1,12 +1,12 @@
 ﻿using System;
 using UnityEngine;
 
-namespace Khemistry
+namespace ChitakTech
 {
     /// <summary>
-    /// Shared data for both deposit types, <see cref="KhemistryUDeposit"/> and <see cref="KhemistryGDeposit"/>.
+    /// Shared data for both deposit types, <see cref="ChitakTechUDeposit"/> and <see cref="ChitakTechGDeposit"/>.
     /// </summary>
-    public class KhemistryDeposit
+    public class ChitakTechDeposit
     {
         // Shared variables
         public Vector2 Position { get; set; }  // In latitude, longitude format
@@ -20,14 +20,14 @@ namespace Khemistry
         {
             try
             {
-                return (float)KShared.LatLonDistanceMeters(Position[0], Position[1], lat, lon, Planet);
+                return (float)CTShared.LatLonDistanceMeters(Position[0], Position[1], lat, lon, Planet);
             }
             catch (Exception ex)
             {
-                KShared.LogError(
+                CTShared.LogError(
                 string.Format("Could not calculate deposit distance; treating the deposit as out of range. Message: {0}. Stack trace: {1}. ",
                     ex.Message, ex.StackTrace),
-                "KhemistryDeposit/DistanceFromDeposit");
+                "ChitakTechDeposit/DistanceFromDeposit");
                 return float.PositiveInfinity;
             }
         }
@@ -48,25 +48,25 @@ namespace Khemistry
         protected static float RollRadius(float minRadius, float maxRadius,
             string logContext)
         {
-            if (KShared.rand == null || float.IsNaN(minRadius) || float.IsInfinity(minRadius)
+            if (CTShared.rand == null || float.IsNaN(minRadius) || float.IsInfinity(minRadius)
                 || float.IsNaN(maxRadius) || float.IsInfinity(maxRadius)
                 || minRadius < 0f || maxRadius < minRadius)
             {
-                KShared.LogError(
+                CTShared.LogError(
                     "Invalid deposit radius range [" + minRadius + ", " + maxRadius + "]. Using 0.",
                     logContext);
                 return 0f;
             }
 
             if (minRadius.Equals(maxRadius)) return minRadius;
-            return minRadius + (float)KShared.rand.NextDouble() * (maxRadius - minRadius);
+            return minRadius + (float)CTShared.rand.NextDouble() * (maxRadius - minRadius);
         }
 
         protected static Vector2 RollPosition(string logContext)
         {
-            if (KShared.rand == null)
+            if (CTShared.rand == null)
             {
-                KShared.LogError("Could not generate a deposit position because the random generator is unavailable.",
+                CTShared.LogError("Could not generate a deposit position because the random generator is unavailable.",
                     logContext);
                 return Vector2.zero;
             }
@@ -74,22 +74,22 @@ namespace Khemistry
             // Uniform latitude values over-represent the polar regions. Sampling the sine of
             // latitude uniformly instead gives every equal-area patch of the body the same
             // chance of receiving a deposit.
-            double sinLatitude = (KShared.rand.NextDouble() * 2.0) - 1.0;
+            double sinLatitude = (CTShared.rand.NextDouble() * 2.0) - 1.0;
             float latitude = (float)(Math.Asin(sinLatitude) * 180.0 / Math.PI);
-            float longitude = (float)(KShared.rand.NextDouble() * 360.0) - 180f;
+            float longitude = (float)(CTShared.rand.NextDouble() * 360.0) - 180f;
             return new Vector2(latitude, longitude);
         }
     }
 
     /// <summary>
     /// A deposit where resources can be extracted from.
-    /// This is the underground version of a deposit, see <see cref="KhemistryGDeposit"/> for its aboveground counterpart.
+    /// This is the underground version of a deposit, see <see cref="ChitakTechGDeposit"/> for its aboveground counterpart.
     /// </summary>
-    public class KhemistryUDeposit : KhemistryDeposit
+    public class ChitakTechUDeposit : ChitakTechDeposit
     {
         public float DepthStart { get; set; }
 
-        internal KhemistryUDeposit() { }
+        internal ChitakTechUDeposit() { }
 
         public bool IsDepthInsideDeposit(float depth2)
             => depth2 >= DepthStart && depth2 <= DepthStart + Depth;
@@ -101,7 +101,7 @@ namespace Khemistry
         public bool IsInsideDeposit(float lat, float lon, string body, float depth)
             => IsInsideDeposit(lat, lon, body) && IsDepthInsideDeposit(depth);
 
-        public KhemistryUDeposit(string planet, string requiredBiome, float depthStart, float depth, string resource, float minRadius, float maxRadius, float latOverride = -12345, float lonOverride = -12345)
+        public ChitakTechUDeposit(string planet, string requiredBiome, float depthStart, float depth, string resource, float minRadius, float maxRadius, float latOverride = -12345, float lonOverride = -12345)
         {
             try
             {
@@ -110,13 +110,12 @@ namespace Khemistry
                 Depth = depth;
                 Resource = resource;
 
-                Radius = RollRadius(minRadius, maxRadius,
-                    "KhemistryUDeposit/constructor");
+                Radius = RollRadius(minRadius, maxRadius, "ChitakTechUDeposit/constructor");
 
                 // Generate position
                 if ((int)latOverride == -12345 || (int)lonOverride == -12345)  // If either of them are not set, calculate as normal
                 {
-                    Position = RollPosition("KhemistryUDeposit/constructor");
+                    Position = RollPosition("ChitakTechUDeposit/constructor");
                     if (requiredBiome != null)  // If it is null, any biome is supported
                     {
                         // Just keep randomizing the deposit until it hits the right biome, up to a
@@ -124,19 +123,19 @@ namespace Khemistry
                         // forever since GetBiomeNameFromLatLon always returns *some* biome name.
                         const int maxBiomeAttempts = 10000;
                         int attempts = 0;
-                        while (KShared.GetBiomeNameFromLatLon(planet, Position) != requiredBiome)
+                        while (CTShared.GetBiomeNameFromLatLon(planet, Position) != requiredBiome)
                         {
                             attempts++;
                             if (attempts >= maxBiomeAttempts)
                             {
-                                KShared.LogError(
+                                CTShared.LogError(
                                     "Could not find a position on \"" + planet + "\" matching biome \"" + requiredBiome +
                                     "\" after " + maxBiomeAttempts + " attempts (bad body/biome name?), using last random position instead. " +
-                                    "Available biomes for the planet: " + KShared.ListToString(KShared.GetBiomeNames(planet)),
-                                    "KhemistryUDeposit/constructor");
+                                    "Available biomes for the planet: " + CTShared.ListToString(CTShared.GetBiomeNames(planet)),
+                                    "ChitakTechUDeposit/constructor");
                                 break;
                             }
-                            Position = RollPosition("KhemistryUDeposit/constructor");
+                            Position = RollPosition("ChitakTechUDeposit/constructor");
                         }
                     }
                 }
@@ -145,25 +144,25 @@ namespace Khemistry
             }
             catch (Exception ex)
             {
-                KShared.Log(
+                CTShared.Log(
                 string.Format("An error occured. Message: {0}. Stack trace: {1}. ",
                     ex.Message, ex.StackTrace),
-                "KhemistryUDeposit/constructor");
+                "ChitakTechUDeposit/constructor");
             }
         }
     }
 
     /// <summary>
     /// A deposit where resources can be extracted from. Can have a pair underground deposit.
-    /// This is the aboveground version of a deposit, see <see cref="KhemistryUDeposit"/> for its underground counterpart.
+    /// This is the aboveground version of a deposit, see <see cref="ChitakTechUDeposit"/> for its underground counterpart.
     /// </summary>
-    public class KhemistryGDeposit : KhemistryDeposit
+    public class ChitakTechGDeposit : ChitakTechDeposit
     {
-        public KhemistryUDeposit PairGDeposit { get; set; }
+        public ChitakTechUDeposit PairGDeposit { get; set; }
         public bool Render { get; set; }
         public string Model { get; set; }
 
-        internal KhemistryGDeposit() { }
+        internal ChitakTechGDeposit() { }
 
         /// <summary>
         /// Helper function to see if a depth is inside the deposit.
@@ -180,7 +179,7 @@ namespace Khemistry
         public bool IsInsideDeposit(float lat, float lon, string body, float depth)
             => IsInsideDeposit(lat, lon, body) && IsDepthInsideDeposit(depth);
 
-        public KhemistryGDeposit(string planet, string requiredBiome, float depth,
+        public ChitakTechGDeposit(string planet, string requiredBiome, float depth,
             string resource, float minRadius, float maxRadius, string resource2,
             float undergroundDepthStart, float undergroundDepth, bool render = false,
             string model = null)
@@ -195,10 +194,10 @@ namespace Khemistry
                 Model = model;
 
                 Radius = RollRadius(minRadius, maxRadius,
-                    "KhemistryGDeposit/constructor");
+                    "ChitakTechGDeposit/constructor");
 
                 // Generate position
-                Position = RollPosition("KhemistryGDeposit/constructor");
+                Position = RollPosition("ChitakTechGDeposit/constructor");
                 if (requiredBiome != null)
                 {
                     // Just keep randomizing the deposit until it hits the right biome, up to a sane
@@ -206,19 +205,19 @@ namespace Khemistry
                     // since GetBiomeNameFromLatLon always returns *some* biome name.
                     const int maxBiomeAttempts = 10000;
                     int attempts = 0;
-                    while (KShared.GetBiomeNameFromLatLon(planet, Position) != requiredBiome)
+                    while (CTShared.GetBiomeNameFromLatLon(planet, Position) != requiredBiome)
                     {
                         attempts++;
                         if (attempts >= maxBiomeAttempts)
                         {
-                            KShared.LogError(
+                            CTShared.LogError(
                                 "Could not find a position on \"" + planet + "\" matching biome \"" + requiredBiome +
                                 "\" after " + maxBiomeAttempts + " attempts (bad body/biome name?), using last random position instead. " +
-                                "Available biomes for the planet: " + KShared.ListToString(KShared.GetBiomeNames(planet)),
-                                "KhemistryGDeposit/constructor");
+                                "Available biomes for the planet: " + CTShared.ListToString(CTShared.GetBiomeNames(planet)),
+                                "ChitakTechGDeposit/constructor");
                             break;
                         }
-                        Position = RollPosition("KhemistryGDeposit/constructor");
+                        Position = RollPosition("ChitakTechGDeposit/constructor");
                     }
                 }
 
@@ -227,7 +226,7 @@ namespace Khemistry
                 // If resource2 is null, the deposit is considered "surfaceOnly" and the underground deposit won't be created
                 if (resource2 != null)
                 {
-                    PairGDeposit = new KhemistryUDeposit(planet, null,
+                    PairGDeposit = new ChitakTechUDeposit(planet, null,
                         undergroundDepthStart, undergroundDepth, resource2, minRadius, maxRadius,
                         latOverride: Position[0], lonOverride: Position[1])
                     {
@@ -239,10 +238,10 @@ namespace Khemistry
             }
             catch (Exception ex)
             {
-                KShared.Log(
+                CTShared.Log(
                 string.Format("An error occured. Message: {0}. Stack trace: {1}. ",
                     ex.Message, ex.StackTrace),
-                "KhemistryGDeposit/constructor");
+                "ChitakTechGDeposit/constructor");
             }
         }
     }

@@ -1,10 +1,10 @@
 ﻿using System;
 
-namespace Khemistry
+namespace ChitakTech
 {
     /// <summary>
     /// An obsolete <see cref="PartModule"/> that simulates a battery that degrades over time.
-    /// Should be ported over to the <see cref="KhemistryFluidCell"/> and <see cref="KhemistryAdvancedStorage"/> modules.
+    /// Should be ported over to the <see cref="ChitakTechFluidCell"/> and <see cref="ChitakTechStorage"/> modules.
     /// </summary>
     public class KhemistryDegradingBattery : PartModule
     {
@@ -35,7 +35,7 @@ namespace Khemistry
             ResourceName = ResourceName?.Trim();
             if (string.IsNullOrEmpty(ResourceName))
             {
-                KShared.LogError("Part \"" + part.name
+                CTShared.LogError("Part \"" + part.name
                     + "\" has KhemistryDegradingBattery with an empty ResourceName.",
                     "KhemistryDegradingBattery/OnStart");
                 enabled = false;
@@ -43,7 +43,7 @@ namespace Khemistry
             }
             if (double.IsNaN(DegradeTime) || double.IsInfinity(DegradeTime))
             {
-                KShared.LogError("Part \"" + part.name
+                CTShared.LogError("Part \"" + part.name
                     + "\" has a non-finite DegradeTime; degradation was disabled.",
                     "KhemistryDegradingBattery/OnStart");
                 DegradeTime = -1.0;
@@ -52,7 +52,7 @@ namespace Khemistry
             PartResource resource = part.Resources.Get(ResourceName);
             if (resource == null)
             {
-                KShared.LogError(
+                CTShared.LogError(
                     "Part \"" + part.name + "\" has KhemistryDegradingBattery but no resource node for " + ResourceName,
                     "KhemistryDegradingBattery/OnStart");
                 return;

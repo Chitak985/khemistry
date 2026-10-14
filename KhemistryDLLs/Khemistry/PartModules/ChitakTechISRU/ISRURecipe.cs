@@ -1,0 +1,1947 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using System.Text.RegularExpressions;
+
+namespace ChitakTech
+{
+    /// <summary>
+    /// A recipe for <see cref="ChitakTechISRU"/>.
+    /// Contains inputs, outputs and multiple <see cref="ChitakTechISRUBiomeConfig"/> to use.
+    /// </summary>
+    public partial class KhemistryISRURecipe
+    {
+        public bool IsValid { get; private set; }
+
+        ///// Structs and enums /////
+        public struct ResourceInput
+        {
+            public string resourceName;
+            public double amount;
+            public ResourceFlowMode flowMode;
+        }
+        public struct PassiveResourceInput
+        {
+            public string resourceName;
+            public double amount;
+            public double period;  // Consume every period seconds
+            public PowerfailResult powerfail;
+            public double powerfailExplosionRadius;         // Only used if powerfail == PowerfailResult.Explode
+            public double powerfailExplosionTemperature;     // Celsius, only used if powerfail == PowerfailResult.Explode
+            public ResourceFlowMode flowMode;
+            public bool ignorePowerfail;  // If true, the resource will be always consumed even if it tries to powerfail
+        }
+
+        public struct ResourceOutput
+        {
+            public string resourceName;
+            public double amount;
+            public bool dumpExcess;
+        }
+
+        public struct ResourceOutputMaterial
+        {
+            public string id;
+            public string name;
+            public string shape;
+            public string size;
+            public bool usesParams;
+            public Dictionary<string, string> parameters;
+            public List<KeyValuePair<string, string>> parameterAssignments;
+            public double amount;
+            public string amountExpression;
+            public double amountScale;
+            public string outVolume;
+            public bool parallaxResolved;
+            public bool inputMaterialResolved;
+        }
+
+        public struct ParallaxScatterRequirement
+        {
+            public string scatterName;
+        }
+
+        public struct RecipeSetting
+        {
+            public List<string> options;
+            public bool IsChoice => options != null;
+            public string SelectedOption(double index) => options[(int)Clamp(index)];
+            public string name;
+            public string variable;
+            public double min;
+            public double max;
+            public double multiplier1;
+            public double multiplier2;
+            public double defaultValue;
+            public double step;
+
+            public double Clamp(double value)
+            {
+                if (IsChoice)
+                    return double.IsNaN(value) || double.IsInfinity(value) || value < 0
+                        || value >= options.Count || value != Math.Floor(value) ? 0 : value;
+                if (double.IsNaN(value) || double.IsInfinity(value))
+                    return defaultValue;
+                return Math.Max(min, Math.Min(max, value));
+            }
+        }
+
+        public struct ResourceInputMaterial
+        {
+            public string id;
+            public string name;
+            public string shape;
+            public string size;
+            public bool usesParams;
+            // Preserve repeated parameter names: every condition must pass (AND).
+            public IEnumerable<KeyValuePair<string, string>> parameters;
+            public int amount;
+        }
+
+        public enum PowerfailResult { Pause, Stop, Explode, Maint, Void }
+
+        ///// Variables /////
+        public readonly List<ResourceInput> _inputs = new List<ResourceInput>();
+        public readonly List<ResourceInputMaterial> _inputMaterials = new List<ResourceInputMaterial>();
+        public readonly List<PassiveResourceInput> _passiveInputs = new List<PassiveResourceInput>();
+        public readonly List<ResourceOutput> _outputs = new List<ResourceOutput>();
+        public readonly List<ResourceOutputMaterial> _outputMaterials = new List<ResourceOutputMaterial>();
+        private readonly List<string> _declaredOutputMaterialIds = new List<string>();
+        public readonly List<ParallaxScatterRequirement> _parallaxScatters =
+            new List<ParallaxScatterRequirement>();
+        public readonly List<RecipeSetting> _settings = new List<RecipeSetting>();
+        public double _recipeTime = 0;  // in seconds
+        public string _recipeTimeExpression = "0";
+        public double _biomeResourceScale = 1.0;
+
+        public uint _workersPilots = 0;
+        public uint _workersEngineers = 0;
+        public uint _workersScientists = 0;
+
+        public bool _workersEVA = true;
+        public bool _workersCREW = true;
+
+        // Keyed by planet name (or "ALL"), then by biome name (or "ALL") for that planet.
+        public Dictionary<string, Dictionary<string, ChitakTechISRUBiomeConfig>> _planetConfigs = new Dictionary<string, Dictionary<string, ChitakTechISRUBiomeConfig>>();
+
+        ///// Identity /////
+        public string _name = "Recipe";
+        public List<string> _recipeTypes = new List<string>();
+        public List<string> _recipeSubtypes = new List<string>();
+        public List<string> _recipeSubsubtypes = new List<string>();
+        public readonly List<string> _depositConditions = new List<string>();
+
+        ///// Charging (optional per-recipe) /////
+        public bool _chargingRequired = false;
+        public float _chargeRate = 0f;
+        public float _chargeDecay = 0f;
+        public float _chargeDecayRateInactive = 0f;
+        public float _chargeDecayRateActive = 0f;
+        public float _chargeThreshold = 90f;
+        public bool _chargeWhileRunning = false;
+        public readonly List<string> _chargeNames = new List<string>();
+        public readonly List<float> _chargeAmounts = new List<float>();
+
+        ///// Controls /////
+        public bool _controlsShowPAW = true;
+        public bool _controlsShowEVA = false;
+        public bool _useSuitCell = false;
+
+        public ConfigNode mainNode = new ConfigNode();
+
+        ///// Functions /////
+
+        /// <summary>
+        /// Loads everything shared between a local RECIPE node in ChitakTechISRU and a
+        /// top level KHEMISTRYBATCHISRU_RECIPE node: identity, charging, planet/biome configs,
+        /// inputs/outputs/materials, timing, control rules, and worker requirements.
+        /// </summary>
+        public KhemistryISRURecipe(ConfigNode node, string ConverterName,
+            IDictionary<string, double> settingValues = null)
+        {
+            try
+            {
+                ConfigNode sourceNode = node;
+                _name = node?.GetValue("name") ?? "Recipe";
+                bool configurationError = !LoadSettingDefinitions(node);
+                node = new ConfigNode();
+                sourceNode.CopyTo(node);
+                if (!ResolveSettingConfig(node, settingValues, true)) configurationError = true;
+
+                _name = node?.GetValue("name")?.Trim();
+                if (string.IsNullOrEmpty(_name))
+                {
+                    _name = "Invalid recipe";
+                    configurationError = true;
+                    CTShared.LogError("A ChitakTechISRU recipe is missing its required name.",
+                        "KhemistryISRURecipe/constructor");
+                }
+
+                _recipeTypes.Clear();
+                AddTrimmedDistinct(_recipeTypes, node.GetValues("recipeType"));
+                if (_recipeTypes.Count == 0) _recipeTypes.Add("NONE");
+
+                _recipeSubtypes.Clear();
+                AddTrimmedDistinct(_recipeSubtypes, node.GetValues("recipeSubtype"));
+                if (_recipeSubtypes.Count == 0) _recipeSubtypes.Add("NONE");
+
+                _recipeSubsubtypes.Clear();
+                AddTrimmedDistinct(_recipeSubsubtypes, node.GetValues("recipeSubsubtype"));
+                if (_recipeSubsubtypes.Count == 0) _recipeSubsubtypes.Add("NONE");
+
+                _depositConditions.Clear();
+                foreach (string condition in node.GetValues("depositCondition"))
+                {
+                    string trimmed = condition?.Trim();
+                    if (!string.IsNullOrEmpty(trimmed) && !_depositConditions.Contains(trimmed))
+                        _depositConditions.Add(trimmed);
+                }
+
+                ///// Parallax scatter inputs /////
+                _parallaxScatters.Clear();
+                HashSet<string> parallaxScatterNames = new HashSet<string>(StringComparer.Ordinal);
+                foreach (ConfigNode scatterNode in node.GetNodes("PARALLAX_SCATTER"))
+                {
+                    string scatterName = (scatterNode.GetValue("scatter")
+                        ?? scatterNode.GetValue("name"))?.Trim();
+                    if (string.IsNullOrEmpty(scatterName) || !parallaxScatterNames.Add(scatterName))
+                    {
+                        configurationError = true;
+                        CTShared.LogError($"Recipe \"{_name}\": "
+                            + "PARALLAX_SCATTER requires a unique, non-empty scatter/name value.",
+                            "KhemistryISRURecipe/constructor");
+                        continue;
+                    }
+                    _parallaxScatters.Add(new ParallaxScatterRequirement
+                    {
+                        scatterName = scatterName
+                    });
+                }
+
+
+                ///// Charging /////
+                _chargeNames.Clear();
+                _chargeAmounts.Clear();
+                bool chargingConfigDeclared = node.HasNode("CHARGE_CON_NAMES")
+                    || node.HasNode("CHARGE_CON_AMOUNTS");
+                List<string> rawChargeNames = node.GetNodes("CHARGE_CON_NAMES")
+                    .SelectMany(chargeNode => chargeNode.GetValues("name"))
+                    .ToList();
+                List<string> rawChargeAmounts = node.GetNodes("CHARGE_CON_AMOUNTS")
+                    .SelectMany(chargeNode => chargeNode.GetValues("amount"))
+                    .ToList();
+                bool validChargingConfig = !chargingConfigDeclared
+                    || (rawChargeNames.Count > 0 && rawChargeNames.Count == rawChargeAmounts.Count);
+                if (validChargingConfig && chargingConfigDeclared)
+                {
+                    for (int i = 0; i < rawChargeNames.Count; i++)
+                    {
+                        string chargeName = rawChargeNames[i]?.Trim();
+                        if (string.IsNullOrEmpty(chargeName)
+                            || !float.TryParse(rawChargeAmounts[i], NumberStyles.Float,
+                                CultureInfo.InvariantCulture, out float chargeAmount)
+                            || float.IsNaN(chargeAmount) || float.IsInfinity(chargeAmount)
+                            || chargeAmount <= 0f)
+                        {
+                            validChargingConfig = false;
+                            break;
+                        }
+                        _chargeNames.Add(chargeName);
+                        _chargeAmounts.Add(chargeAmount);
+                    }
+                }
+                if (!validChargingConfig)
+                {
+                    CTShared.LogError(
+                        "Recipe \"" + _name + "\": CHARGE_CON_NAMES and CHARGE_CON_AMOUNTS must contain aligned, non-empty names and finite positive amounts; the recipe was disabled.",
+                        "KhemistryISRURecipe/constructor");
+                    _chargeNames.Clear();
+                    _chargeAmounts.Clear();
+                    configurationError = true;
+                }
+
+                _chargeDecayRateInactive = CTShared.GetFloatValueFromCFG(node, "chargeDecayRateInactive", 0f);
+                _chargeDecayRateActive = CTShared.GetFloatValueFromCFG(node, "chargeDecayRateActive", 0f);
+                _chargeThreshold = CTShared.GetFloatValueFromCFG(node, "chargeThreshold", 90f);
+                _chargeWhileRunning = bool.TryParse(node.GetValue("chargeWhileRunning"), out bool concurrentCharging) && concurrentCharging;
+                if (float.IsNaN(_chargeDecayRateInactive) || float.IsInfinity(_chargeDecayRateInactive) || _chargeDecayRateInactive < 0
+                    || float.IsNaN(_chargeDecayRateActive) || float.IsInfinity(_chargeDecayRateActive) || _chargeDecayRateActive < 0
+                    || float.IsNaN(_chargeThreshold) || float.IsInfinity(_chargeThreshold) || _chargeThreshold < 0 || _chargeThreshold > 100)
+                {
+                    configurationError = true;
+                    CTShared.LogError("Recipe charging decay rates must be finite and non-negative; chargeThreshold must be between 0 and 100.", "KhemistryISRURecipe/constructor");
+                }
+                _chargeRate = CTShared.GetFloatValueFromCFG(node, "chargeRate", 0f);
+                _chargeDecay = CTShared.GetFloatValueFromCFG(node, "chargeDecay", 0f);
+                if (float.IsNaN(_chargeRate) || float.IsInfinity(_chargeRate) || _chargeRate < 0f
+                    || float.IsNaN(_chargeDecay) || float.IsInfinity(_chargeDecay) || _chargeDecay < 0f)
+                {
+                    CTShared.LogError("Recipe \"" + _name
+                        + "\": chargeRate/chargeDecay must be finite and non-negative; charging disabled.",
+                        "KhemistryISRURecipe/constructor");
+                    _chargeRate = 0f;
+                    _chargeDecay = 0f;
+                    _chargeNames.Clear();
+                    _chargeAmounts.Clear();
+                }
+                _chargingRequired = _chargeNames.Count > 0 && _chargeRate > 0f;
+                if (chargingConfigDeclared && !_chargingRequired)
+                {
+                    CTShared.LogError("Recipe \"" + _name
+                        + "\": charging resources require a finite positive chargeRate; the recipe was disabled.",
+                        "KhemistryISRURecipe/constructor");
+                    configurationError = true;
+                }
+
+                ///// Planet/biome configs /////
+                _planetConfigs.Clear();
+                if (node.HasNode("PLANET_CONFIG"))
+                {
+                    foreach (ConfigNode planetNode in node.GetNodes("PLANET_CONFIG"))
+                    {
+                        string planetName = CTShared.GetStrValueFromCFG(planetNode, "name", "ALL")?.Trim();
+                        if (string.IsNullOrEmpty(planetName)) planetName = "ALL";
+
+                        ConfigNode[] biomeNodes = planetNode.GetNodes("BIOME_CONFIG");
+                        if (biomeNodes.Length == 0)
+                        {
+                            ConfigNode defaultBiome = new ConfigNode("BIOME_CONFIG");
+                            defaultBiome.AddValue("name", "ALL");
+                            biomeNodes = new[] { defaultBiome };
+                        }
+
+                        if (!_planetConfigs.TryGetValue(planetName, out Dictionary<string, ChitakTechISRUBiomeConfig> biomeDict))
+                        {
+                            biomeDict = new Dictionary<string, ChitakTechISRUBiomeConfig>();
+                            _planetConfigs.Add(planetName, biomeDict);
+                        }
+
+                        foreach (ConfigNode biomeNode in biomeNodes)
+                        {
+                            ChitakTechISRUBiomeConfig biomeConfig = new ChitakTechISRUBiomeConfig(
+                                biomeNode, ConverterName, _name);
+                            if (biomeConfig.hasResourceConfigurationError)
+                                configurationError = true;
+                            string biomeKey = string.IsNullOrEmpty(biomeConfig.biomeName)
+                                ? "ALL" : biomeConfig.biomeName;
+                            if (biomeDict.ContainsKey(biomeKey))
+                            {
+                                configurationError = true;
+                                CTShared.LogError("Recipe \"" + _name + "\" contains duplicate biome \""
+                                    + biomeKey + "\" for planet \"" + planetName + "\".",
+                                    "KhemistryISRURecipe/constructor");
+                                continue;
+                            }
+                            biomeDict.Add(biomeKey, biomeConfig);
+                        }
+                    }
+                }
+                else
+                {
+                    // Instead of requiring a node just use an empty one with name=ALL
+                    //CTShared.LogNoNode("PLANET_CONFIG", "Converter \"" + ConverterName + "\": Recipe \"" + _name + "\" ", "KhemistryISRURecipe/constructor");
+                    Dictionary<string, ChitakTechISRUBiomeConfig> biomeDict = new Dictionary<string, ChitakTechISRUBiomeConfig>();
+                    ConfigNode configNode = new ConfigNode("BIOME_CONFIG");
+                    configNode.AddValue("name", "ALL");
+                    biomeDict.Add("ALL", new ChitakTechISRUBiomeConfig(
+                        configNode, ConverterName, _name));
+                    _planetConfigs.Add("ALL", biomeDict);
+                }
+
+                ///// Inputs /////
+                _inputs.Clear();
+                foreach (ConfigNode inputNode in node.GetNodes("INPUT_RESOURCE"))
+                {
+                    if (TryParseResourceInput(inputNode, "Recipe \"" + _name + "\"",
+                            out ResourceInput input))
+                        _inputs.Add(input);
+                    else
+                        configurationError = true;
+                }
+
+                ///// Input materials /////
+                _inputMaterials.Clear();
+                HashSet<string> inputMaterialIds = new HashSet<string>(StringComparer.Ordinal);
+                foreach (ConfigNode matNode in node.GetNodes("INPUT_MATERIAL"))
+                {
+                    string id = matNode.GetValue("id")?.Trim();
+                    if (!string.IsNullOrEmpty(id) && !inputMaterialIds.Add(id))
+                    {
+                        configurationError = true;
+                        CTShared.LogError("Recipe \"" + _name
+                            + "\": INPUT_MATERIAL id \"" + id
+                            + "\" is duplicated; IDs must be unique within a recipe.",
+                            "KhemistryISRURecipe/constructor");
+                        continue;
+                    }
+
+                    string matName = matNode.GetValue("name")?.Trim();
+                    if (string.IsNullOrEmpty(matName))
+                    {
+                        configurationError = true;
+                        CTShared.LogNoValueInNode("INPUT_MATERIAL", "name", "Recipe \"" + _name + "\" ", "KhemistryISRURecipe/constructor");
+                        continue;
+                    }
+
+                    string shape = matNode.GetValue("shape")?.Trim();
+                    string size = matNode.GetValue("size")?.Trim();
+                    bool validMaterialAmount = TryReadOptionalInt(matNode, "amount", 1,
+                        out int materialAmount);
+                    if (string.IsNullOrEmpty(shape) || string.IsNullOrEmpty(size)
+                        || !validMaterialAmount || materialAmount <= 0)
+                    {
+                        configurationError = true;
+                        CTShared.LogError(
+                            "Recipe \"" + _name + "\": INPUT_MATERIAL \"" + matName
+                            + "\" requires non-empty shape/size and an amount greater than zero; entry skipped.",
+                            "KhemistryISRURecipe/constructor");
+                        continue;
+                    }
+
+                    bool hasParameterRequirements = matNode.HasNode("PARAM_REQUIREMENTS");
+                    bool hasParamsAlias = matNode.HasNode("PARAMS");
+                    if (hasParameterRequirements && hasParamsAlias)
+                    {
+                        configurationError = true;
+                        CTShared.LogError("Recipe \"" + _name + "\": INPUT_MATERIAL \""
+                            + matName + "\" cannot contain both PARAM_REQUIREMENTS and PARAMS.",
+                            "KhemistryISRURecipe/constructor");
+                        continue;
+                    }
+
+                    ConfigNode parameterNode = hasParameterRequirements
+                        ? matNode.GetNode("PARAM_REQUIREMENTS")
+                        : matNode.GetNode("PARAMS");
+                    bool usesParams = parameterNode != null;
+                    var parameters = new List<KeyValuePair<string, string>>();
+                    if (usesParams)
+                        foreach (ConfigNode.Value value in parameterNode.values)
+                            parameters.Add(new KeyValuePair<string, string>(value.name, value.value));
+
+                    foreach (KeyValuePair<string, string> condition in parameters)
+                    {
+                        if (MaterialParameterCondition.TryResolve(condition.Value,
+                                variable =>
+                                {
+                                    foreach (RecipeSetting setting in _settings)
+                                        if (setting.variable == variable) return (double?)setting.defaultValue;
+                                    return null;
+                                }, out _, out string conditionError, validateOnly: true))
+                            continue;
+                        configurationError = true;
+                        CTShared.LogError("Recipe \"" + _name + "\": INPUT_MATERIAL \""
+                            + matName + "\" parameter \"" + condition.Key
+                            + "\" has an invalid condition: " + conditionError,
+                            "KhemistryISRURecipe/constructor");
+                    }
+
+                    _inputMaterials.Add(new ResourceInputMaterial
+                    {
+                        id = id,
+                        name = matName,
+                        shape = shape,
+                        size = size,
+                        usesParams = usesParams,
+                        parameters = parameters,
+                        amount = materialAmount
+                    });
+                }
+
+                ///// Passive inputs (PINPUT_RESOURCE) /////
+                _passiveInputs.Clear();
+                foreach (ConfigNode pinputNode in node.GetNodes("PINPUT_RESOURCE"))
+                {
+                    if (TryParsePassiveInput(pinputNode, _name, out PassiveResourceInput input))
+                        _passiveInputs.Add(input);
+                    else configurationError = true;
+                }
+
+                ///// Outputs /////
+                _outputs.Clear();
+                foreach (ConfigNode outputNode in node.GetNodes("OUTPUT_RESOURCE"))
+                {
+                    if (TryParseResourceOutput(outputNode, "Recipe \"" + _name + "\"",
+                            out ResourceOutput output))
+                        _outputs.Add(output);
+                    else
+                        configurationError = true;
+                }
+
+                ///// Output materials /////
+                _outputMaterials.Clear();
+                _declaredOutputMaterialIds.Clear();
+                foreach (ConfigNode outputMaterialNode in node.GetNodes("OUTPUT_MATERIAL"))
+                {
+                    string declaredId = outputMaterialNode.GetValue("id")?.Trim();
+                    if (!string.IsNullOrEmpty(declaredId)
+                        && !_declaredOutputMaterialIds.Contains(declaredId))
+                        _declaredOutputMaterialIds.Add(declaredId);
+                }
+                HashSet<string> outputMaterialIds = new HashSet<string>(StringComparer.Ordinal);
+                foreach (ConfigNode matNode in node.GetNodes("OUTPUT_MATERIAL"))
+                {
+                    string id = matNode.GetValue("id")?.Trim();
+                    if (!string.IsNullOrEmpty(id) && !outputMaterialIds.Add(id))
+                    {
+                        configurationError = true;
+                        CTShared.LogError("Recipe \"" + _name
+                            + "\": OUTPUT_MATERIAL id \"" + id
+                            + "\" is duplicated; IDs must be unique within a recipe.",
+                            "KhemistryISRURecipe/constructor");
+                        continue;
+                    }
+
+                    string matName = matNode.GetValue("name")?.Trim();
+                    if (string.IsNullOrEmpty(matName))
+                    {
+                        configurationError = true;
+                        CTShared.LogNoValueInNode("OUTPUT_MATERIAL", "name", "Recipe \"" + _name + "\" ",
+                            "KhemistryISRURecipe/constructor");
+                        continue;
+                    }
+
+                    string shape = matNode.GetValue("shape")?.Trim();
+                    string size = matNode.GetValue("size")?.Trim();
+                    string amountExpression = matNode.HasValue("amount")
+                        ? matNode.GetValue("amount")?.Trim() : "1";
+                    bool amountIsExpression = ContainsInputMaterialValue(amountExpression)
+                        || ContainsOutputMaterialValue(amountExpression)
+                        || ContainsSettingValue(amountExpression)
+                        || CTShared.ContainsInterpolation(amountExpression);
+                    bool validOutputAmount;
+                    double amount = 1.0;
+                    if (amountIsExpression)
+                    {
+                        string amountExpressionError = null;
+                        validOutputAmount = TryReplaceMaterialValuesForValidation(
+                                amountExpression, out string validationAmount,
+                                out string amountReferenceError)
+                            && CTMathExpr.TryInterpolateNumber(validationAmount, out amount,
+                                out amountExpressionError);
+                        if (validOutputAmount) amount = 1.0;
+                        if (!validOutputAmount)
+                            CTShared.LogError("Recipe \"" + _name + "\": OUTPUT_MATERIAL \""
+                                + matName + "\" has invalid amount expression: "
+                                + (amountReferenceError ?? amountExpressionError
+                                    ?? "the expression could not be validated"),
+                                "KhemistryISRURecipe/constructor");
+                    }
+                    else
+                        validOutputAmount = TryReadOptionalDouble(matNode, "amount", 1.0,
+                            out amount);
+                    string outVolume = CTShared.GetStrValueFromCFG(matNode, "outVolume", null)?.Trim();
+
+                    if (string.IsNullOrEmpty(shape) || string.IsNullOrEmpty(size)
+                        || string.IsNullOrEmpty(outVolume)
+                        || !validOutputAmount || double.IsNaN(amount)
+                        || double.IsInfinity(amount) || amount <= 0.0)
+                    {
+                        configurationError = true;
+                        CTShared.LogError(
+                            "Recipe \"" + _name + "\": OUTPUT_MATERIAL \"" + matName
+                            + "\" requires non-empty shape/size/outVolume and an amount greater than zero; entry skipped.",
+                            "KhemistryISRURecipe/constructor");
+                        continue;
+                    }
+
+                    if (double.TryParse(outVolume, NumberStyles.Float, CultureInfo.InvariantCulture,
+                            out double literalVolume)
+                        && (double.IsNaN(literalVolume) || double.IsInfinity(literalVolume)
+                            || literalVolume <= 0.0))
+                    {
+                        configurationError = true;
+                        CTShared.LogError("Recipe \"" + _name + "\": OUTPUT_MATERIAL \"" + matName
+                            + "\" has a non-positive or non-finite literal outVolume and was skipped.",
+                            "KhemistryISRURecipe/constructor");
+                        continue;
+                    }
+
+                    bool usesParams = matNode.HasNode("PARAMS");
+                    Dictionary<string, string> parameters = new Dictionary<string, string>();
+                    var parameterAssignments =
+                        new List<KeyValuePair<string, string>>();
+                    bool validParameters = true;
+                    if (usesParams)
+                    {
+                        HashSet<string> parameterNames =
+                            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        foreach (ConfigNode.Value parameter in matNode.GetNode("PARAMS").values)
+                        {
+                            string key = parameter.name?.Trim();
+                            if (string.IsNullOrEmpty(key)
+                                || !Regex.IsMatch(key, @"^[A-Za-z_][A-Za-z0-9_]*$")
+                                || string.Equals(key, "size", StringComparison.OrdinalIgnoreCase)
+                                || !parameterNames.Add(key))
+                            {
+                                validParameters = false;
+                                break;
+                            }
+                            parameters.Add(key, parameter.value);
+                            parameterAssignments.Add(
+                                new KeyValuePair<string, string>(key, parameter.value));
+                        }
+                    }
+
+                    if (!validParameters)
+                    {
+                        configurationError = true;
+                        CTShared.LogError("Recipe \"" + _name + "\": OUTPUT_MATERIAL \""
+                            + matName + "\" has an empty, invalid, reserved, or case-duplicated "
+                            + "parameter name and was skipped.",
+                            "KhemistryISRURecipe/constructor");
+                        continue;
+                    }
+
+                    bool validMaterialReferences = true;
+                    foreach (string referencedValue in new[] { shape, size, amountExpression,
+                                 outVolume }.Concat(parameterAssignments.Select(pair => pair.Value)))
+                    {
+                        if (ContainsInputMaterialValue(referencedValue)
+                            && !TryGetInputMaterialValueReferences(referencedValue, out _,
+                                out string inputReferenceError))
+                        {
+                            validMaterialReferences = false;
+                            CTShared.LogError("Recipe \"" + _name + "\": OUTPUT_MATERIAL \""
+                                + matName + "\" has an invalid input-material reference: "
+                                + inputReferenceError, "KhemistryISRURecipe/constructor");
+                        }
+                        if (ContainsOutputMaterialValue(referencedValue)
+                            && !TryGetOutputMaterialValueReferences(referencedValue, out _,
+                                out string outputReferenceError))
+                        {
+                            validMaterialReferences = false;
+                            CTShared.LogError("Recipe \"" + _name + "\": OUTPUT_MATERIAL \""
+                                + matName + "\" has an invalid output-material reference: "
+                                + outputReferenceError, "KhemistryISRURecipe/constructor");
+                        }
+                        if (ContainsSettingValue(referencedValue)
+                            && !TryGetSettingValueReferences(referencedValue, out _,
+                                out string settingReferenceError))
+                        {
+                            validMaterialReferences = false;
+                            CTShared.LogError("Recipe \"" + _name + "\": OUTPUT_MATERIAL \""
+                                + matName + "\" has an invalid setting reference: "
+                                + settingReferenceError, "KhemistryISRURecipe/constructor");
+                        }
+                    }
+                    if (!validMaterialReferences)
+                    {
+                        configurationError = true;
+                        continue;
+                    }
+
+                    bool usesParallaxValues = MaterialOutputUsesParallaxValues(
+                        size, outVolume, parameterAssignments);
+                    if (usesParallaxValues && _parallaxScatters.Count == 0)
+                    {
+                        configurationError = true;
+                        CTShared.LogError("Recipe \"" + _name + "\": OUTPUT_MATERIAL \""
+                            + matName + "\" uses PARALLAX_* values without a PARALLAX_SCATTER node. Entry skipped.",
+                            "KhemistryISRURecipe/constructor");
+                        continue;
+                    }
+
+                    string validationSize = ReplaceParallaxNumericValues(size, "1");
+                    string validationOutVolume = ReplaceParallaxNumericValues(outVolume, "1");
+                    TryReplaceMaterialValuesForValidation(validationSize,
+                        out validationSize, out _);
+                    TryReplaceMaterialValuesForValidation(validationOutVolume,
+                        out validationOutVolume, out _);
+                    if (!CTMathExpr.TryInterpolate(validationSize, out validationSize,
+                            out string sizeExpressionError))
+                    {
+                        configurationError = true;
+                        CTShared.LogError("Recipe \"" + _name + "\": OUTPUT_MATERIAL \""
+                            + matName + "\" has invalid size: " + sizeExpressionError
+                            + " Entry skipped.", "KhemistryISRURecipe/constructor");
+                        continue;
+                    }
+                    Dictionary<string, string> validationParameters =
+                        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    bool validParameterExpressions = true;
+                    foreach (KeyValuePair<string, string> parameter in parameterAssignments)
+                    {
+                        string validationValue = ReplaceParallaxNumericValues(
+                            parameter.Value, "1");
+                        TryReplaceMaterialValuesForValidation(validationValue,
+                            out validationValue, out _);
+                        if (!string.Equals(validationValue?.Trim(), "DERIVE",
+                                StringComparison.OrdinalIgnoreCase)
+                            && !CTMathExpr.TryInterpolate(validationValue,
+                                out validationValue, out string parameterExpressionError,
+                                validationParameters))
+                        {
+                            validParameterExpressions = false;
+                            CTShared.LogError("Recipe \"" + _name
+                                + "\": OUTPUT_MATERIAL \"" + matName
+                                + "\" parameter \"" + parameter.Key
+                                + "\" is invalid: " + parameterExpressionError
+                                + " Entry skipped.", "KhemistryISRURecipe/constructor");
+                            break;
+                        }
+                        validationParameters[parameter.Key] = validationValue;
+                    }
+                    if (!validParameterExpressions)
+                    {
+                        configurationError = true;
+                        continue;
+                    }
+                    if (!TryValidateOutVolumeDefinition(validationOutVolume, validationSize,
+                            validationParameters,
+                            out string outVolumeError))
+                    {
+                        configurationError = true;
+                        CTShared.LogError("Recipe \"" + _name + "\": OUTPUT_MATERIAL \""
+                            + matName + "\" has invalid outVolume: " + outVolumeError
+                            + " Entry skipped.", "KhemistryISRURecipe/constructor");
+                        continue;
+                    }
+
+                    _outputMaterials.Add(new ResourceOutputMaterial
+                    {
+                        id = id,
+                        name = matName,
+                        shape = shape,
+                        size = size,
+                        usesParams = usesParams,
+                        parameters = parameters,
+                        parameterAssignments = parameterAssignments,
+                        amount = amount,
+                        amountExpression = amountIsExpression ? amountExpression : null,
+                        amountScale = 1.0,
+                        outVolume = outVolume,
+                        parallaxResolved = false,
+                        inputMaterialResolved = false
+                    });
+                }
+
+                if (!LoadCargoParts(node)) configurationError = true;
+                bool hasBiomeResourceOutput = _planetConfigs.Values.Any(biomes =>
+                    biomes.Values.Any(config => config.outputs.Count > 0));
+                if (_outputs.Count == 0 && _outputMaterials.Count == 0
+                    && _outputCargoParts.Count == 0 && _inputCargoParts.Count == 0 && !hasBiomeResourceOutput)
+                {
+                    configurationError = true;
+                    CTShared.LogError(
+                        "Recipe \"" + _name + "\" has no OUTPUT_RESOURCE nor OUTPUT_MATERIAL nodes — it will do nothing.",
+                        "KhemistryISRURecipe/constructor");
+                }
+
+                ///// Timing and control /////
+                _recipeTimeExpression = node.GetValue("recipeTime")?.Trim() ?? "0";
+                string recipeTimeExpressionError = null;
+                bool validRecipeTime = TryReplaceMaterialValuesForValidation(
+                        _recipeTimeExpression, out string validationRecipeTime,
+                        out string recipeTimeReferenceError)
+                    && CTMathExpr.TryEvaluateNumericExpression(validationRecipeTime,
+                        out _recipeTime, out recipeTimeExpressionError);
+                if (!validRecipeTime || double.IsNaN(_recipeTime)
+                    || double.IsInfinity(_recipeTime) || _recipeTime <= 0.0)
+                {
+                    configurationError = true;
+                    CTShared.LogError(
+                        "Recipe \"" + _name + "\" has no valid recipeTime expression: "
+                        + (recipeTimeReferenceError ?? recipeTimeExpressionError
+                            ?? "the result must be finite and positive") + ".",
+                        "KhemistryISRURecipe/constructor");
+                }
+
+                CTShared.ParseShowRule(
+                    CTShared.GetStrValueFromCFG(node, "controlRules", "PAW"),
+                    out _controlsShowPAW, out _controlsShowEVA, "controlRules", _name);
+
+                string useSuitCellValue = node.GetValue("useSuitCell");
+                if (!string.IsNullOrEmpty(useSuitCellValue)
+                    && !bool.TryParse(useSuitCellValue.Trim(), out _useSuitCell))
+                {
+                    configurationError = true;
+                    _useSuitCell = false;
+                    CTShared.LogError("Recipe \"" + _name
+                        + "\" has an invalid useSuitCell value \""
+                        + useSuitCellValue + "\".",
+                        "KhemistryISRURecipe/constructor");
+                }
+
+                ///// Workers /////
+                _workersEngineers = (uint)Math.Max(0, CTShared.GetIntValueFromCFG(node, "workersEngineers", 0));
+                _workersPilots = (uint)Math.Max(0, CTShared.GetIntValueFromCFG(node, "workersPilots", 0));
+                _workersScientists = (uint)Math.Max(0, CTShared.GetIntValueFromCFG(node, "workersScientists", 0));
+
+                _workersEVA = true;
+                _workersCREW = false;
+                string workersTypeStr = CTShared.GetStrValueFromCFG(node, "workersType", "EVA").Trim().ToUpperInvariant();
+                switch (workersTypeStr)
+                {
+                    case "EVA": _workersEVA = true; _workersCREW = false; break;
+                    case "CREW": _workersEVA = false; _workersCREW = true; break;
+                    case "EVA+CREW":
+                    case "CREW+EVA": _workersEVA = true; _workersCREW = true; break;
+                    default:
+                        CTShared.LogError(
+                            "Recipe \"" + _name + "\": Unknown workersType \"" + workersTypeStr + "\" — defaulting to EVA.",
+                            "KhemistryISRURecipe/constructor");
+                        break;
+                }
+
+                if (!LoadMaintenance(node)) configurationError = true;
+                mainNode = new ConfigNode();
+                sourceNode.CopyTo(mainNode);
+                IsValid = !configurationError && _recipeTime > 0.0 && !double.IsNaN(_recipeTime)
+                    && !double.IsInfinity(_recipeTime)
+                    && (_outputs.Count > 0 || _outputMaterials.Count > 0
+                        || _outputCargoParts.Count > 0 || _inputCargoParts.Count > 0 || hasBiomeResourceOutput);
+            }
+            catch (Exception ex)
+            {
+                CTShared.Log(
+                string.Format("An error occured. Message: {0}. Stack trace: {1}. ",
+                    ex.Message, ex.StackTrace),
+                "KhemistryISRURecipe/constructor");
+            }
+        }
+
+        internal static bool TryParseResourceInput(ConfigNode inputNode, string context,
+            out ResourceInput input)
+        {
+            input = new ResourceInput();
+            string resourceName = inputNode?.GetValue("name")?.Trim();
+            if (string.IsNullOrEmpty(resourceName))
+            {
+                CTShared.LogError(context + ": INPUT_RESOURCE has no name and was skipped.",
+                    "KhemistryISRURecipe/TryParseResourceInput");
+                return false;
+            }
+
+            double amount = CTShared.GetDoubleValueFromCFG(inputNode, "amount", 0.0);
+            if (double.IsNaN(amount) || double.IsInfinity(amount) || amount <= 0.0)
+            {
+                CTShared.LogError(context + ": INPUT_RESOURCE \"" + resourceName
+                    + "\" has an invalid amount and was skipped.",
+                    "KhemistryISRURecipe/TryParseResourceInput");
+                return false;
+            }
+
+            ResourceFlowMode flowMode = ResourceFlowMode.STAGE_PRIORITY_FLOW;
+            string flowModeValue = inputNode.GetValue("flowmode");
+            if (!string.IsNullOrEmpty(flowModeValue))
+            {
+                if (Enum.TryParse(flowModeValue.Trim(), true, out ResourceFlowMode parsed)
+                    && Enum.IsDefined(typeof(ResourceFlowMode), parsed))
+                    flowMode = parsed;
+                else
+                    CTShared.LogError(context + ": Unknown flowmode \"" + flowModeValue
+                        + "\" for " + resourceName
+                        + ", defaulting to STAGE_PRIORITY_FLOW.",
+                        "KhemistryISRURecipe/TryParseResourceInput");
+            }
+
+            input = new ResourceInput
+            {
+                resourceName = resourceName,
+                amount = amount,
+                flowMode = flowMode
+            };
+            return true;
+        }
+
+        internal static bool TryParseResourceOutput(ConfigNode outputNode, string context,
+            out ResourceOutput output)
+        {
+            output = new ResourceOutput();
+            string resourceName = outputNode?.GetValue("name")?.Trim();
+            if (string.IsNullOrEmpty(resourceName))
+            {
+                CTShared.LogError(context + ": OUTPUT_RESOURCE has no name and was skipped.",
+                    "KhemistryISRURecipe/TryParseResourceOutput");
+                return false;
+            }
+
+            double amount = CTShared.GetDoubleValueFromCFG(outputNode, "amount", 0.0);
+            if (double.IsNaN(amount) || double.IsInfinity(amount) || amount <= 0.0)
+            {
+                CTShared.LogError(context + ": OUTPUT_RESOURCE \"" + resourceName
+                    + "\" has an invalid amount and was skipped.",
+                    "KhemistryISRURecipe/TryParseResourceOutput");
+                return false;
+            }
+
+            bool dumpExcess = false;
+            string dumpExcessValue = outputNode.GetValue("dumpExcess");
+            if (!string.IsNullOrEmpty(dumpExcessValue)
+                && !bool.TryParse(dumpExcessValue.Trim(), out dumpExcess))
+            {
+                CTShared.LogError(context + ": OUTPUT_RESOURCE \"" + resourceName
+                    + "\" has an invalid dumpExcess value \"" + dumpExcessValue
+                    + "\" and was skipped.",
+                    "KhemistryISRURecipe/TryParseResourceOutput");
+                return false;
+            }
+
+            output = new ResourceOutput
+            {
+                resourceName = resourceName,
+                amount = amount,
+                dumpExcess = dumpExcess
+            };
+            return true;
+        }
+
+        private static void AddTrimmedDistinct(List<string> destination, IEnumerable<string> values)
+        {
+            if (values == null) return;
+            foreach (string value in values)
+            {
+                string trimmed = value?.Trim();
+                if (!string.IsNullOrEmpty(trimmed) && !destination.Contains(trimmed))
+                    destination.Add(trimmed);
+            }
+        }
+
+        private static bool TryReadRequiredDouble(ConfigNode node, string key,
+            out double value)
+        {
+            value = 0.0;
+            return node != null && node.HasValue(key)
+                && double.TryParse(node.GetValue(key), NumberStyles.Float,
+                    CultureInfo.InvariantCulture, out value)
+                && !double.IsNaN(value) && !double.IsInfinity(value);
+        }
+
+        private static bool TryReadOptionalDouble(ConfigNode node, string key,
+            double defaultValue, out double value)
+        {
+            value = defaultValue;
+            return node == null || !node.HasValue(key)
+                || TryReadRequiredDouble(node, key, out value);
+        }
+
+        private static bool TryReadOptionalInt(ConfigNode node, string key, int defaultValue,
+            out int value)
+        {
+            value = defaultValue;
+            return node == null || !node.HasValue(key)
+                || int.TryParse(node.GetValue(key), NumberStyles.Integer,
+                    CultureInfo.InvariantCulture, out value);
+        }
+
+        private static bool TryValidateOutVolumeDefinition(string expression, string size,
+            Dictionary<string, string> parameters, out string error)
+        {
+            Dictionary<string, string> variables =
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<string, string> parameter in
+                     parameters ?? new Dictionary<string, string>())
+                variables[parameter.Key] = parameter.Value;
+            variables["size"] = size;
+
+            if (!CTMathExpr.TryInterpolateNumber(expression, out double result,
+                    out error, variables))
+                return false;
+            if (result <= 0.0)
+            {
+                error = "the configured value is non-positive.";
+                return false;
+            }
+            if (result > float.MaxValue)
+            {
+                error = "the configured value exceeds the supported per-unit volume.";
+                return false;
+            }
+            error = null;
+            return true;
+        }
+
+        /// <summary>
+        /// Verifies references that cannot be checked until KSP resources and Khemistry material
+        /// definitions have finished loading. Invalid recipes are disabled rather than being run
+        /// with a silently omitted input or an unusable output.
+        /// </summary>
+        public bool ValidateReferences(IEnumerable<KhemistryMaterial> materials, string context)
+        {
+            if (!IsValid) return false;
+
+            bool valid = true;
+            PartResourceLibrary resourceLibrary = PartResourceLibrary.Instance;
+            if (resourceLibrary != null)
+            {
+                foreach (string resourceName in _inputs.Select(input => input.resourceName)
+                    .Concat(_passiveInputs.Select(input => input.resourceName))
+                    .Concat(_outputs.Select(output => output.resourceName))
+                    .Concat(_chargeNames)
+                    .Concat(maintenance.SelectMany(m => m.stages)
+                        .SelectMany(s => s.resources.Keys.Concat(s.tools.Keys))).Distinct())
+                {
+                    if (resourceLibrary.GetDefinition(resourceName) != null) continue;
+                    valid = false;
+                    CTShared.LogError("Recipe \"" + _name + "\" references unknown resource \""
+                        + resourceName + "\".", context);
+                }
+            }
+
+            List<KhemistryMaterial> definitions = materials?.Where(material => material != null).ToList()
+                ?? new List<KhemistryMaterial>();
+
+            foreach (ResourceInputMaterial input in _inputMaterials)
+            {
+                KhemistryMaterial definition = definitions.FirstOrDefault(material => material.name == input.name);
+                if (!ValidateMaterialReference(definition, input.name, input.shape,
+                        input.parameters?.Select(condition => condition.Key), "INPUT_MATERIAL", context))
+                    valid = false;
+            }
+
+            foreach (ResourceOutputMaterial output in _outputMaterials)
+            {
+                KhemistryMaterial definition = definitions.FirstOrDefault(material => material.name == output.name);
+                if (!ValidateMaterialReference(definition, output.name,
+                        ContainsInputMaterialValue(output.shape)
+                            || ContainsOutputMaterialValue(output.shape)
+                            || ContainsSettingValue(output.shape)
+                            || CTShared.ContainsInterpolation(output.shape)
+                            ? null : output.shape,
+                        output.parameters?.Keys, "OUTPUT_MATERIAL", context))
+                    valid = false;
+                else if (output.parameterAssignments != null)
+                {
+                    foreach (KeyValuePair<string, string> assignment in
+                             output.parameterAssignments)
+                    {
+                        if (!string.Equals(assignment.Value?.Trim(), "DERIVE",
+                                StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        string canonicalName = definition.parameterOrder
+                            .FirstOrDefault(parameterName => string.Equals(parameterName,
+                                assignment.Key, StringComparison.OrdinalIgnoreCase));
+                        if (canonicalName != null
+                            && definition.IsDerivedParameter(canonicalName))
+                            continue;
+                        valid = false;
+                        CTShared.LogError("Recipe \"" + _name
+                            + "\": OUTPUT_MATERIAL \"" + output.name
+                            + "\" uses DERIVE for non-derived parameter \""
+                            + assignment.Key + "\".", context);
+                    }
+                }
+
+                foreach (string referencedValue in new[] { output.shape, output.size,
+                             output.amountExpression, output.outVolume }
+                         .Concat((output.parameterAssignments
+                                 ?? new List<KeyValuePair<string, string>>())
+                             .Select(pair => pair.Value)))
+                {
+                    if (ContainsInputMaterialValue(referencedValue))
+                    {
+                        if (!TryGetInputMaterialValueReferences(referencedValue,
+                                out List<InputMaterialValueReference> references,
+                                out string referenceError))
+                        {
+                            valid = false;
+                            CTShared.LogError("Recipe \"" + _name
+                                + "\": invalid input-material reference: " + referenceError,
+                                context);
+                        }
+                        else foreach (InputMaterialValueReference reference in references)
+                        {
+                            if (IsBuiltInInputMaterialField(reference.field)) continue;
+                            KhemistryMaterial inputDefinition = definitions.FirstOrDefault(material =>
+                                material.name == reference.input.name);
+                            if (inputDefinition != null && inputDefinition.parameters.Keys.Any(key =>
+                                    string.Equals(key, reference.field,
+                                        StringComparison.OrdinalIgnoreCase)))
+                                continue;
+                            valid = false;
+                            CTShared.LogError("Recipe \"" + _name + "\": (INMAT:"
+                                + reference.input.id + ":" + reference.field
+                                + ") refers to a parameter not defined by input material \""
+                                + reference.input.name + "\".", context);
+                        }
+                    }
+
+                    if (ContainsOutputMaterialValue(referencedValue))
+                    {
+                        if (!TryGetOutputMaterialValueReferences(referencedValue,
+                                out List<OutputMaterialValueReference> outputReferences,
+                                out string outputReferenceError))
+                        {
+                            valid = false;
+                            CTShared.LogError("Recipe \"" + _name
+                                + "\": invalid output-material reference: "
+                                + outputReferenceError, context);
+                        }
+                        else foreach (OutputMaterialValueReference reference in outputReferences)
+                        {
+                            if (IsBuiltInOutputMaterialField(reference.field)) continue;
+                            KhemistryMaterial outputDefinition = definitions.FirstOrDefault(material =>
+                                material.name == reference.output.name);
+                            if (outputDefinition != null
+                                && outputDefinition.parameters.Keys.Any(key => string.Equals(key,
+                                    reference.field, StringComparison.OrdinalIgnoreCase)))
+                                continue;
+                            valid = false;
+                            CTShared.LogError("Recipe \"" + _name + "\": (OUTMAT:"
+                                + reference.output.id + ":" + reference.field
+                                + ") refers to a parameter not defined by output material \""
+                                + reference.output.name + "\".", context);
+                        }
+                    }
+                }
+            }
+
+            foreach (string referencedValue in new[] { _recipeTimeExpression })
+            {
+                if (ContainsInputMaterialValue(referencedValue)
+                    && TryGetInputMaterialValueReferences(referencedValue,
+                        out List<InputMaterialValueReference> inputReferences, out _))
+                    foreach (InputMaterialValueReference reference in inputReferences)
+                    {
+                        if (IsBuiltInInputMaterialField(reference.field)) continue;
+                        KhemistryMaterial inputDefinition = definitions.FirstOrDefault(material =>
+                            material.name == reference.input.name);
+                        if (inputDefinition != null
+                            && inputDefinition.parameters.Keys.Any(key => string.Equals(key,
+                                reference.field, StringComparison.OrdinalIgnoreCase)))
+                            continue;
+                        valid = false;
+                        CTShared.LogError("Recipe \"" + _name + "\": recipeTime (INMAT:"
+                            + reference.input.id + ":" + reference.field
+                            + ") refers to an undefined parameter.", context);
+                    }
+                if (ContainsOutputMaterialValue(referencedValue)
+                    && TryGetOutputMaterialValueReferences(referencedValue,
+                        out List<OutputMaterialValueReference> outputReferences, out _))
+                    foreach (OutputMaterialValueReference reference in outputReferences)
+                    {
+                        if (IsBuiltInOutputMaterialField(reference.field)) continue;
+                        KhemistryMaterial outputDefinition = definitions.FirstOrDefault(material =>
+                            material.name == reference.output.name);
+                        if (outputDefinition != null
+                            && outputDefinition.parameters.Keys.Any(key => string.Equals(key,
+                                reference.field, StringComparison.OrdinalIgnoreCase)))
+                            continue;
+                        valid = false;
+                        CTShared.LogError("Recipe \"" + _name + "\": recipeTime (OUTMAT:"
+                            + reference.output.id + ":" + reference.field
+                            + ") refers to an undefined parameter.", context);
+                    }
+            }
+
+            IsValid = valid;
+            return valid;
+        }
+
+        private bool ValidateMaterialReference(KhemistryMaterial definition, string materialName,
+            string shape, IEnumerable<string> parameterNames, string nodeName, string context)
+        {
+            if (definition == null)
+            {
+                CTShared.LogError("Recipe \"" + _name + "\": " + nodeName + " \""
+                    + materialName + "\" does not match a loaded KHEMISTRY_MATERIAL.", context);
+                return false;
+            }
+
+            bool valid = true;
+            if (shape != null && !definition.shapes.Contains(shape))
+            {
+                valid = false;
+                CTShared.LogError("Recipe \"" + _name + "\": " + nodeName + " \""
+                    + materialName + "\" uses unsupported shape \"" + shape + "\".", context);
+            }
+
+            foreach (string parameterName in parameterNames ?? Enumerable.Empty<string>())
+            {
+                if (definition.parameters.ContainsKey(parameterName)) continue;
+                valid = false;
+                CTShared.LogError("Recipe \"" + _name + "\": " + nodeName + " \""
+                    + materialName + "\" references unknown parameter \"" + parameterName + "\".",
+                    context);
+            }
+            return valid;
+        }
+
+        /// <summary>
+        /// Looks up the applicable ChitakTechISRUBiomeConfig for a given planet/biome, falling back
+        /// from exact biome → ALL biome on that planet → ALL planet/ALL biome → null (no config,
+        /// recipe cannot operate at the current location).
+        /// </summary>
+        public ChitakTechISRUBiomeConfig GetBiomeConfig(string planet, string biome)
+        {
+            if (_planetConfigs.TryGetValue(planet, out Dictionary<string, ChitakTechISRUBiomeConfig> biomeDict))
+            {
+                if (biome != null && biomeDict.TryGetValue(biome, out ChitakTechISRUBiomeConfig exact))
+                    return exact;
+                if (biomeDict.TryGetValue("ALL", out ChitakTechISRUBiomeConfig planetAll))
+                    return planetAll;
+            }
+
+            if (_planetConfigs.TryGetValue("ALL", out Dictionary<string, ChitakTechISRUBiomeConfig> allPlanetDict))
+            {
+                if (biome != null && allPlanetDict.TryGetValue(biome, out ChitakTechISRUBiomeConfig exactAll))
+                    return exactAll;
+                if (allPlanetDict.TryGetValue("ALL", out ChitakTechISRUBiomeConfig globalAll))
+                    return globalAll;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Returns a copy of this recipe with all resource/material amounts multiplied by
+        /// the given factor. Used when importing recipes by recipeType/RECIPE_NAMES with a
+        /// recipeMultiplier or per-name multiplier applied. Timing, workers, charging, and
+        /// planet configs are shared by reference (not affected by the multiplier).
+        /// </summary>
+        public KhemistryISRURecipe ScaledCopy(double multiplier)
+        {
+            KhemistryISRURecipe copy = new KhemistryISRURecipe
+            {
+                _name = _name,
+                _recipeTypes = _recipeTypes,
+                _recipeSubtypes = _recipeSubtypes,
+                _recipeSubsubtypes = _recipeSubsubtypes,
+                _chargingRequired = _chargingRequired,
+                _chargeRate = _chargeRate,
+                _chargeDecay = _chargeDecay,
+                _chargeDecayRateInactive = _chargeDecayRateInactive,
+                _chargeDecayRateActive = _chargeDecayRateActive,
+                _chargeThreshold = _chargeThreshold,
+                _chargeWhileRunning = _chargeWhileRunning,
+                _controlsShowPAW = _controlsShowPAW,
+                _controlsShowEVA = _controlsShowEVA,
+                _useSuitCell = _useSuitCell,
+                _planetConfigs = _planetConfigs,
+                _recipeTime = _recipeTime,
+                _recipeTimeExpression = _recipeTimeExpression,
+                _workersEngineers = _workersEngineers,
+                _workersPilots = _workersPilots,
+                _workersScientists = _workersScientists,
+                _workersEVA = _workersEVA,
+                _workersCREW = _workersCREW,
+                mainNode = mainNode,
+                IsValid = IsValid,
+            };
+            copy.maintenance.AddRange(maintenance);
+            copy._depositConditions.AddRange(_depositConditions);
+            copy._parallaxScatters.AddRange(_parallaxScatters);
+            copy._settings.AddRange(_settings);
+            copy._declaredOutputMaterialIds.AddRange(_declaredOutputMaterialIds);
+            copy._chargeNames.AddRange(_chargeNames);
+            copy._chargeAmounts.AddRange(_chargeAmounts);
+            
+            if (double.IsNaN(multiplier) || double.IsInfinity(multiplier) || multiplier <= 0.0)
+                multiplier = 1.0;
+            copy._biomeResourceScale = _biomeResourceScale * multiplier;
+            copy._settingRecipeScale = _settingRecipeScale * multiplier;
+            CopyCargoPartsTo(copy, multiplier);
+
+            foreach (ResourceInput inp in _inputs)
+                copy._inputs.Add(new ResourceInput { resourceName = inp.resourceName, amount = inp.amount * multiplier, flowMode = inp.flowMode });
+            foreach (ResourceInputMaterial mat in _inputMaterials)
+            {
+                double scaled = Math.Round(mat.amount * multiplier, MidpointRounding.AwayFromZero);
+                int scaledAmount = scaled >= int.MaxValue ? int.MaxValue : (int)scaled;
+                if (mat.amount > 0 && multiplier > 0.0 && scaledAmount < 1) scaledAmount = 1;
+                copy._inputMaterials.Add(new ResourceInputMaterial
+                {
+                    id = mat.id,
+                    name = mat.name,
+                    shape = mat.shape,
+                    size = mat.size,
+                    usesParams = mat.usesParams,
+                    parameters = mat.parameters.ToList(),
+                    amount = scaledAmount
+                });
+            }
+            foreach (PassiveResourceInput pinp in _passiveInputs)
+                copy._passiveInputs.Add(new PassiveResourceInput
+                {
+                    resourceName = pinp.resourceName,
+                    amount = pinp.amount * multiplier,
+                    period = pinp.period,
+                    powerfail = pinp.powerfail,
+                    powerfailExplosionRadius = pinp.powerfailExplosionRadius,
+                    powerfailExplosionTemperature = pinp.powerfailExplosionTemperature,
+                    flowMode = pinp.flowMode,
+                    ignorePowerfail = pinp.ignorePowerfail
+                });
+            foreach (ResourceOutput outp in _outputs)
+                copy._outputs.Add(new ResourceOutput { resourceName = outp.resourceName, amount = outp.amount * multiplier, dumpExcess = outp.dumpExcess });
+            foreach (ResourceOutputMaterial mat in _outputMaterials)
+                copy._outputMaterials.Add(new ResourceOutputMaterial
+                {
+                    id = mat.id,
+                    name = mat.name,
+                    shape = mat.shape,
+                    size = mat.size,
+                    usesParams = mat.usesParams,
+                    parameters = new Dictionary<string, string>(mat.parameters),
+                    parameterAssignments = mat.parameterAssignments == null
+                        ? null
+                        : new List<KeyValuePair<string, string>>(
+                            mat.parameterAssignments),
+                    amount = mat.amount * multiplier,
+                    amountExpression = mat.amountExpression,
+                    amountScale = mat.amountScale * multiplier,
+                    outVolume = mat.outVolume,
+                    parallaxResolved = mat.parallaxResolved,
+                    inputMaterialResolved = mat.inputMaterialResolved
+                });
+
+            return copy;
+        }
+
+        /// <summary>Parameterless constructor used internally by ScaledCopy.</summary>
+        public KhemistryISRURecipe() { }
+
+        public bool UsesParallaxScatters => _parallaxScatters.Count > 0;
+
+        public const string ParallaxRadiusValue = "PARALLAX_RADIUS";
+        public const string ParallaxHeightValue = "PARALLAX_HEIGHT";
+        public const string ParallaxVolumeValue = "PARALLAX_VOLUME";
+        public const string ParallaxScatterValue = "PARALLAX_SCATTER";
+
+        internal sealed class InputMaterialValueReference
+        {
+            internal int start;
+            internal int length;
+            internal ResourceInputMaterial input;
+            internal string field;
+        }
+
+        internal static bool ContainsInputMaterialValue(string value)
+            => value?.IndexOf("(INMAT:", StringComparison.OrdinalIgnoreCase) >= 0;
+
+        internal bool TryGetInputMaterialValueReferences(string value,
+            out List<InputMaterialValueReference> references, out string error)
+        {
+            references = new List<InputMaterialValueReference>();
+            error = null;
+            if (string.IsNullOrEmpty(value)) return true;
+
+            int searchStart = 0;
+            while (true)
+            {
+                int tokenStart = value.IndexOf("(INMAT:", searchStart,
+                    StringComparison.OrdinalIgnoreCase);
+                if (tokenStart < 0) return true;
+
+                int idStart = tokenStart + "(INMAT:".Length;
+                ResourceInputMaterial? matchedInput = null;
+                int matchedLength = -1;
+                foreach (ResourceInputMaterial input in _inputMaterials)
+                {
+                    if (string.IsNullOrEmpty(input.id) || input.id.Length <= matchedLength
+                        || idStart + input.id.Length >= value.Length
+                        || value[idStart + input.id.Length] != ':'
+                        || string.CompareOrdinal(value, idStart, input.id, 0,
+                            input.id.Length) != 0)
+                        continue;
+                    matchedInput = input;
+                    matchedLength = input.id.Length;
+                }
+
+                if (!matchedInput.HasValue)
+                {
+                    int unknownEnd = value.IndexOf(')', idStart);
+                    string unknown = unknownEnd < 0
+                        ? value.Substring(idStart)
+                        : value.Substring(idStart, unknownEnd - idStart);
+                    error = "(INMAT:" + unknown
+                        + (unknownEnd < 0 ? "" : ")")
+                        + " does not start with an INPUT_MATERIAL id defined by this recipe.";
+                    return false;
+                }
+
+                int fieldStart = idStart + matchedLength + 1;
+                int tokenEnd = value.IndexOf(')', fieldStart);
+                if (tokenEnd < 0)
+                {
+                    error = "Input-material reference beginning at position " + tokenStart
+                        + " has no closing ')'.";
+                    return false;
+                }
+                string field = value.Substring(fieldStart, tokenEnd - fieldStart).Trim();
+                if (string.IsNullOrEmpty(field))
+                {
+                    error = "Input-material reference for id \"" + matchedInput.Value.id
+                        + "\" has no field name.";
+                    return false;
+                }
+
+                references.Add(new InputMaterialValueReference
+                {
+                    start = tokenStart,
+                    length = tokenEnd - tokenStart + 1,
+                    input = matchedInput.Value,
+                    field = field
+                });
+                searchStart = tokenEnd + 1;
+            }
+        }
+
+        internal bool TryReplaceInputMaterialValuesForValidation(string value,
+            out string resolved, out string error)
+        {
+            resolved = value;
+            if (!TryGetInputMaterialValueReferences(value, out
+                    List<InputMaterialValueReference> references, out error))
+                return false;
+            for (int index = references.Count - 1; index >= 0; index--)
+            {
+                InputMaterialValueReference reference = references[index];
+                resolved = resolved.Remove(reference.start, reference.length)
+                    .Insert(reference.start, "1");
+            }
+            return true;
+        }
+
+        internal static bool IsBuiltInInputMaterialField(string field)
+        {
+            return string.Equals(field, "shape", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(field, "size", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(field, "amount", StringComparison.OrdinalIgnoreCase);
+        }
+
+        internal sealed class OutputMaterialValueReference
+        {
+            internal int start;
+            internal int length;
+            internal ResourceOutputMaterial output;
+            internal string field;
+        }
+
+        internal static bool ContainsOutputMaterialValue(string value)
+            => value?.IndexOf("(OUTMAT:", StringComparison.OrdinalIgnoreCase) >= 0;
+
+        internal bool TryGetOutputMaterialValueReferences(string value,
+            out List<OutputMaterialValueReference> references, out string error)
+        {
+            references = new List<OutputMaterialValueReference>();
+            error = null;
+            if (string.IsNullOrEmpty(value)) return true;
+
+            int searchStart = 0;
+            while (true)
+            {
+                int tokenStart = value.IndexOf("(OUTMAT:", searchStart,
+                    StringComparison.OrdinalIgnoreCase);
+                if (tokenStart < 0) return true;
+
+                int idStart = tokenStart + "(OUTMAT:".Length;
+                ResourceOutputMaterial? matchedOutput = null;
+                int matchedLength = -1;
+                foreach (ResourceOutputMaterial output in _outputMaterials)
+                {
+                    if (string.IsNullOrEmpty(output.id) || output.id.Length <= matchedLength
+                        || idStart + output.id.Length >= value.Length
+                        || value[idStart + output.id.Length] != ':'
+                        || string.CompareOrdinal(value, idStart, output.id, 0,
+                            output.id.Length) != 0)
+                        continue;
+                    matchedOutput = output;
+                    matchedLength = output.id.Length;
+                }
+                foreach (string declaredId in _declaredOutputMaterialIds)
+                {
+                    if (string.IsNullOrEmpty(declaredId)
+                        || declaredId.Length <= matchedLength
+                        || idStart + declaredId.Length >= value.Length
+                        || value[idStart + declaredId.Length] != ':'
+                        || string.CompareOrdinal(value, idStart, declaredId, 0,
+                            declaredId.Length) != 0)
+                        continue;
+                    matchedOutput = new ResourceOutputMaterial { id = declaredId };
+                    matchedLength = declaredId.Length;
+                }
+
+                if (!matchedOutput.HasValue)
+                {
+                    int unknownEnd = value.IndexOf(')', idStart);
+                    string unknown = unknownEnd < 0
+                        ? value.Substring(idStart)
+                        : value.Substring(idStart, unknownEnd - idStart);
+                    error = "(OUTMAT:" + unknown
+                        + (unknownEnd < 0 ? "" : ")")
+                        + " does not start with an OUTPUT_MATERIAL id defined by this recipe.";
+                    return false;
+                }
+
+                int fieldStart = idStart + matchedLength + 1;
+                int tokenEnd = value.IndexOf(')', fieldStart);
+                if (tokenEnd < 0)
+                {
+                    error = "Output-material reference beginning at position " + tokenStart
+                        + " has no closing ')'.";
+                    return false;
+                }
+                string field = value.Substring(fieldStart, tokenEnd - fieldStart).Trim();
+                if (string.IsNullOrEmpty(field))
+                {
+                    error = "Output-material reference for id \"" + matchedOutput.Value.id
+                        + "\" has no field name.";
+                    return false;
+                }
+
+                references.Add(new OutputMaterialValueReference
+                {
+                    start = tokenStart,
+                    length = tokenEnd - tokenStart + 1,
+                    output = matchedOutput.Value,
+                    field = field
+                });
+                searchStart = tokenEnd + 1;
+            }
+        }
+
+        internal bool TryReplaceOutputMaterialValuesForValidation(string value,
+            out string resolved, out string error)
+        {
+            resolved = value;
+            if (!TryGetOutputMaterialValueReferences(value, out
+                    List<OutputMaterialValueReference> references, out error))
+                return false;
+            for (int index = references.Count - 1; index >= 0; index--)
+            {
+                OutputMaterialValueReference reference = references[index];
+                resolved = resolved.Remove(reference.start, reference.length)
+                    .Insert(reference.start, "1");
+            }
+            return true;
+        }
+
+        internal sealed class SettingValueReference
+        {
+            internal int start;
+            internal int length;
+            internal RecipeSetting setting;
+        }
+
+        internal static bool ContainsSettingValue(string value)
+            => value?.IndexOf("(SETTING:", StringComparison.OrdinalIgnoreCase) >= 0;
+
+        internal bool TryGetSettingValueReferences(string value,
+            out List<SettingValueReference> references, out string error)
+        {
+            references = new List<SettingValueReference>();
+            error = null;
+            if (string.IsNullOrEmpty(value)) return true;
+
+            int searchStart = 0;
+            while (true)
+            {
+                int tokenStart = value.IndexOf("(SETTING:", searchStart,
+                    StringComparison.OrdinalIgnoreCase);
+                if (tokenStart < 0) return true;
+                int variableStart = tokenStart + "(SETTING:".Length;
+                int tokenEnd = value.IndexOf(')', variableStart);
+                if (tokenEnd < 0)
+                {
+                    error = "Setting reference beginning at position " + tokenStart
+                        + " has no closing ')'.";
+                    return false;
+                }
+
+                string variable = value.Substring(variableStart,
+                    tokenEnd - variableStart).Trim();
+                RecipeSetting? matched = null;
+                foreach (RecipeSetting setting in _settings)
+                    if (string.Equals(setting.variable, variable,
+                            StringComparison.Ordinal))
+                    {
+                        matched = setting;
+                        break;
+                    }
+                if (!matched.HasValue)
+                {
+                    error = "(SETTING:" + variable
+                        + ") does not name a SETTING var defined by this recipe.";
+                    return false;
+                }
+
+                references.Add(new SettingValueReference
+                {
+                    start = tokenStart,
+                    length = tokenEnd - tokenStart + 1,
+                    setting = matched.Value
+                });
+                searchStart = tokenEnd + 1;
+            }
+        }
+
+        internal bool TryReplaceSettingValuesForValidation(string value,
+            out string resolved, out string error)
+        {
+            resolved = value;
+            if (!TryGetSettingValueReferences(value,
+                    out List<SettingValueReference> references, out error))
+                return false;
+            for (int index = references.Count - 1; index >= 0; index--)
+            {
+                SettingValueReference reference = references[index];
+                resolved = resolved.Remove(reference.start, reference.length)
+                    .Insert(reference.start, reference.setting.defaultValue.ToString(
+                        "R", CultureInfo.InvariantCulture));
+            }
+            return true;
+        }
+
+        internal bool TryReplaceMaterialValuesForValidation(string value,
+            out string resolved, out string error)
+        {
+            if (!TryReplaceInputMaterialValuesForValidation(value, out resolved, out error))
+                return false;
+            if (!TryReplaceOutputMaterialValuesForValidation(resolved, out resolved,
+                    out error))
+                return false;
+            return TryReplaceSettingValuesForValidation(resolved, out resolved, out error);
+        }
+
+        internal static bool IsBuiltInOutputMaterialField(string field)
+        {
+            return string.Equals(field, "shape", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(field, "size", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(field, "amount", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(field, "volume", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(field, "outVolume", StringComparison.OrdinalIgnoreCase);
+        }
+
+        internal static bool ContainsParallaxValue(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return false;
+            return value.Contains(ParallaxRadiusValue)
+                || value.Contains(ParallaxHeightValue)
+                || value.Contains(ParallaxVolumeValue)
+                || value.Contains(ParallaxScatterValue);
+        }
+
+        internal static bool MaterialOutputUsesParallaxValues(string size, string outVolume,
+            IEnumerable<KeyValuePair<string, string>> parameters)
+        {
+            return ContainsParallaxValue(size) || ContainsParallaxValue(outVolume)
+                || (parameters ?? Enumerable.Empty<KeyValuePair<string, string>>())
+                    .Any(pair => ContainsParallaxValue(pair.Value));
+        }
+
+        internal static bool MaterialOutputUsesParallaxValues(ResourceOutputMaterial output)
+            => MaterialOutputUsesParallaxValues(output.size, output.outVolume,
+                (IEnumerable<KeyValuePair<string, string>>)output.parameterAssignments
+                    ?? output.parameters
+                    ?? new Dictionary<string, string>());
+
+        internal static bool MaterialOutputUsesInputMaterialValues(
+            ResourceOutputMaterial output)
+        {
+            return ContainsInputMaterialValue(output.shape)
+                || ContainsInputMaterialValue(output.size)
+                || ContainsInputMaterialValue(output.amountExpression)
+                || ContainsInputMaterialValue(output.outVolume)
+                || ((IEnumerable<KeyValuePair<string, string>>)output.parameterAssignments
+                        ?? output.parameters
+                        ?? new Dictionary<string, string>())
+                    .Any(pair => ContainsInputMaterialValue(pair.Value));
+        }
+
+        internal static bool MaterialOutputUsesOutputMaterialValues(
+            ResourceOutputMaterial output)
+        {
+            return ContainsOutputMaterialValue(output.shape)
+                || ContainsOutputMaterialValue(output.size)
+                || ContainsOutputMaterialValue(output.amountExpression)
+                || ContainsOutputMaterialValue(output.outVolume)
+                || ((IEnumerable<KeyValuePair<string, string>>)output.parameterAssignments
+                        ?? output.parameters
+                        ?? new Dictionary<string, string>())
+                    .Any(pair => ContainsOutputMaterialValue(pair.Value));
+        }
+
+        internal static bool MaterialOutputUsesSettingValues(
+            ResourceOutputMaterial output)
+        {
+            return ContainsSettingValue(output.shape)
+                || ContainsSettingValue(output.size)
+                || ContainsSettingValue(output.amountExpression)
+                || ContainsSettingValue(output.outVolume)
+                || ((IEnumerable<KeyValuePair<string, string>>)output.parameterAssignments
+                        ?? output.parameters
+                        ?? new Dictionary<string, string>())
+                    .Any(pair => ContainsSettingValue(pair.Value));
+        }
+
+        internal static string ReplaceParallaxNumericValues(string value, string replacement)
+        {
+            if (value == null) return null;
+            return value.Replace(ParallaxRadiusValue, replacement)
+                .Replace(ParallaxHeightValue, replacement)
+                .Replace(ParallaxVolumeValue, replacement);
+        }
+
+        /// <summary>True if this recipe is tagged with the given recipeType/Subtype/Subsubtype (any left null are not checked).</summary>
+        public bool MatchesTypes(string recipeType, string recipeSubtype, string recipeSubsubtype)
+        {
+            if (recipeType != null && !_recipeTypes.Contains(recipeType)) return false;
+            if (recipeSubtype != null && !_recipeSubtypes.Contains(recipeSubtype)) return false;
+            if (recipeSubsubtype != null && !_recipeSubsubtypes.Contains(recipeSubsubtype)) return false;
+            return true;
+        }
+
+        ///// Module-level recipe overrides /////
+
+        // Values on the MODULE node that belong to the module itself (identity, converter naming,
+        // recipe-selection filters, and RECIPE/RECIPE_NAMES/RECIPE_MULTIPLIERS bookkeeping) rather
+        // than being a recipe field to override. These are never applied on top of a loaded recipe.
+        private static readonly HashSet<string> _moduleOnlyValueKeys = new HashSet<string>
+        {
+            "name", "ConverterName", "StartActionName", "StopActionName",
+            "moduleType",
+            "recipeType", "recipeSubtype", "recipeSubype", "recipeSubsubtype",
+            "recipeMultiplier", "maxInteractionDistance", "maxDisplayDistance",
+            "workersCrewSamePart"
+        };
+        private static readonly HashSet<string> _moduleOnlyNodeKeys = new HashSet<string>
+        {
+            "RECIPE", "RECIPE_NAMES", "RECIPE_MULTIPLIERS"
+        };
+
+        // Node types that are merged by their "name" value (resource name) instead of being wholesale
+        // replaced: a module entry with a resource name matching a base entry overrides just that
+        // entry, and a module entry with a new resource name is added alongside the base entries.
+        private static readonly HashSet<string> _keyedByNameNodeKeys = new HashSet<string>
+        {
+            "INPUT_RESOURCE", "OUTPUT_RESOURCE", "PINPUT_RESOURCE", "INPUT_MATERIAL", "OUTPUT_MATERIAL",
+            "INPUT_CARGOPART", "OUTPUT_CARGOPART", "OUPUT_CARGOPART",
+            "PARALLAX_SCATTER", "SETTING", "MAINTENANCE"
+        };
+
+        // Node types that hold a single node full of repeated values (e.g. CHARGE_CON_NAMES holding
+        // several "name" values), where the module's values are appended after the recipe's own,
+        // rather than the module's node replacing the recipe's node outright. Maps the node name to
+        // the value key it repeats.
+        private static readonly Dictionary<string, string> _appendedValueNodeKeys = new Dictionary<string, string>
+        {
+            { "CHARGE_CON_NAMES", "name" },
+            { "CHARGE_CON_AMOUNTS", "amount" }
+        };
+
+        /// <summary>
+        /// Merges a node type that holds a single set of repeated values (e.g. CHARGE_CON_NAMES'
+        /// repeated "name" values) by concatenating every base occurrence's values followed by every
+        /// override occurrence's values, into one node, preserving order.
+        /// </summary>
+        private static ConfigNode MergeAppendedValueNode(ConfigNode baseRecipeNode, ConfigNode overrideModuleNode, string nodeName, string valueKey)
+        {
+            ConfigNode merged = new ConfigNode(nodeName);
+            foreach (ConfigNode n in baseRecipeNode.GetNodes(nodeName))
+                foreach (string v in n.GetValues(valueKey))
+                    merged.AddValue(valueKey, v);
+            foreach (ConfigNode n in overrideModuleNode.GetNodes(nodeName))
+                foreach (string v in n.GetValues(valueKey))
+                    merged.AddValue(valueKey, v);
+            return merged;
+        }
+
+        /// <summary>
+        /// Merges all nodes of a given name (e.g. all PINPUT_RESOURCE nodes) between a base recipe
+        /// node and an override (MODULE) node, keyed by each node's "name" value. A base entry whose
+        /// "name" also appears on the override is replaced entirely by the override's entry; base
+        /// entries with no matching override entry are kept; override entries with a "name" not
+        /// present on the base are appended as new entries.
+        /// </summary>
+        private static List<ConfigNode> MergeKeyedByName(ConfigNode baseRecipeNode, ConfigNode overrideModuleNode, string nodeName)
+        {
+            List<string> keyOrder = new List<string>();
+            Dictionary<string, ConfigNode> keyed = new Dictionary<string, ConfigNode>();
+
+            foreach (ConfigNode n in baseRecipeNode.GetNodes(nodeName))
+            {
+                string key = GetKeyedNodeName(n, nodeName)
+                    ?? ("\0unnamed" + keyOrder.Count);
+                if (!keyed.ContainsKey(key)) keyOrder.Add(key);
+                keyed[key] = n;
+            }
+
+            foreach (ConfigNode n in overrideModuleNode.GetNodes(nodeName))
+            {
+                string key = GetKeyedNodeName(n, nodeName)
+                    ?? ("\0unnamed" + keyOrder.Count);
+                if (!keyed.ContainsKey(key)) keyOrder.Add(key);
+                keyed[key] = n;
+            }
+
+            List<ConfigNode> result = new List<ConfigNode>();
+            foreach (string key in keyOrder)
+            {
+                ConfigNode copy = new ConfigNode(nodeName);
+                keyed[key].CopyTo(copy);
+                result.Add(copy);
+            }
+            return result;
+        }
+
+        private static string GetKeyedNodeName(ConfigNode node, string nodeName)
+        {
+            if (nodeName == "PARALLAX_SCATTER")
+                return node.GetValue("scatter") ?? node.GetValue("name");
+            if (nodeName == "SETTING")
+                return node.GetValue("var");
+            return node.GetValue("name");
+        }
+
+        /// <summary>
+        /// Merges a single override PLANET_CONFIG node onto a (possibly null) base PLANET_CONFIG node.
+        /// BIOME_CONFIG entries are merged by name: an override biome fully replaces the base biome of
+        /// the same name, and any base biomes not touched by the override are kept as-is.
+        /// </summary>
+        private static ConfigNode MergePlanetConfigNode(ConfigNode basePlanet, ConfigNode overridePlanet)
+        {
+            ConfigNode merged = new ConfigNode("PLANET_CONFIG");
+            merged.AddValue("name", CTShared.GetStrValueFromCFG(overridePlanet, "name", "ALL"));
+
+            List<string> biomeOrder = new List<string>();
+            Dictionary<string, ConfigNode> biomeNodes = new Dictionary<string, ConfigNode>();
+
+            if (basePlanet != null)
+            {
+                foreach (ConfigNode biomeNode in basePlanet.GetNodes("BIOME_CONFIG"))
+                {
+                    string biomeName = CTShared.GetStrValueFromCFG(biomeNode, "name", "ALL");
+                    if (!biomeNodes.ContainsKey(biomeName)) biomeOrder.Add(biomeName);
+                    biomeNodes[biomeName] = biomeNode;
+                }
+            }
+
+            foreach (ConfigNode biomeNode in overridePlanet.GetNodes("BIOME_CONFIG"))
+            {
+                string biomeName = CTShared.GetStrValueFromCFG(biomeNode, "name", "ALL");
+                if (!biomeNodes.ContainsKey(biomeName)) biomeOrder.Add(biomeName);
+                biomeNodes[biomeName] = biomeNode;
+            }
+
+            foreach (string biomeName in biomeOrder)
+            {
+                ConfigNode copy = new ConfigNode("BIOME_CONFIG");
+                biomeNodes[biomeName].CopyTo(copy);
+                merged.AddNode(copy);
+            }
+
+            return merged;
+        }
+
+        /// <summary>
+        /// Merges all PLANET_CONFIG nodes on a base recipe node with all PLANET_CONFIG nodes on an
+        /// override (MODULE) node: planets present in both are merged (see MergePlanetConfigNode),
+        /// planets only in the base are kept unchanged, and planets only in the override are added
+        /// as new entries.
+        /// </summary>
+        private static List<ConfigNode> MergePlanetConfigs(ConfigNode baseRecipeNode, ConfigNode overrideModuleNode)
+        {
+            List<string> planetOrder = new List<string>();
+            Dictionary<string, ConfigNode> basePlanets = new Dictionary<string, ConfigNode>();
+            foreach (ConfigNode p in baseRecipeNode.GetNodes("PLANET_CONFIG"))
+            {
+                string pName = CTShared.GetStrValueFromCFG(p, "name", "ALL");
+                if (!basePlanets.ContainsKey(pName)) planetOrder.Add(pName);
+                basePlanets[pName] = p;
+            }
+
+            List<string> overridePlanetOrder = new List<string>();
+            Dictionary<string, ConfigNode> overridePlanets = new Dictionary<string, ConfigNode>();
+            foreach (ConfigNode p in overrideModuleNode.GetNodes("PLANET_CONFIG"))
+            {
+                string pName = CTShared.GetStrValueFromCFG(p, "name", "ALL");
+                if (!overridePlanets.ContainsKey(pName)) overridePlanetOrder.Add(pName);
+                overridePlanets[pName] = p;
+            }
+
+            List<ConfigNode> result = new List<ConfigNode>();
+            HashSet<string> handled = new HashSet<string>();
+
+            foreach (string pName in planetOrder)
+            {
+                if (overridePlanets.TryGetValue(pName, out ConfigNode ovPlanet))
+                {
+                    result.Add(MergePlanetConfigNode(basePlanets[pName], ovPlanet));
+                    handled.Add(pName);
+                }
+                else
+                {
+                    ConfigNode copy = new ConfigNode("PLANET_CONFIG");
+                    basePlanets[pName].CopyTo(copy);
+                    result.Add(copy);
+                }
+            }
+
+            foreach (string pName in overridePlanetOrder)
+            {
+                if (handled.Contains(pName)) continue;
+                ConfigNode copy = new ConfigNode("PLANET_CONFIG");
+                overridePlanets[pName].CopyTo(copy);
+                result.Add(copy);
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Applies the recipe-related values and nodes on a <see cref="ChitakTechISRU"/> MODULE node on top of
+        /// a loaded recipe's config node, returning a new merged node suitable for re-parsing into a
+        /// <see cref="KhemistryISRURecipe"/>. Module-only bookkeeping (identity, converter naming, recipe
+        /// selection filters, RECIPE/RECIPE_NAMES/RECIPE_MULTIPLIERS) is ignored. Every other value
+        /// or node present on the MODULE node fully overrides the matching key on the recipe, except
+        /// PLANET_CONFIG (and its BIOME_CONFIG children), which are merged instead — see
+        /// <see cref="MergePlanetConfigs"/>/<see cref="MergePlanetConfigNode"/>.
+        /// </summary>
+        public static ConfigNode ApplyModuleOverrides(ConfigNode moduleNode, ConfigNode baseRecipeNode)
+        {
+            ConfigNode merged = new ConfigNode();
+            baseRecipeNode.CopyTo(merged);
+
+            foreach (string valueName in moduleNode.values.DistinctNames())
+            {
+                if (_moduleOnlyValueKeys.Contains(valueName)) continue;
+
+                while (merged.HasValue(valueName)) merged.RemoveValue(valueName);
+                foreach (string v in moduleNode.GetValues(valueName))
+                    merged.AddValue(valueName, v);
+            }
+
+            foreach (string nodeName in moduleNode.nodes.DistinctNames())
+            {
+                if (_moduleOnlyNodeKeys.Contains(nodeName) || nodeName == "PLANET_CONFIG") continue;
+
+                if (_appendedValueNodeKeys.TryGetValue(nodeName, out string valueKey))
+                {
+                    ConfigNode mergedAppended = MergeAppendedValueNode(merged, moduleNode, nodeName, valueKey);
+                    while (merged.HasNode(nodeName)) merged.RemoveNode(nodeName);
+                    merged.AddNode(mergedAppended);
+                    continue;
+                }
+
+                if (_keyedByNameNodeKeys.Contains(nodeName))
+                {
+                    List<ConfigNode> mergedKeyed = MergeKeyedByName(merged, moduleNode, nodeName);
+                    while (merged.HasNode(nodeName)) merged.RemoveNode(nodeName);
+                    foreach (ConfigNode n in mergedKeyed)
+                        merged.AddNode(n);
+                    continue;
+                }
+
+                while (merged.HasNode(nodeName)) merged.RemoveNode(nodeName);
+                foreach (ConfigNode n in moduleNode.GetNodes(nodeName))
+                {
+                    ConfigNode copy = new ConfigNode(nodeName);
+                    n.CopyTo(copy);
+                    merged.AddNode(copy);
+                }
+            }
+
+            if (moduleNode.HasNode("PLANET_CONFIG"))
+            {
+                List<ConfigNode> mergedPlanets = MergePlanetConfigs(merged, moduleNode);
+                while (merged.HasNode("PLANET_CONFIG")) merged.RemoveNode("PLANET_CONFIG");
+                foreach (ConfigNode p in mergedPlanets)
+                    merged.AddNode(p);
+            }
+
+            return merged;
+        }
+    }
+}
