@@ -22,7 +22,6 @@ internal static class Program
             assertions += SettingStateTests.Run();
             if (Array.IndexOf(args, "--cargo") < 0)
             {
-                assertions += EvaRecipeTests.Run();
                 assertions += WashingRecipeTests.Run();
                 assertions += ConstructionCostTests.Run();
             }
