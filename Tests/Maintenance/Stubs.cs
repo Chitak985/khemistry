@@ -4,7 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
-using Khemistry;
+using ChitakTech;
 
 public sealed class ConfigNode
 {
@@ -57,7 +57,7 @@ public static class Vector3d { public static double Distance(double a, double b)
 public class Part
 {
     public readonly List<ProtoCrewMember> protoModuleCrew = new List<ProtoCrewMember>();
-    public readonly List<KhemistryResourceNetwork.Endpoint> resources = new List<KhemistryResourceNetwork.Endpoint>();
+    public readonly List<ChitakTechResourceNetwork.Endpoint> resources = new List<ChitakTechResourceNetwork.Endpoint>();
     public Transform transform = new Transform();
     public bool CanCrossfeed(Part p, int id, ResourceFlowMode flow) => true;
 }
@@ -76,9 +76,9 @@ public sealed class PartResourceLibrary
     public PartResourceDefinition GetDefinition(string name) => new PartResourceDefinition();
 }
 namespace UnityEngine { public static class Random { public static float value => 0; } }
-namespace Khemistry
+namespace ChitakTech
 {
-    public static class KShared
+    public static class CTShared
     {
         public enum SituationCondition { Landed, Splashed }
         public static void LogError(string message, string context) { }
@@ -88,16 +88,16 @@ namespace Khemistry
         public static double GetDoubleTemperatureValueFromCFG(ConfigNode node, string key, double fallback)
             => GetDoubleValueFromCFG(node, key, fallback);
     }
-    public static class KhemistryResourceNetwork
+    public static class ChitakTechResourceNetwork
     {
         public sealed class Endpoint { public string resourceName; public double amount; public object cell; }
         public static IEnumerable<Endpoint> GetEndpoints(Part part) => part.resources;
     }
-    public sealed class KhemistryKerbal
+    public sealed class ChitakTechKerbal
     {
         public double GetProcessorResourceAmount(object stored, string name, bool suit) => 0;
     }
-    public partial class KhemistryISRURecipe
+    public partial class ChitakTechISRURecipe
     {
         private string _name = "Test recipe";
         public struct ResourceInput { }
@@ -105,23 +105,23 @@ namespace Khemistry
         public static bool TryParseResourceInput(ConfigNode node, string context, out ResourceInput input) { input = default; return true; }
         public static bool TryParseResourceOutput(ConfigNode node, string context, out ResourceOutput output) { output = default; return true; }
         public bool ParseMaintenance(ConfigNode node) => LoadMaintenance(node);
-        public KhemistryISRUBiomeConfig biome = new KhemistryISRUBiomeConfig(new ConfigNode());
-        public KhemistryISRUBiomeConfig GetBiomeConfig(string planet, string biomeName) => biome;
+        public ChitakTechISRUBiomeConfig biome = new ChitakTechISRUBiomeConfig(new ConfigNode());
+        public ChitakTechISRUBiomeConfig GetBiomeConfig(string planet, string biomeName) => biome;
     }
-    public partial class KhemistryISRU
+    public partial class ChitakTechISRU
     {
-        public KhemistryISRURecipe _activeRecipe;
+        public ChitakTechISRURecipe _activeRecipe;
         public sealed class Runtime { public string planet, biome; }
         private Runtime _runtimeData = new Runtime();
         private UIEntries Fields = new UIEntries(), Events = new UIEntries();
         private bool _controlsShowPAW = true, _controlsShowEVA = true, useSuitCell = false;
         private float _maxDisplayDistance = 10, _maxInteractionDistance = 7;
         private string moduleType = "normal";
-        private KhemistryKerbal _kerbalHost = null;
+        private ChitakTechKerbal _kerbalHost = null;
         private object _inventoryStoredPart = null;
         public Part part = new Part();
         public Vessel vessel;
-        public KhemistryISRU() { vessel = new Vessel(); vessel.parts.Add(part); }
+        public ChitakTechISRU() { vessel = new Vessel(); vessel.parts.Add(part); }
         private Part GetPowerfailContextPart() => part;
         private Vessel GetProcessingVessel() => vessel;
         private bool IsEVAModuleType() => false;
@@ -129,7 +129,7 @@ namespace Khemistry
         private static void ApplyShowRule(UIEntry entry, bool paw, bool eva) { entry.guiActive = paw; entry.guiActiveUnfocused = eva; }
         private bool ConsumeVesselResources(IList<string> names, IList<double> amounts, double dt)
         {
-            var all = vessel.parts.SelectMany(KhemistryResourceNetwork.GetEndpoints).ToList();
+            var all = vessel.parts.SelectMany(ChitakTechResourceNetwork.GetEndpoints).ToList();
             for (int i = 0; i < names.Count; i++)
                 if (all.Where(r => r.resourceName == names[i]).Sum(r => r.amount) < amounts[i]) return false;
             for (int i = 0; i < names.Count; i++)
@@ -144,6 +144,6 @@ namespace Khemistry
         public void Tick(double dt, double runtime = 0) { Planetarium.now += dt; _maintenanceRuntime = runtime; TickMaintenance(dt); }
         public void SaveState(ConfigNode node) { node.AddValue("autoMaintenanceFixing", autoMaintenanceFixing); SaveMaintenanceState(node); }
         public void LoadState(ConfigNode node) => LoadMaintenanceState(node);
-        public KhemistryISRUBiomeConfig Effective() => GetEffectiveBiomeConfig();
+        public ChitakTechISRUBiomeConfig Effective() => GetEffectiveBiomeConfig();
     }
 }

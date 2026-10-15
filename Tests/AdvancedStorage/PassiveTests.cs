@@ -1,5 +1,5 @@
 using System;
-using Khemistry;
+using ChitakTech;
 
 static partial class Program
 {
@@ -25,13 +25,13 @@ static partial class Program
         Equal(1, storage.ConfigurePassive(Passive()) ? 1 : 0, "default passive config");
         storage.TickPassive();
         Equal(98, supply.amount, "always consumes when on and empty");
-        storage.state = KShared.ChargablePartState.Off;
+        storage.state = CTShared.ChargablePartState.Off;
         storage.TickPassive(10);
         Equal(98, supply.amount, "always disabled when off");
-        storage.state = KShared.ChargablePartState.Charging;
+        storage.state = CTShared.ChargablePartState.Charging;
         storage.TickPassive(10);
         Equal(98, supply.amount, "always disabled when charging");
-        storage.state = KShared.ChargablePartState.On;
+        storage.state = CTShared.ChargablePartState.On;
         storage.TickPassive(10, 0.5);
         Equal(98, supply.amount, "only powered fraction counts at charging transition");
         storage.TickPassive(0.5);
@@ -41,15 +41,15 @@ static partial class Program
         storage.TickPassive(10);
         Equal(96, supply.amount, "moreThan0 ignores empty on storage");
         storage.PutResource("A", 4);
-        storage.state = KShared.ChargablePartState.Off;
+        storage.state = CTShared.ChargablePartState.Off;
         storage.TickPassive(2);
         Equal(92, supply.amount, "moreThan0 consumes while off and filled");
-        storage.state = KShared.ChargablePartState.Charging;
+        storage.state = CTShared.ChargablePartState.Charging;
         storage.TickPassive();
         Equal(90, supply.amount, "moreThan0 consumes while charging and filled");
         Equal(4, storage.GetStoredAmount("A"), "off and charging do not void cargo");
 
-        storage.state = KShared.ChargablePartState.On;
+        storage.state = CTShared.ChargablePartState.On;
         storage.ConfigurePassive(Passive());
         supply.amount = 1;
         storage.TickPassive();
@@ -88,9 +88,9 @@ static partial class Program
         storage.TickPassive();
         storage.TickPassive();
         Equal(4, supply.amount + storage.GetStoredAmount("B"), "STOP refunds paid upkeep through resource network");
-        Equal((int)KShared.ChargablePartState.Off, (int)storage.state, "STOP turns off");
+        Equal((int)CTShared.ChargablePartState.Off, (int)storage.state, "STOP turns off");
         Equal(3, storage.GetStoredAmount("A"), "STOP preserves cargo");
-        storage.state = KShared.ChargablePartState.On;
+        storage.state = CTShared.ChargablePartState.On;
         storage.ConfigurePassive(Passive(failure: "VOID"));
         storage.TickPassive();
         storage.TickPassive();
@@ -98,7 +98,7 @@ static partial class Program
         Equal(0, supply.amount, "VOID does not refund upkeep");
         Equal(3, storage.GetStoredAmount("A"), "VOID preserves cargo");
 
-        storage.state = KShared.ChargablePartState.On;
+        storage.state = CTShared.ChargablePartState.On;
         storage.ConfigurePassive(Passive(failure: "MAINT"));
         storage.TickPassive();
         Equal(1, storage.Maintenance ? 1 : 0, "MAINT requires repair");
@@ -114,11 +114,11 @@ static partial class Program
         FlightGlobals.ActiveVessel.crew[0].trait = "Engineer";
         storage.PerformStorageMaintenance();
         Equal(0, storage.Maintenance ? 1 : 0, "engineer repairs");
-        storage.state = KShared.ChargablePartState.On;
+        storage.state = CTShared.ChargablePartState.On;
         storage.ConfigurePassive(Passive(failure: "EXPLODE,5,200"));
         storage.TickPassive();
-        Equal(1, KShared.Explosions, "EXPLODE invokes explosion");
-        storage.state = KShared.ChargablePartState.On;
+        Equal(1, CTShared.Explosions, "EXPLODE invokes explosion");
+        storage.state = CTShared.ChargablePartState.On;
         storage.ConfigurePassive(Passive(ignore: true));
         supply.amount = 5;
         storage.TickPassive(3);

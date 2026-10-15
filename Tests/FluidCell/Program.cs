@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using Khemistry;
+using ChitakTech;
 class Program
 {
     static int count;
@@ -10,7 +10,7 @@ class Program
     {
         try
         {
-            var cell = new KhemistryFluidCell();
+            var cell = new ChitakTechFluidCell();
             Check(cell.maxInputRate == -1 && cell.maxOutputRate == -1 && cell.maxInputRateInternal == -1 && cell.maxOutputRateInternal == -1,"defaults");
             Equal(cell.RequestStoredResource("Water",-20),-20,"unlimited input");
             cell.maxOutputRate=2.5;
@@ -23,9 +23,9 @@ class Program
             Equal(cell.RequestStoredResource("B",-1),0,"shared across resources");
             cell.maxOutputRate=0; Equal(cell.RequestStoredResource("Water",1),0,"zero blocks");
             cell.maxOutputRate=-2; Equal(cell.RequestStoredResource("Water",5),5,"all negative unlimited");
-            var k=new KhemistryKerbal(); var s=new StoredPart();
+            var k=new ChitakTechKerbal(); var s=new StoredPart();
             k.prefab.maxInputRate=2;
-            var e=new KhemistryResourceNetwork.Endpoint { amount=20 };
+            var e=new ChitakTechResourceNetwork.Endpoint { amount=20 };
             k.Start(s,e,true,7);
             Equal(k.Amount(s),2,"first transfer step");
             Check(k.Jobs==1,"queued");
@@ -36,11 +36,11 @@ class Program
             Equal(k.Amount(s),6,"output independent");
             k.inRange=false; k.Tick(); Check(k.Jobs==0,"range cancels"); Equal(k.Amount(s),6,"no remote transfer");
             k.inRange=true; k.Start(s,e,false,3); k.CancelCellTransfers(); k.Tick(); Check(k.Jobs==0,"cancel");
-            var transfers=new List<KhemistryResourceNetwork.Transfer>();
+            var transfers=new List<ChitakTechResourceNetwork.Transfer>();
             k.prefab.maxOutputRateInternal=0.5; k.prefab.maxInputRateInternal=0;
             Equal(k.RequestInventoryProcessorResource(s,"Water",2,false,transfers),0.5,"internal limit");
             Equal(k.RequestInventoryProcessorResource(s,"Water",2,false),0,"internal shared");
-            var before=k.Amount(s); KhemistryResourceNetwork.Rollback(transfers);
+            var before=k.Amount(s); ChitakTechResourceNetwork.Rollback(transfers);
             Equal(k.Amount(s),before+0.5,"refund bypasses blocked input");
             Equal(k.RequestInventoryProcessorResource(s,"Water",2,false),0.5,"refund releases original budget");
             var s2=new StoredPart();
@@ -50,16 +50,16 @@ class Program
             Equal(k.RequestInventoryProcessorResource(s2,"A",-2,false),0,"internal aggregate resources");
             Equal(k.RequestInventoryProcessorResource(s,"A",-2,false),-1.25,"separate cell budget");
             k.Tick();
-            var target=new KhemistryResourceNetwork.Endpoint { acceptance=0.25 };
+            var target=new ChitakTechResourceNetwork.Endpoint { acceptance=0.25 };
             k.Start(s,target,false,1);
             Equal(target.amount,0.25,"partial endpoint acceptance");
             k.Tick(); k.Tick(); k.Tick(); Equal(target.amount,1,"retry remainder");
             Check(k.Jobs==0,"partial transfer complete");
-            var stalled=new KhemistryResourceNetwork.Endpoint { amount=0 };
+            var stalled=new ChitakTechResourceNetwork.Endpoint { amount=0 };
             k.Start(s2,stalled,true,1); k.Tick(); Check(k.Jobs==1,"empty target pauses");
             stalled.amount=1; k.Tick(); Check(k.Jobs==0,"target refill resumes");
             k.prefab.maxInputRate=0; k.Start(s2,stalled,true,1); Check(k.Jobs==0,"zero-rate transfer rejected");
-            k.prefab.maxInputRate=-1; var suitSource = new KhemistryResourceNetwork.Endpoint { amount=3, acceptance=0.5 };
+            k.prefab.maxInputRate=-1; var suitSource = new ChitakTechResourceNetwork.Endpoint { amount=3, acceptance=0.5 };
             k.Start(null,suitSource,true,2); k.Tick(); k.Tick(); k.Tick();
             Equal(suitSource.amount,1,"suit transfer retries limited endpoint"); Check(k.Jobs==0,"suit transfer completes");
             var budget = new FluidCellRateBudget();

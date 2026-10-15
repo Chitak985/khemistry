@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using Khemistry;
+using ChitakTech;
 
 internal static class EvaRecipeTests
 {
@@ -17,33 +17,33 @@ internal static class EvaRecipeTests
         var output = new ConfigNode("OUTPUT_RESOURCE");
         chargingNode.AddNode(output);
         output.AddValue("name", "Water"); output.AddValue("amount", "1");
-        var defaults = new KhemistryISRURecipe(chargingNode, "Test");
+        var defaults = new ChitakTechISRURecipe(chargingNode, "Test");
         Check(defaults._chargeThreshold == 90 && defaults._chargeDecayRateActive == 0
             && defaults._chargeDecayRateInactive == 0 && !defaults._chargeWhileRunning, "Charging defaults");
         chargingNode.AddValue("chargeThreshold", "65");
         chargingNode.AddValue("chargeDecayRateActive", "2");
         chargingNode.AddValue("chargeDecayRateInactive", "0.5");
         chargingNode.AddValue("chargeWhileRunning", "true");
-        var chargingRecipe = new KhemistryISRURecipe(chargingNode, "Test");
+        var chargingRecipe = new ChitakTechISRURecipe(chargingNode, "Test");
         Check(chargingRecipe._chargeThreshold == 65 && chargingRecipe._chargeDecayRateActive == 2
             && chargingRecipe._chargeDecayRateInactive == 0.5 && chargingRecipe._chargeWhileRunning, "Charging config parsing");
         var chargingCopy = chargingRecipe.ScaledCopy(2);
         Check(chargingCopy._chargeThreshold == 65 && chargingCopy._chargeDecayRateActive == 2
             && chargingCopy._chargeDecayRateInactive == 0.5 && chargingCopy._chargeWhileRunning, "Charging config copied, not scaled");
         var materials = ConfigNode.ReadFixture(Path.Combine(AppContext.BaseDirectory, "materials.cfg"))
-            .GetNodes("KHEMISTRY_MATERIAL").Select(n => new KhemistryMaterial
+            .GetNodes("CHITAKTECH_MATERIAL").Select(n => new ChitakTechMaterial
             {
                 name = n.GetValue("name"), shapes = n.GetNode("SHAPES").GetValues("name").ToList(),
                 parameters = n.GetNode("PARAMS").values.ToDictionary(v => v.name, v => v.value)
             }).ToList();
         var nodes = ConfigNode.ReadFixture(Path.Combine(AppContext.BaseDirectory, "kerbalEva.cfg"))
-            .GetNodes("KHEMISTRYISRU_RECIPE");
+            .GetNodes("CHITAKTECHISRU_RECIPE");
         foreach (var node in nodes)
         {
-            KShared.Errors.Clear();
-            var recipe = new KhemistryISRURecipe(node, "Kerbal");
-            Check(recipe.IsValid, recipe._name + ": " + string.Join("; ", KShared.Errors));
-            Check(recipe.ValidateReferences(materials, "test"), recipe._name + ": " + string.Join("; ", KShared.Errors));
+            CTShared.Errors.Clear();
+            var recipe = new ChitakTechISRURecipe(node, "Kerbal");
+            Check(recipe.IsValid, recipe._name + ": " + string.Join("; ", CTShared.Errors));
+            Check(recipe.ValidateReferences(materials, "test"), recipe._name + ": " + string.Join("; ", CTShared.Errors));
             foreach (var input in recipe._inputMaterials)
             {
                 var raw = node.GetNodes("INPUT_MATERIAL").First(n => n.GetValue("id") == input.id);
@@ -52,7 +52,7 @@ internal static class EvaRecipeTests
             var copy = recipe.ScaledCopy(2);
             Check(copy._inputMaterials.SelectMany(m => m.parameters).SequenceEqual(recipe._inputMaterials.SelectMany(m => m.parameters)),
                 "Scaled copies must preserve repeated conditions");
-            var overridden = new KhemistryISRURecipe(KhemistryISRURecipe.ApplyModuleOverrides(new ConfigNode("MODULE"), node), "Kerbal");
+            var overridden = new ChitakTechISRURecipe(ChitakTechISRURecipe.ApplyModuleOverrides(new ConfigNode("MODULE"), node), "Kerbal");
             Check(overridden.IsValid && overridden._inputMaterials.SelectMany(m => m.parameters)
                 .SequenceEqual(recipe._inputMaterials.SelectMany(m => m.parameters)), "Module copies must preserve all conditions");
             if (recipe._settings.Count == 0) continue;
@@ -65,7 +65,7 @@ internal static class EvaRecipeTests
                 { ["radius"] = radius.ToString("R", CultureInfo.InvariantCulture), ["height"] = height.ToString("R", CultureInfo.InvariantCulture) };
                 return inputMaterial.parameters.All(condition =>
                     MaterialParameterCondition.TryResolve(condition.Value, v => settings.TryGetValue(v, out var value) ? value : (double?)null,
-                        out var resolved, out _) && KShared.EvaluateParamComparison(values[condition.Key], resolved));
+                        out var resolved, out _) && CTShared.EvaluateParamComparison(values[condition.Key], resolved));
             }
             Check(Matches(0.6, 35), "Selected material should match");
             Check(!Matches(0.49, 35) && !Matches(0.71, 35), "Both radius bounds must apply");
@@ -77,7 +77,7 @@ internal static class EvaRecipeTests
                 string expression = recipe._recipeTimeExpression
                     .Replace("(INMAT:main:radius)", radius.ToString("R", CultureInfo.InvariantCulture))
                     .Replace("(INMAT:main:height)", height.ToString("R", CultureInfo.InvariantCulture));
-                Check(KMathExpr.TryEvaluateNumericExpression(expression, out var time, out var error), error);
+                Check(CTMathExpr.TryEvaluateNumericExpression(expression, out var time, out var error), error);
                 return time;
             }
             double small = Duration(0.5, 30), tall = Duration(0.5, 60), wide = Duration(0.8, 30);
@@ -88,14 +88,14 @@ internal static class EvaRecipeTests
             // A bad repeated entry must not be silently discarded during recipe validation.
             var invalid = new ConfigNode(); node.CopyTo(invalid);
             invalid.GetNode("INPUT_MATERIAL").GetNode("PARAMS").AddValue("radius", "EMunknownVariable");
-            Check(!new KhemistryISRURecipe(invalid, "Kerbal").IsValid, "Invalid repeated condition must reject recipe");
+            Check(!new ChitakTechISRURecipe(invalid, "Kerbal").IsValid, "Invalid repeated condition must reject recipe");
         }
-        Check(KMathExpr.TryEvaluateNumericExpression("[2*3]", out double bracketed, out _) && bracketed == 6,
+        Check(CTMathExpr.TryEvaluateNumericExpression("[2*3]", out double bracketed, out _) && bracketed == 6,
             "Bracketed recipeTime remains supported");
-        Check(KMathExpr.TryEvaluateNumericExpression("2*3", out double bare, out _) && bare == 6,
+        Check(CTMathExpr.TryEvaluateNumericExpression("2*3", out double bare, out _) && bare == 6,
             "Bare recipeTime is supported");
-        Check(!KMathExpr.TryEvaluateNumericExpression("radius*3", out _, out _), "Bare material variables not allowed in recipeTime");
-        Check(!KMathExpr.TryEvaluateNumericExpression("1/0", out _, out _), "Invalid recipeTime rejected");
+        Check(!CTMathExpr.TryEvaluateNumericExpression("radius*3", out _, out _), "Bare material variables not allowed in recipeTime");
+        Check(!CTMathExpr.TryEvaluateNumericExpression("1/0", out _, out _), "Invalid recipeTime rejected");
         Console.WriteLine("Loaded and validated " + nodes.Length + " unchanged EVA recipes (simulated KSP host).");
         return count;
     }

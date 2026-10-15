@@ -1,0 +1,876 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Globalization;
+using UnityEngine;
+
+namespace ChitakTech
+{
+    /// <summary>
+    /// A <see cref="PartModule"/> applied to kerbals, it handles all EVA-side logic and rendering.
+    /// </summary>
+    public partial class ChitakTechKerbal : PartModule
+    {
+        ///// Occupation System /////
+
+        ///<summary>Current occupation of the kerbal, null if none</summary>
+        public string occupation = null;  // Apparently it gets set to "" if i don't do this
+        ///<summary>Can the kerbal get occupied</summary>
+        [KSPField(isPersistant = true)]
+        public bool canBeOccupied = true;
+        ///<summary>Is the kerbal frozen (cannot move)</summary>
+        public bool kerbalFrozen = false;
+        ///<summary>String to show the kerbal's current occupation</summary>
+        [KSPField(isPersistant = false, guiActive = true, guiActiveEditor = false, guiName = "Current occupation")]
+        public string OccupationString = "Free";
+
+        ///<summary>Serialized as "ResA:1.5000|ResB:2.0000".</summary>
+        [KSPField(isPersistant = true)]
+        public string suitCellResourcesData = "";
+
+        ///<summary>Maximum amount of resources the suit cell can store.</summary>
+        private float _suitCellMaxAmount = 0f;
+        ///<summary>Maximum transfer distance in meters for the suit cell.</summary>
+        private float _suitCellTransferDistance = 10f;
+        ///<summary>Groups of supported resources by the suit cell.</summary>
+        private readonly List<HashSet<string>> _suitCellSupportedResourceGroups
+            = new List<HashSet<string>>();
+
+        ///// Material suit cell (behaves like SUIT_CELL, but stores ChitakTechMaterialInstance /////
+        ///// via ChitakTechMaterialStorage-style logic instead of fluid resources)             /////
+        ///<summary>Maxmimum volume in meters cubed the material suit cell can store.</summary>
+        private float _materialSuitCellVolume = 0f;
+        ///<summary>Maximum transfer distance in meters for the material suit cell.</summary>
+        private float _materialSuitCellTransferDistance = 2f;
+        ///<summary>List of allowed materials by the material suit cell.</summary>
+        private readonly List<ChitakTechAllowedMaterial> _materialSuitCellAllowed = new List<ChitakTechAllowedMaterial>();
+
+        ///<summary>The current contents of the material suit cell.</summary>
+        public readonly List<ChitakTechMaterialInstance> materialSuitCellContents = new List<ChitakTechMaterialInstance>();
+        private readonly List<ConfigNode> _pendingMaterialSuitContents = new List<ConfigNode>();
+
+        ///<summary>Does the kerbal have the material suit cell?</summary>
+        public bool HasMaterialSuitCell => _materialSuitCellVolume > 0f;
+        ///<summary>The public version of the material suit cell transfer distance.</summary>
+        public float MaterialSuitCellTransferDistance => _materialSuitCellTransferDistance;
+
+        /// <summary>
+        /// Claim slot for the single allowed kerbalEVA-type ChitakTechISRU on this kerbal.
+        /// Set by whichever such module's OnStart runs first; used to detect and disable
+        /// duplicates regardless of instance/config duplication order.
+        /// </summary>
+        public ChitakTechISRU kerbalEVAISRU = null;
+
+        private ModuleInventoryPart _inventory;
+        private KerbalEVA eva;
+        
+        ///<summary>Is this ChitakTechKerbal instance disabled due to it finding a duplicate of itself?</summary>
+        private bool _disabledDuplicate;
+        ///<summary>Persistent ID of the kerbal this PartModule is attached to.</summary>
+        private uint _crewPersistentId;
+        ///<summary>Name of the kerbal this PartModule is attached to.</summary>
+        private string _crewName = "";
+        ///<summary>Whether a boarding event was registered.</summary>
+        private bool _boardingEventRegistered;
+        private bool _suitPersistenceRestoreChecked;
+        private bool _loadedAuthoritativeSuitState;
+        private int _inventoryChangeBatchDepth;
+        private bool _inventoryChangePending;
+
+        ///<summary>Reference to a <see cref="ChitakTechFluidCell"/> on the kerbal. Used for various operations on it.</summary>
+        private struct FluidCellRef
+        {
+            public bool isSuit;
+            public StoredPart stored;
+        }
+
+        private static string AddUniqueOption<T>(Dictionary<string, T> options,
+            string baseLabel, T value)
+        {
+            string label = baseLabel;
+            int suffix = 2;
+            while (options.ContainsKey(label))
+                label = baseLabel + " (" + suffix++ + ")";
+            options.Add(label, value);
+            return label;
+        }
+
+        private static string MakeUniqueLabel(ICollection<string> labels, string baseLabel)
+        {
+            string label = baseLabel;
+            int suffix = 2;
+            while (labels.Contains(label))
+                label = baseLabel + " (" + suffix++ + ")";
+            return label;
+        }
+
+        ///<summary>Does the provided <see cref="PartResource"/> have a usable amount?</summary>
+        private static bool HasUsableAmount(ChitakTechResourceNetwork.Endpoint resource)
+            => resource != null && CTShared.IsFinite(resource.amount) && resource.amount > 0.0;
+        private static bool CanAcceptResource(ChitakTechResourceNetwork.Endpoint resource)
+            => resource != null && CTShared.IsFinite(resource.space) && resource.space > 0.0;
+
+        private static bool HasUsableAmount(PartResource resource)
+            => resource != null && CTShared.IsFinite(resource.amount) && resource.amount > 0.0;
+
+        ///<summary>Can the provided <see cref="PartResource"/> be accepted?</summary>
+        private static bool CanAcceptResource(PartResource resource)
+            => resource != null && CTShared.IsFinite(resource.amount) && resource.amount >= 0.0
+                && CTShared.IsFinite(resource.maxAmount) && resource.maxAmount >= 0.0
+                && resource.amount < resource.maxAmount;
+
+        private bool IsStoredPartCurrent(StoredPart stored)
+        {
+            if (_inventory == null || stored == null) return false;
+            for (int i = 0; i < _inventory.storedParts.Count; i++)
+                if (ReferenceEquals(_inventory.storedParts.At(i), stored))
+                    return true;
+            return false;
+        }
+
+        private bool IsPartCurrentAndInRange(Part candidate, double range)
+        {
+            if (candidate == null || part == null || candidate == part
+                || !CTShared.IsFinite(range) || range < 0.0 || candidate.vessel == null
+                || !FlightGlobals.VesselsLoaded.Contains(candidate.vessel)
+                || !candidate.vessel.parts.Contains(candidate))
+                return false;
+            return Vector3.Distance(part.transform.position, candidate.transform.position) <= range;
+        }
+
+        private void NotifyInventoryChanged()
+        {
+            if (_inventoryChangeBatchDepth > 0)
+            {
+                _inventoryChangePending = true;
+                return;
+            }
+            if (_inventory != null)
+                GameEvents.onModuleInventoryChanged.Fire(_inventory);
+        }
+
+        internal void NotifyInventoryProcessorChanged() => NotifyInventoryChanged();
+
+        internal void BeginInventoryProcessorChanges()
+            => _inventoryChangeBatchDepth++;
+
+        internal void EndInventoryProcessorChanges()
+        {
+            if (_inventoryChangeBatchDepth <= 0) return;
+            _inventoryChangeBatchDepth--;
+            if (_inventoryChangeBatchDepth != 0 || !_inventoryChangePending) return;
+            _inventoryChangePending = false;
+            if (_inventory != null)
+                GameEvents.onModuleInventoryChanged.Fire(_inventory);
+        }
+
+        ///<summary>Get the deserialized version of the resource dictionary used for the suit cell.</summary>
+        internal static Dictionary<string, double> DeserializeResourceDictionary(string data)
+            => ChitakTechFluidCell.DeserializeResources(data);
+
+        ///<summary>Get the serialized version of the resource dictionary used for the suit cell.</summary>
+        internal static string SerializeResourceDictionary(
+            IDictionary<string, double> resources)
+            => ChitakTechFluidCell.SerializeResources(resources);
+
+        internal static double GetResourceDictionaryTotal(
+            IDictionary<string, double> resources)
+            => ChitakTechFluidCell.GetResourceTotal(resources);
+
+        /// <summary>
+        /// Routes a held partEVA converter request through the fluid cell on that same held
+        /// part, then through the suit cell when the converter explicitly enables it.
+        /// </summary>
+        internal double GetProcessorResourceAmount(StoredPart stored, string name, bool allowSuit)
+        {
+            double amount = stored != null && IsStoredPartCurrent(stored)
+                && GetCellModuleSnapshot(stored) != null ? ReadResourceAmountValue(stored, name) : 0;
+            if (allowSuit && HasFluidSuitCell && GetSuitCellDict().TryGetValue(name, out double suit))
+                amount += suit;
+            return amount;
+        }
+
+        private void LoadConfigFromPartInfo()
+        {
+            CTShared.Log("Called!", "ChitakTechKerbal/LoadConfigFromPartInfo");
+            _suitCellMaxAmount = 0f;
+            _suitCellTransferDistance = 10f;
+            _suitCellSupportedResourceGroups.Clear();
+            _materialSuitCellVolume = 0f;
+            _materialSuitCellTransferDistance = 2f;
+            _materialSuitCellAllowed.Clear();
+
+            ConfigNode moduleNode = null;
+
+            if (part.partInfo?.partConfig != null)
+            {
+                foreach (ConfigNode n in part.partInfo.partConfig.GetNodes("MODULE"))
+                {
+                    if (n.GetValue("name") == "ChitakTechKerbal") { moduleNode = n; break; }
+                }
+            }
+
+            if (moduleNode == null)
+            {
+                string targetPartName = part.partInfo?.name ?? part.name;
+                foreach (ConfigNode partNode in GameDatabase.Instance.GetConfigNodes("PART"))
+                {
+                    string nodeName = partNode.GetValue("name") ?? "";
+                    int slash = nodeName.LastIndexOf('/');
+                    if (slash >= 0) nodeName = nodeName.Substring(slash + 1);
+                    if (!nodeName.Equals(targetPartName, StringComparison.OrdinalIgnoreCase)) continue;
+
+                    foreach (ConfigNode n in partNode.GetNodes("MODULE"))
+                    {
+                        if (n.GetValue("name") == "ChitakTechKerbal") { moduleNode = n; break; }
+                    }
+                    if (moduleNode != null) break;
+                }
+            }
+
+            if (moduleNode == null)
+            {
+                CTShared.LogError(
+                    "Could not find ChitakTechKerbal MODULE node for part \"" + part.name + "\".",
+                    "ChitakTechKerbal/LoadConfigFromPartInfo");
+                return;
+            }
+
+            if (moduleNode.HasNode("SUIT_CELL"))
+            {
+                ConfigNode suitNode = moduleNode.GetNode("SUIT_CELL");
+                _suitCellMaxAmount = CTShared.GetFloatValueFromCFG(suitNode, "maxAmount", 0f);
+                _suitCellTransferDistance = CTShared.GetFloatValueFromCFG(suitNode, "transferDistance", 10f);
+                if (float.IsNaN(_suitCellMaxAmount) || float.IsInfinity(_suitCellMaxAmount)
+                    || _suitCellMaxAmount <= 0f)
+                {
+                    CTShared.LogError("Part \"" + part.name
+                        + "\" has a SUIT_CELL with invalid maxAmount; the suit cell was disabled.",
+                        "ChitakTechKerbal/LoadConfigFromPartInfo");
+                    _suitCellMaxAmount = 0f;
+                }
+                if (float.IsNaN(_suitCellTransferDistance) || float.IsInfinity(_suitCellTransferDistance)
+                    || _suitCellTransferDistance < 0f)
+                {
+                    CTShared.LogError("Part \"" + part.name
+                        + "\" has a negative SUIT_CELL transferDistance; using 10.",
+                        "ChitakTechKerbal/LoadConfigFromPartInfo");
+                    _suitCellTransferDistance = 10f;
+                }
+                foreach (ConfigNode supportedNode in suitNode.GetNodes("SUPPORTED_RESOURCES"))
+                {
+                    var group = new HashSet<string>(StringComparer.Ordinal);
+                    foreach (string n in supportedNode.GetValues("name"))
+                    {
+                        string trimmed = n?.Trim();
+                        if (!string.IsNullOrEmpty(trimmed)) group.Add(trimmed);
+                    }
+                    if (group.Count > 0)
+                        _suitCellSupportedResourceGroups.Add(group);
+                }
+            }
+
+            if (moduleNode.HasNode("MATERIAL_SUIT_CELL"))
+            {
+                ConfigNode matSuitNode = moduleNode.GetNode("MATERIAL_SUIT_CELL");
+                _materialSuitCellVolume = CTShared.GetFloatValueFromCFG(matSuitNode, "volume", 0f);
+                _materialSuitCellTransferDistance = CTShared.GetFloatValueFromCFG(matSuitNode, "transferDistance", 2f);
+                if (float.IsNaN(_materialSuitCellVolume) || float.IsInfinity(_materialSuitCellVolume)
+                    || _materialSuitCellVolume <= 0f)
+                {
+                    CTShared.LogError("Part \"" + part.name
+                        + "\" has a MATERIAL_SUIT_CELL with invalid volume; the material cell was disabled.",
+                        "ChitakTechKerbal/LoadConfigFromPartInfo");
+                    _materialSuitCellVolume = 0f;
+                }
+                if (float.IsNaN(_materialSuitCellTransferDistance)
+                    || float.IsInfinity(_materialSuitCellTransferDistance)
+                    || _materialSuitCellTransferDistance < 0f)
+                {
+                    CTShared.LogError("Part \"" + part.name
+                        + "\" has a negative MATERIAL_SUIT_CELL transferDistance; using 2.",
+                        "ChitakTechKerbal/LoadConfigFromPartInfo");
+                    _materialSuitCellTransferDistance = 2f;
+                }
+
+                foreach (ConfigNode allowedNode in matSuitNode.GetNodes("ALLOWED_MATERIAL"))
+                {
+                    var allowed = new ChitakTechAllowedMaterial(allowedNode);
+                    if (string.IsNullOrEmpty(allowed.name))
+                    {
+                        CTShared.LogError(
+                            "Part \"" + part.name + "\" has a MATERIAL_SUIT_CELL ALLOWED_MATERIAL with no name, skipping.",
+                            "ChitakTechKerbal/LoadConfigFromPartInfo");
+                        continue;
+                    }
+                    _materialSuitCellAllowed.Add(allowed);
+                }
+
+                if (_materialSuitCellVolume > 0f && _materialSuitCellAllowed.Count == 0)
+                    CTShared.LogError(
+                        "Part \"" + part.name + "\" has a MATERIAL_SUIT_CELL with no valid ALLOWED_MATERIAL entries — nothing will ever be accepted.",
+                        "ChitakTechKerbal/LoadConfigFromPartInfo");
+            }
+
+            CTShared.Log("Loaded kerbal resource storage.",
+                "ChitakTechKerbal/LoadConfigFromPartInfo");
+        }
+
+        public override void OnLoad(ConfigNode node)
+        {
+            base.OnLoad(node);
+            _loadedAuthoritativeSuitState = node != null
+                && (node.HasValue("suitCellResourcesData")
+                    || node.HasValue("canBeOccupied")
+                    || node.HasNode("SUIT_STORED_MATERIAL"));
+            materialSuitCellContents.Clear();
+            _pendingMaterialSuitContents.Clear();
+            foreach (ConfigNode savedNode in node.GetNodes("SUIT_STORED_MATERIAL"))
+            {
+                ConfigNode copy = new ConfigNode("SUIT_STORED_MATERIAL");
+                savedNode.CopyTo(copy);
+                _pendingMaterialSuitContents.Add(copy);
+            }
+        }
+
+        public override void OnSave(ConfigNode node)
+        {
+            base.OnSave(node);
+            while (node.HasNode("SUIT_STORED_MATERIAL"))
+                node.RemoveNode("SUIT_STORED_MATERIAL");
+            foreach (ConfigNode pendingNode in _pendingMaterialSuitContents)
+            {
+                ConfigNode copy = new ConfigNode("SUIT_STORED_MATERIAL");
+                pendingNode.CopyTo(copy);
+                node.AddNode(copy);
+            }
+            foreach (ChitakTechMaterialInstance material in materialSuitCellContents)
+                if (material != null && material.amount > 0)
+                    node.AddNode(material.ToConfigNode("SUIT_STORED_MATERIAL"));
+        }
+
+        internal bool HasMeaningfulSuitPersistenceState()
+            => _loadedAuthoritativeSuitState || GetSuitCellDict().Count > 0
+                || materialSuitCellContents.Count > 0
+                || _pendingMaterialSuitContents.Count > 0 || !canBeOccupied;
+
+        internal ConfigNode ExportSuitPersistenceSnapshot()
+        {
+            if (!HasMeaningfulSuitPersistenceState()) return null;
+
+            ConfigNode snapshot = new ConfigNode("KERBAL_SUIT");
+            snapshot.AddValue("suitCellResourcesData",
+                SerializeResourceDictionary(GetSuitCellDict()));
+            snapshot.AddValue("canBeOccupied", canBeOccupied);
+            foreach (ConfigNode pendingNode in _pendingMaterialSuitContents)
+            {
+                ConfigNode copy = new ConfigNode("SUIT_STORED_MATERIAL");
+                pendingNode.CopyTo(copy);
+                snapshot.AddNode(copy);
+            }
+            foreach (ChitakTechMaterialInstance material in materialSuitCellContents)
+                if (material != null && material.amount > 0)
+                    snapshot.AddNode(material.ToConfigNode("SUIT_STORED_MATERIAL"));
+            return snapshot;
+        }
+
+        internal bool ImportSuitPersistenceSnapshot(ConfigNode snapshot)
+        {
+            if (snapshot == null || HasMeaningfulSuitPersistenceState()) return false;
+
+            suitCellResourcesData = SerializeResourceDictionary(
+                DeserializeResourceDictionary(
+                    snapshot.GetValue("suitCellResourcesData")));
+            if (bool.TryParse(snapshot.GetValue("canBeOccupied"), out bool savedPreference))
+                canBeOccupied = savedPreference;
+
+            foreach (ConfigNode savedNode in snapshot.GetNodes("SUIT_STORED_MATERIAL"))
+            {
+                ConfigNode copy = new ConfigNode("SUIT_STORED_MATERIAL");
+                savedNode.CopyTo(copy);
+                _pendingMaterialSuitContents.Add(copy);
+            }
+            return true;
+        }
+
+        private void CacheCrewIdentity()
+        {
+            ProtoCrewMember crew = part?.protoModuleCrew?.FirstOrDefault();
+            if (crew == null) return;
+            _crewPersistentId = crew.persistentID;
+            _crewName = crew.name ?? "";
+        }
+
+        private bool TryRestoreBoardedSuitState()
+        {
+            if (_suitPersistenceRestoreChecked) return false;
+            CacheCrewIdentity();
+            if (_crewPersistentId == 0 && string.IsNullOrWhiteSpace(_crewName))
+                return false;
+            ChitakTechKerbalSuitScenario scenario = ChitakTechKerbalSuitScenario.Instance;
+            if (scenario == null || !scenario.IsReady) return false;
+
+            bool restored = scenario.TryRestoreBoardingSnapshot(this,
+                _crewPersistentId, _crewName);
+            _suitPersistenceRestoreChecked = true;
+            return restored;
+        }
+
+        private void OnCrewBoardVessel(GameEvents.FromToAction<Part, Part> action)
+        {
+            if (_disabledDuplicate || action.from != part) return;
+            CacheCrewIdentity();
+            if (_crewPersistentId == 0 && string.IsNullOrWhiteSpace(_crewName))
+            {
+                CTShared.LogError("Could not preserve suit-cell contents while boarding because the kerbal identity is unavailable.",
+                    "ChitakTechKerbal/OnCrewBoardVessel");
+                return;
+            }
+            ChitakTechKerbalSuitScenario scenario = ChitakTechKerbalSuitScenario.Instance;
+            if (scenario == null || !scenario.IsReady)
+            {
+                CTShared.LogError("Could not preserve suit-cell contents while boarding because the per-save suit scenario is unavailable.",
+                    "ChitakTechKerbal/OnCrewBoardVessel");
+                return;
+            }
+            scenario.StoreBoardingSnapshot(this, _crewPersistentId, _crewName);
+            // An occupation describes an active EVA task, not a lasting crew preference.
+            occupation = null;
+        }
+
+        public void OnDestroy()
+        {
+            if (!_boardingEventRegistered) return;
+            GameEvents.onCrewBoardVessel.Remove(OnCrewBoardVessel);
+            _boardingEventRegistered = false;
+        }
+
+        public override void OnStart(StartState state)
+        {
+            base.OnStart(state);
+
+            eva = part.FindModuleImplementing<KerbalEVA>();
+
+            var allHandlers = part.FindModulesImplementing<ChitakTechKerbal>();
+            if (allHandlers.Count > 1 && allHandlers[0] != this)
+            {
+                CTShared.LogError("Duplicate handler found; disabling this copy.", "ChitakTechKerbal/OnStart");
+                _disabledDuplicate = true;
+                enabled = false;
+                foreach (BaseEvent moduleEvent in Events) moduleEvent.active = false;
+                return;
+            }
+
+            LoadConfigFromPartInfo();
+            CacheCrewIdentity();
+            TryRestoreBoardedSuitState();
+            RestoreMaterialSuitContents();
+
+            GameEvents.onCrewBoardVessel.Add(OnCrewBoardVessel);
+            _boardingEventRegistered = true;
+
+            _inventory = part.FindModuleImplementing<ModuleInventoryPart>();
+            if (_inventory == null)
+                CTShared.LogError("No ModuleInventoryPart on Kerbal.", "ChitakTechKerbal/OnStart");
+            else
+                CTShared.Log("Inventory found.", "ChitakTechKerbal/OnStart");
+
+            CTShared.Log("OnStart complete!", "ChitakTechKerbal/OnStart");
+        }
+
+        public override void OnUpdate()
+        {
+            if (_disabledDuplicate) return;
+            if (!_suitPersistenceRestoreChecked && TryRestoreBoardedSuitState())
+                RestoreMaterialSuitContents();
+            if (!string.IsNullOrEmpty(occupation))  // If not free
+            {
+                Events["LeaveOccupation"].active = true;
+                OccupationString = occupation;  // Show occupation
+                if (!kerbalFrozen && eva != null)  // If not frozen and have reference
+                {
+                    eva.strafeSpeed /= 100;  // Freeze kerbal
+                    eva.walkSpeed /= 100;
+                    eva.runSpeed /= 100;
+                    eva.swimSpeed /= 100;
+                    eva.ladderClimbSpeed /= 100;
+                    kerbalFrozen = true;
+                }
+            }
+            else
+            {
+                Events["LeaveOccupation"].active = false;
+                OccupationString = "Free";
+                if (kerbalFrozen && eva != null)
+                {
+                    eva.strafeSpeed *= 100;
+                    eva.walkSpeed *= 100;
+                    eva.runSpeed *= 100;
+                    eva.swimSpeed *= 100;
+                    eva.ladderClimbSpeed *= 100;
+                    kerbalFrozen = false;
+                }
+            }
+
+            UpdateKSCSenderControls();
+            Events["OpenSuitCellContents"].active = HasFluidSuitCell;
+            Events["OpenMaterialSuitCellContents"].active = HasMaterialSuitCell;
+
+            Events["EnableOccupation"].active = !canBeOccupied;
+            Events["DisableOccupation"].active = canBeOccupied;
+        }
+
+        public void FixedUpdate()
+        {
+            if (_disabledDuplicate) return;
+            if (!HighLogic.LoadedSceneIsFlight) return;
+            if (vessel == null || part == null) return;
+
+            double dt = TimeWarp.fixedDeltaTime;
+            TickCellTransfers();
+
+            foreach (StoredPart storedCell in GetHeldCellSnapshots())
+                ApplyHeldBatteryDegradation(storedCell);
+
+            foreach (HeldPartEVAProcessor processor in GetHeldPartEVAProcessors())
+                if (IsStoredPartCurrent(processor.stored))
+                    processor.prefab.RunInventoryCycle(this, processor.stored,
+                        processor.snapshot, processor.config, dt);
+        }
+
+        // Used by modules such as ChitakTechDegradingBattery that genuinely operate on a
+        // KSP PartResource. Fluid-cell contents never use this collection.
+        private ProtoPartResourceSnapshot FindStoredPartResource(StoredPart stored,
+            string resourceName)
+        {
+            if (stored?.snapshot?.resources == null) return null;
+            foreach (ProtoPartResourceSnapshot resource in stored.snapshot.resources)
+            {
+                if (resource == null) continue;
+                if (resource.resourceName == resourceName) return resource;
+            }
+            return null;
+        }
+
+        private ProtoPartModuleSnapshot GetModuleSnapshot(StoredPart stored, string moduleName)
+        {
+            if (stored?.snapshot?.modules == null) return null;
+            foreach (ProtoPartModuleSnapshot module in stored.snapshot.modules)
+                if (module.moduleName == moduleName) return module;
+            return null;
+        }
+
+        ///<summary>Apply degradation for a stored part with <see cref="ChitakTechDegradingBattery"/>.</summary>
+        private void ApplyHeldBatteryDegradation(StoredPart stored)
+        {
+            ChitakTechDegradingBattery prefab = PartLoader.getPartInfoByName(stored.partName)?.partPrefab
+                .FindModuleImplementing<ChitakTechDegradingBattery>();
+            ProtoPartModuleSnapshot snapshot = GetModuleSnapshot(stored, "ChitakTechDegradingBattery");
+            if (prefab == null || snapshot == null || !CTShared.IsFinite(prefab.DegradeTime)
+                || prefab.DegradeTime <= 0.0) return;
+
+            ProtoPartResourceSnapshot resource = FindStoredPartResource(stored,
+                prefab.ResourceName);
+            if (resource == null || !CTShared.IsFinite(resource.amount) || resource.amount < 0.0
+                || !CTShared.IsFinite(resource.maxAmount) || resource.maxAmount < 0.0) return;
+
+            double now = Planetarium.GetUniversalTime();
+            if (!CTShared.IsFinite(now) || now < 0.0) return;
+            bool changed = false;
+            if (!double.TryParse(snapshot.moduleValues.GetValue("OriginalMaxAmount"),
+                    NumberStyles.Float, CultureInfo.InvariantCulture, out double originalMax)
+                || originalMax < 0.0 || double.IsNaN(originalMax) || double.IsInfinity(originalMax))
+            {
+                originalMax = resource.maxAmount;
+                snapshot.moduleValues.SetValue("OriginalMaxAmount",
+                    originalMax.ToString("R", CultureInfo.InvariantCulture), true);
+                changed = true;
+            }
+            if (!double.TryParse(snapshot.moduleValues.GetValue("StartTime"),
+                    NumberStyles.Float, CultureInfo.InvariantCulture, out double startTime)
+                || startTime < 0.0 || double.IsNaN(startTime) || double.IsInfinity(startTime))
+            {
+                startTime = now;
+                snapshot.moduleValues.SetValue("StartTime",
+                    startTime.ToString("R", CultureInfo.InvariantCulture), true);
+                changed = true;
+            }
+
+            double degradeSeconds = prefab.DegradeTime * 60.0;
+            double fraction = Math.Min(1.0, Math.Max(0.0,
+                1.0 - ((now - startTime) / degradeSeconds)));
+            double newMaxAmount = originalMax * fraction;
+            double newAmount = Math.Max(0.0, Math.Min(resource.amount, newMaxAmount));
+            if (resource.maxAmount != newMaxAmount)
+            {
+                resource.maxAmount = newMaxAmount;
+                changed = true;
+            }
+            if (resource.amount != newAmount)
+            {
+                resource.amount = newAmount;
+                changed = true;
+            }
+            if (changed) NotifyInventoryChanged();
+        }
+
+        ///<summary>Get a list of resources stored in the provided part.</summary>
+        private List<string> ReadResourceNames(StoredPart stored)
+            => ReadCellResourceDictionary(stored).Keys
+                .OrderBy(name => name, StringComparer.Ordinal).ToList();
+
+        ///<summary>Get the total amount of resources stored in the provided part.</summary>
+        private float ReadResourceAmount(StoredPart stored)
+        {
+            double total = ChitakTechFluidCell.GetResourceTotal(
+                ReadCellResourceDictionary(stored));
+            return total >= float.MaxValue ? float.MaxValue : (float)total;
+        }
+
+        ///<summary>Get the amount of a resource stored in the provided part.</summary>
+        private double ReadResourceAmountValue(StoredPart stored, string resourceName)
+        {
+            if (string.IsNullOrWhiteSpace(resourceName)) return 0.0;
+            ReadCellResourceDictionary(stored).TryGetValue(resourceName.Trim(),
+                out double amount);
+            return CTShared.IsFinite(amount) && amount > 0.0 ? amount : 0.0;
+        }
+
+        private float ReadMaxAmount(StoredPart stored)
+        {
+            double capacity = ReadFluidCellPrefab(stored?.partName)
+                ?.ResourceMaxAmount ?? 0f;
+            if (!CTShared.IsFinite(capacity) || capacity <= 0.0) return 0f;
+            return capacity >= float.MaxValue ? float.MaxValue : (float)capacity;
+        }
+
+        private float ReadTransferDistance(string partName)
+            => ReadFluidCellPrefab(partName)?.TransferDistance ?? 10f;
+
+        private HashSet<string> ReadAddableResources(StoredPart stored)
+        {
+            ChitakTechFluidCell prefab = ReadFluidCellPrefab(stored?.partName);
+            if (prefab == null) return new HashSet<string>();
+            return prefab.GetAddableResources(ReadResourceNames(stored));
+        }
+
+        ///<summary>Can a resource be added to the provided part?</summary>
+        private bool IsResourceAllowedForAddition(StoredPart stored, string resourceName)
+        {
+            ChitakTechFluidCell prefab = ReadFluidCellPrefab(stored?.partName);
+            return prefab != null
+                && prefab.CanAddResource(resourceName, ReadResourceNames(stored));
+        }
+
+        ///<summary>Add a resource to the provided part.</summary>
+        private bool WriteResourceAmount(StoredPart stored, string resourceName,
+            double amount)
+        {
+            if (!IsStoredPartCurrent(stored) || string.IsNullOrWhiteSpace(resourceName)
+                || !CTShared.IsFinite(amount) || amount < 0.0)
+                return false;
+
+            ProtoPartModuleSnapshot module = GetCellModuleSnapshot(stored);
+            ChitakTechFluidCell prefab = ReadFluidCellPrefab(stored.partName);
+            if (module?.moduleValues == null || prefab == null) return false;
+
+            resourceName = resourceName.Trim();
+            Dictionary<string, double> resources = ReadCellResourceDictionary(stored);
+            resources.TryGetValue(resourceName, out double current);
+            double increase = amount - current;
+            const double epsilon = 1e-9;
+            if (increase > epsilon)
+            {
+                if (!prefab.CanAddResource(resourceName, resources.Keys)) return false;
+                double total = ChitakTechFluidCell.GetResourceTotal(resources);
+                if (!CTShared.IsFinite(total)
+                    || increase > Math.Max(0.0,
+                        prefab.ResourceMaxAmount - total) + epsilon)
+                    return false;
+            }
+
+            if (amount <= epsilon) resources.Remove(resourceName);
+            else resources[resourceName] = amount;
+            module.moduleValues.SetValue("StoredResourcesData",
+                ChitakTechFluidCell.SerializeResources(resources), true);
+            NotifyInventoryChanged();
+            return true;
+        }
+
+        ///<summary>Get all parts within a specific range of the kerbal.</summary>
+        private List<Part> GetPartsInRange(float range)
+        {
+            CTShared.Log("Called with range " + range.ToString(), "ChitakTechKerbal/GetPartsInRange");
+            var result = new List<Part>();
+            foreach (Vessel v in FlightGlobals.VesselsLoaded)
+                foreach (Part p in v.parts)
+                {
+                    if (p == this.part) continue;
+                    if (Vector3.Distance(this.part.transform.position, p.transform.position) <= range)
+                        result.Add(p);
+                }
+            CTShared.Log("Acquired " + result.Count.ToString() + " parts.", "ChitakTechKerbal/GetPartsInRange");
+            return result;
+        }
+
+        ///<summary>Show the selector to choose which part to send resources to.</summary>
+        private void ShowPartSelectorForSend(FluidCellRef cell)
+        {
+            if (cell.isSuit) { ShowSuitCellPartSelectorForSend(); return; }
+            if (!IsStoredPartCurrent(cell.stored)) return;
+
+            List<string> resourceNames = ReadResourceNames(cell.stored);
+            if (resourceNames.Count == 0)
+            {
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "That cell is empty.", 5.0f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+
+            if (resourceNames.Count == 1)
+            {
+                ShowPartSelectorForSend(cell, resourceNames[0]);
+                return;
+            }
+
+            var labels = new List<string>();
+            var resourcesByLabel = new Dictionary<string, string>();
+            foreach (string resourceName in resourceNames)
+            {
+                string label = string.Format("{0}: {1:F2} units", resourceName,
+                    ReadResourceAmountValue(cell.stored, resourceName));
+                labels.Add(label);
+                resourcesByLabel.Add(label, resourceName);
+            }
+            CTShared.Instance.ShowSelector("Which resource to send?", labels, label =>
+            {
+                if (resourcesByLabel.TryGetValue(label, out string resourceName))
+                    ShowPartSelectorForSend(cell, resourceName);
+            });
+        }
+
+        ///<summary>Show the selector to choose which part to send a specific resource to.</summary>
+        private void ShowPartSelectorForSend(FluidCellRef cell, string resourceName)
+        {
+            if (!IsStoredPartCurrent(cell.stored)
+                || ReadResourceAmountValue(cell.stored, resourceName) <= 0.0) return;
+            float range = ReadTransferDistance(cell.stored.partName);
+
+            var targetParts = new Dictionary<string, ChitakTechResourceNetwork.Endpoint>();
+            foreach (Part p in GetPartsInRange(range))
+                foreach (var pr in ChitakTechResourceNetwork.GetEndpoints(p))
+                {
+                    if (pr.resourceName != resourceName) continue;
+                    if (!CanAcceptResource(pr)) continue;
+                    string lbl = string.Format("{0} / {1}  (space: {2:F1} units)",
+                        p.vessel.vesselName, p.partInfo.title, pr.maxAmount - pr.amount);
+                    AddUniqueOption(targetParts, lbl, pr);
+                }
+
+            if (targetParts.Count == 0)
+            {
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "No nearby parts can accept " + resourceName + ".", 5.0f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+
+            CTShared.Instance.ShowSelector("Send " + resourceName + " to...",
+                targetParts.Keys.ToList(), label =>
+                {
+                    if (!targetParts.TryGetValue(label, out var targetResource)
+                        || !IsStoredPartCurrent(cell.stored)
+                        || !IsPartCurrentAndInRange(targetResource.part, range)) return;
+                    var def = PartResourceLibrary.Instance.GetDefinition(resourceName);
+                    if (def == null) return;
+                    if (!CanAcceptResource(targetResource)) return;
+
+                    // Re-read both sides when the player finally clicks. The selector may have
+                    // remained open while a converter or another transfer changed either tank.
+                    double available = ReadResourceAmountValue(cell.stored, resourceName);
+                    double space = Math.Max(0.0, targetResource.maxAmount - targetResource.amount);
+                    double pushed = Math.Min(available, space);
+                    if (pushed <= 1e-9) return;
+                    StartCellTransfer(cell.stored, targetResource, false, pushed, range);
+                });
+        }
+
+        ///<summary>Show the selector to take resources from a part into the provided fluid cell.</summary>
+        private void ShowPartSelectorForTake(FluidCellRef cell)
+        {
+            if (cell.isSuit) { ShowSuitCellPartSelectorForTake(); return; }
+            if (!IsStoredPartCurrent(cell.stored)) return;
+            CTShared.Log("Called!", "ChitakTechKerbal/ShowPartSelectorForTake");
+
+            float range = ReadTransferDistance(cell.stored.partName);
+            ChitakTechFluidCell prefab = ReadFluidCellPrefab(cell.stored.partName);
+            HashSet<string> addable = ReadAddableResources(cell.stored);
+            bool restrictResources = prefab != null && prefab.HasSupportedResourceGroups;
+            if (ReadCellTotalFreeSpace(cell.stored) <= 1e-9)
+            {
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "That fluid cell is full.", 5.0f,
+                    ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+
+            var optionParts = new Dictionary<string, ChitakTechResourceNetwork.Endpoint>();
+            var optionResources = new Dictionary<string, string>();
+
+            foreach (Part p in GetPartsInRange(range))
+                foreach (var pr in ChitakTechResourceNetwork.GetEndpoints(p))
+                {
+                    if (!HasUsableAmount(pr)) continue;
+                    if (restrictResources && !addable.Contains(pr.resourceName)) continue;
+                    string lbl = string.Format("{0} / {1}  ({2}: {3:F1} units)",
+                        p.vessel.vesselName, p.partInfo.title, pr.resourceName, pr.amount);
+                    string uniqueLabel = AddUniqueOption(optionParts, lbl, pr);
+                    optionResources.Add(uniqueLabel, pr.resourceName);
+                }
+
+            if (optionParts.Count == 0)
+            {
+                CTShared.Log("No compatible nearby resources with available cell capacity were detected.",
+                    "ChitakTechKerbal/ShowPartSelectorForTake");
+                ScreenMessages.PostScreenMessage(new ScreenMessage(
+                    "No compatible resources with available cell capacity found within range.",
+                    5.0f, ScreenMessageStyle.UPPER_CENTER));
+                return;
+            }
+
+            CTShared.Log("Calling ShowSelector to take resources from a part.", "ChitakTechKerbal/ShowPartSelectorForTake");
+            CTShared.Instance.ShowSelector("Take resources from...", optionParts.Keys.ToList(), label =>
+            {
+                if (!optionParts.TryGetValue(label, out var sourceResource)
+                    || !optionResources.TryGetValue(label, out string resourceName)
+                    || !IsStoredPartCurrent(cell.stored)
+                    || !IsPartCurrentAndInRange(sourceResource.part, range)) return;
+                var def = PartResourceLibrary.Instance.GetDefinition(resourceName);
+                if (def == null) return;
+                if (!HasUsableAmount(sourceResource)
+                    || !IsResourceAllowedForAddition(cell.stored, resourceName)) return;
+                double liveSpace = ReadCellTotalFreeSpace(cell.stored);
+                double maxTakeValue = Math.Min(sourceResource.amount, liveSpace);
+                float maxTake = maxTakeValue >= float.MaxValue
+                    ? float.MaxValue : (float)maxTakeValue;
+                if (maxTake <= 0f) return;
+
+                CTShared.Log("Calling ShowAmountSelector to get exact amount.", "ChitakTechKerbal/ShowPartSelectorForTake");
+                CTShared.Instance.ShowAmountSelector(
+                    string.Format("How much {0} to take?", resourceName),
+                    0f, maxTake, maxTake, amount =>
+                    {
+                        if (!IsStoredPartCurrent(cell.stored)
+                            || !IsPartCurrentAndInRange(sourceResource.part, range)) return;
+                        var liveSource = sourceResource;
+                        if (!HasUsableAmount(liveSource)
+                            || !IsResourceAllowedForAddition(cell.stored, resourceName)
+                            || float.IsNaN(amount) || float.IsInfinity(amount) || amount <= 0f) return;
+                        double liveCellSpace = ReadCellTotalFreeSpace(cell.stored);
+                        double taken = Math.Min(amount, Math.Min(liveSource.amount, liveCellSpace));
+                        if (taken <= 1e-9) return;
+                        StartCellTransfer(cell.stored, sourceResource, true, taken, range);
+                    });
+            });
+        }
+    }
+}

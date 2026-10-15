@@ -7,7 +7,7 @@
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="Stubs.cs" />
-    <Compile Include="../../KhemistryDLLs/Shared/PollingPipeStream.cs" Link="PollingPipeStream.cs" />
-    <Compile Include="../../KhemistryDLLs/Khemistry/Discord/DiscordRpcClient.cs" Link="DiscordRpcClient.cs" />
+    <Compile Include="../../ChitakTechDLLs/Shared/PollingPipeStream.cs" Link="PollingPipeStream.cs" />
+    <Compile Include="../../ChitakTechDLLs/ChitakTech/Discord/DiscordRpcClient.cs" Link="DiscordRpcClient.cs" />
   </ItemGroup>
 </Project>

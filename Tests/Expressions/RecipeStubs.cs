@@ -61,9 +61,9 @@ public class PartResourceLibrary
     public static PartResourceLibrary Instance => null; // Resource availability is game-owned.
     public object GetDefinition(string name) => null;
 }
-namespace Khemistry
+namespace ChitakTech
 {
-    public partial class KShared
+    public partial class CTShared
     {
         public static readonly List<string> Errors = new List<string>();
         public static void LogError(string message, string context) => Errors.Add(message);
@@ -77,7 +77,7 @@ namespace Khemistry
         public static int GetIntValueFromCFG(ConfigNode node, string key, int fallback) => (int)GetDoubleValueFromCFG(node, key, fallback);
         public static void ParseShowRule(string value, out bool paw, out bool eva, string context, string name) { paw = true; eva = true; }
     }
-    public sealed class KhemistryMaterial
+    public sealed class ChitakTechMaterial
     {
         public string name;
         public List<string> shapes = new List<string>();
@@ -85,15 +85,15 @@ namespace Khemistry
         public List<string> parameterOrder => parameters.Keys.ToList();
         public bool IsDerivedParameter(string name) => parameters.TryGetValue(name, out var value) && value.StartsWith("DER");
     }
-    public sealed class KhemistryISRUBiomeConfig
+    public sealed class ChitakTechISRUBiomeConfig
     {
         public bool IsValid => true;
         public string biomeName;
         public bool hasResourceConfigurationError => false;
-        public List<KhemistryISRURecipe.ResourceOutput> outputs = new List<KhemistryISRURecipe.ResourceOutput>();
-        public KhemistryISRUBiomeConfig(ConfigNode node, string context = null, string converter = null) { biomeName = node.GetValue("name"); }
+        public List<ChitakTechISRURecipe.ResourceOutput> outputs = new List<ChitakTechISRURecipe.ResourceOutput>();
+        public ChitakTechISRUBiomeConfig(ConfigNode node, string context = null, string converter = null) { biomeName = node.GetValue("name"); }
     }
-    public partial class KhemistryISRURecipe
+    public partial class ChitakTechISRURecipe
     {
         public sealed class TestMaintenance { public List<TestStage> stages = new List<TestStage>(); }
         public sealed class TestStage

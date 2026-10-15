@@ -66,9 +66,9 @@ public static class GameEvents
     public static readonly Slots onModuleInventorySlotChanged = new Slots();
     public static readonly Inventory onModuleInventoryChanged = new Inventory();
 }
-namespace Khemistry
+namespace ChitakTech
 {
-    public static class KShared
+    public static class CTShared
     {
         public static bool IsFinite(double x) => !double.IsNaN(x) && !double.IsInfinity(x);
         public static bool ContainsInterpolation(string s) => s?.Contains("[") == true;
@@ -76,24 +76,24 @@ namespace Khemistry
         public static double RandomDouble(double a, double b) => (a + b) / 2;
         public static void LogFatalError(string message, string context) => throw new ArgumentException(message);
     }
-    public class KhemistryMaterialInstance { }
-    public class KhemistryISRUBiomeConfig { public double inputMultiplier = 1, outputMultiplier = 1; }
-    public class KhemistryISRURecipe
+    public class ChitakTechMaterialInstance { }
+    public class ChitakTechISRUBiomeConfig { public double inputMultiplier = 1, outputMultiplier = 1; }
+    public class ChitakTechISRURecipe
     {
         public struct ResourceOutputMaterial { }
         public struct CargoPartEntry { public string name, amountExpression; public double scale; }
         public readonly List<CargoPartEntry> _inputCargoParts = new List<CargoPartEntry>(), _outputCargoParts = new List<CargoPartEntry>();
     }
-    public partial class KhemistryISRU
+    public partial class ChitakTechISRU
     {
-        public KhemistryISRURecipe _activeRecipe = new KhemistryISRURecipe();
+        public ChitakTechISRURecipe _activeRecipe = new ChitakTechISRURecipe();
         public Part part, host;
         public string moduleType, _lastBatchFailureStatus;
         public StoredPart _inventoryStoredPart;
         private Part GetPowerfailContextPart() => moduleType == "partEVA" ? host : part;
-        private bool TryResolveMaterialReferences(string value, IDictionary<string,KhemistryMaterialInstance> inputs,
-            IDictionary<string,KhemistryISRURecipe.ResourceOutputMaterial> outputs, bool numeric, string location, out string resolved)
+        private bool TryResolveMaterialReferences(string value, IDictionary<string,ChitakTechMaterialInstance> inputs,
+            IDictionary<string,ChitakTechISRURecipe.ResourceOutputMaterial> outputs, bool numeric, string location, out string resolved)
         { resolved = value.Replace("(SETTING:quantity)", "2"); return true; }
-        internal bool Plan(out CargoInventoryTransaction transaction) => TryPlanCargo(new KhemistryISRUBiomeConfig(), null, null, out transaction);
+        internal bool Plan(out CargoInventoryTransaction transaction) => TryPlanCargo(new ChitakTechISRUBiomeConfig(), null, null, out transaction);
     }
 }

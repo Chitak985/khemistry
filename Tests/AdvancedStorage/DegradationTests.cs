@@ -1,11 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Khemistry;
+using ChitakTech;
 
-namespace Khemistry
+namespace ChitakTech
 {
-    public partial class KhemistryAdvancedStorage
+    public partial class ChitakTechStorage
     {
         public bool ConfigureDegradation(ConfigNode n) => LoadDegradation(n);
         public void TickDegradation(double dt) => ProcessDegradation(dt);
@@ -34,14 +34,14 @@ static partial class Program
         Equal(0, storage.DegradationValue("age"), "custom default zero");
         Equal(100, storage.GetResourceCapacity("A"), "initial capacity");
         storage.PutResource("A", 100);
-        int messages = ScreenMessages.Count, warnings = KShared.Warnings.Count;
+        int messages = ScreenMessages.Count, warnings = CTShared.Warnings.Count;
         storage.TickDegradation(10);
         Equal(10, storage.DegradationValue("age"), "dt age");
         Equal(0.1, storage.DegradationValue("damage"), "damage integrated");
         Equal(90, storage.DegradationValue("after"), "same-evaluation ordering");
         Equal(90, storage.GetStoredAmount("A"), "only excess discarded");
         Equal(messages, ScreenMessages.Count, "degradation silent screen");
-        Equal(warnings, KShared.Warnings.Count, "degradation silent log");
+        Equal(warnings, CTShared.Warnings.Count, "degradation silent log");
         Equal(100, storage.maximumResources, "configured capacity unchanged");
         storage.TickDegradation(5);
         Equal(15, storage.DegradationValue("age"), "self reference persists");
@@ -95,7 +95,7 @@ static partial class Program
         Equal(2265, storage.DegradationValue("env"), "same runtime environment units");
         Equal(10, storage.DegradationValue("oldCapacity"), "read previous capacity");
         Equal(8, storage.GetResourceCapacity("A"), "capacity recurrence");
-        storage.state = KShared.ChargablePartState.Off; storage.TickDegradation(1);
+        storage.state = CTShared.ChargablePartState.Off; storage.TickDegradation(1);
         Equal(7, storage.GetResourceCapacity("A"), "degrades while off");
 
         foreach (var bad in new[] {

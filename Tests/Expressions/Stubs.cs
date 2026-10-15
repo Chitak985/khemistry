@@ -1,8 +1,8 @@
 using System;
 
-namespace Khemistry
+namespace ChitakTech
 {
-    public partial class KShared
+    public partial class CTShared
     {
         public static bool ContainsInterpolation(string value) => value?.Contains("[") == true;
         public static int RandomCalls;

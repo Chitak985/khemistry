@@ -31,18 +31,18 @@ namespace UnityEngine { public static class Time { public static float fixedTime
 public enum ScreenMessageStyle { UPPER_CENTER }
 public class ScreenMessage { public string text; public ScreenMessage(string t, float d, ScreenMessageStyle s) { text = t; } }
 public static class ScreenMessages { public static List<string> messages = new List<string>(); public static void PostScreenMessage(ScreenMessage s) => messages.Add(s.text); }
-namespace Khemistry
+namespace ChitakTech
 {
-    public class KShared
+    public class CTShared
     {
-        public static KShared Instance;
+        public static CTShared Instance;
         public void ShowResourceContents(string title, Func<Dictionary<string,double>> read) { }
         public static bool IsFinite(double n) => !double.IsNaN(n) && !double.IsInfinity(n);
         public static void Log(string a, string b) { }
         public static void LogWarning(string a, string b) { }
         public static void LogError(string a, string b) { }
     }
-    public class KhemistryResourceNetwork
+    public class ChitakTechResourceNetwork
     {
         public class Transfer { internal double amount; internal Action<double> undo; }
         public static void Rollback(List<Transfer> transfers)
@@ -62,9 +62,9 @@ namespace Khemistry
             }
         }
     }
-    public partial class KhemistryKerbal
+    public partial class ChitakTechKerbal
     {
-        public KhemistryFluidCell prefab = new KhemistryFluidCell();
+        public ChitakTechFluidCell prefab = new ChitakTechFluidCell();
         public bool inRange = true;
         public bool HasFluidSuitCell => true;
         private double _suitCellMaxAmount = 100;
@@ -74,9 +74,9 @@ namespace Khemistry
         public Dictionary<string,Event> Events = new Dictionary<string,Event> { ["CancelCellTransfers"] = new Event() };
         private bool IsStoredPartCurrent(StoredPart s) => s != null && s.current;
         private StoredPart GetCellModuleSnapshot(StoredPart s) => s;
-        private KhemistryFluidCell ReadFluidCellPrefab(string name) => prefab;
+        private ChitakTechFluidCell ReadFluidCellPrefab(string name) => prefab;
         private Dictionary<string,double> ReadCellResourceDictionary(StoredPart s)
-            => KhemistryFluidCell.DeserializeResources(s.moduleValues.GetValue("StoredResourcesData"));
+            => ChitakTechFluidCell.DeserializeResources(s.moduleValues.GetValue("StoredResourcesData"));
         private void NotifyInventoryChanged() { }
         private double ReadResourceAmountValue(StoredPart s, string name) => ReadCellResourceDictionary(s).TryGetValue(name,out var v) ? v : 0;
         private double ReadResourceAmount(StoredPart s) => ReadCellResourceDictionary(s).Values.Sum();
@@ -87,7 +87,7 @@ namespace Khemistry
         {
             var d = ReadCellResourceDictionary(s);
             if (amount <= 0) d.Remove(name); else d[name] = amount;
-            s.moduleValues.SetValue("StoredResourcesData", KhemistryFluidCell.SerializeResources(d), true); return true;
+            s.moduleValues.SetValue("StoredResourcesData", ChitakTechFluidCell.SerializeResources(d), true); return true;
         }
         Dictionary<string,double> suit = new Dictionary<string,double>();
         private Dictionary<string,double> GetSuitCellDict() => new Dictionary<string,double>(suit);
@@ -98,7 +98,7 @@ namespace Khemistry
             var moved = amount > 0 ? Math.Min(amount, current) : amount;
             suit[name] = current - moved; return moved;
         }
-        public void Start(StoredPart s, KhemistryResourceNetwork.Endpoint e, bool input, double amount) => StartCellTransfer(s,e,input,amount,10);
+        public void Start(StoredPart s, ChitakTechResourceNetwork.Endpoint e, bool input, double amount) => StartCellTransfer(s,e,input,amount,10);
         public void Tick() { UnityEngine.Time.fixedTime++; TickCellTransfers(); }
         public int Jobs => cellTransfers.Count;
         public double Amount(StoredPart s, string name = "Water") => ReadResourceAmountValue(s,name);

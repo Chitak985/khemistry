@@ -1,5 +1,5 @@
 using System;
-using Khemistry;
+using ChitakTech;
 
 internal static class CargoRecipeTests
 {
@@ -21,17 +21,17 @@ internal static class CargoRecipeTests
         foreach (string kind in new[] { "INPUT_CARGOPART", "OUTPUT_CARGOPART", "OUPUT_CARGOPART" })
         {
             var node = Recipe(kind, "2*(SETTING:quantity)");
-            var recipe = new KhemistryISRURecipe(node, "Test");
-            Check(recipe.IsValid, kind + " only recipe loads: " + string.Join("; ", KShared.Errors));
+            var recipe = new ChitakTechISRURecipe(node, "Test");
+            Check(recipe.IsValid, kind + " only recipe loads: " + string.Join("; ", CTShared.Errors));
             var entries = kind == "INPUT_CARGOPART" ? recipe._inputCargoParts : recipe._outputCargoParts;
             Check(entries.Count == 1 && entries[0].name == "evaRepairKit", "name retained");
             var copy = recipe.ScaledCopy(3);
             Check((kind == "INPUT_CARGOPART" ? copy._inputCargoParts : copy._outputCargoParts)[0].scale == 3, "scaled cargo");
             node.GetNode(kind).AddValue("id", "notSupported");
-            Check(!new KhemistryISRURecipe(node, "Test").IsValid, "cargo IDs rejected");
+            Check(!new ChitakTechISRURecipe(node, "Test").IsValid, "cargo IDs rejected");
         }
         foreach (string bad in new[] { "[2+2]", "unknown+1", "(SETTING:missing)", "(INMAT:missing:amount)", "2+" })
-            Check(!new KhemistryISRURecipe(Recipe("OUTPUT_CARGOPART", bad), "Test").IsValid, "invalid expression: " + bad);
+            Check(!new ChitakTechISRURecipe(Recipe("OUTPUT_CARGOPART", bad), "Test").IsValid, "invalid expression: " + bad);
         var references = Recipe("OUTPUT_CARGOPART", "(INMAT:source:amount)+(OUTMAT:result:amount)");
         var input = new ConfigNode("INPUT_MATERIAL"); references.AddNode(input);
         input.AddValue("name", "Wood"); input.AddValue("id", "source");
@@ -40,7 +40,7 @@ internal static class CargoRecipeTests
         output.AddValue("name", "Wood"); output.AddValue("id", "result");
         output.AddValue("shape", "Log"); output.AddValue("size", "none");
         output.AddValue("amount", "1"); output.AddValue("outVolume", "1");
-        Check(new KhemistryISRURecipe(references, "Test").IsValid, "cargo accepts declared INMAT/OUTMAT references");
+        Check(new ChitakTechISRURecipe(references, "Test").IsValid, "cargo accepts declared INMAT/OUTMAT references");
         return count;
     }
 }

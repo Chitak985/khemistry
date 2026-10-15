@@ -8,7 +8,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Khemistry;
+using ChitakTech;
 
 static class Program
 {
@@ -58,7 +58,7 @@ static class Program
         Check(error.evt == "ERROR" && error.data.code == 4000, "error code parsed without retaining message");
 
         // This pipe's random name cannot connect to the actual Discord client.
-        string pipeName = "khemistry-rpc-test-" + Guid.NewGuid().ToString("N");
+        string pipeName = "chitaktech-rpc-test-" + Guid.NewGuid().ToString("N");
         var statuses = new ConcurrentQueue<string>();
         int attempts = 0;
         using (var server = new NamedPipeServerStream(pipeName, PipeDirection.InOut, 1,
@@ -179,7 +179,7 @@ static class Program
 
     static async Task PipeShutdownTests()
     {
-        string name = "khemistry-shutdown-test-" + Guid.NewGuid().ToString("N");
+        string name = "chitaktech-shutdown-test-" + Guid.NewGuid().ToString("N");
         // The actual MCP client uses managed NamedPipeClientStream, not our helper.
         using (var server = PollingPipeStream.CreateServer(name))
         using (var client = new NamedPipeClientStream(".", name, PipeDirection.InOut, PipeOptions.Asynchronous))

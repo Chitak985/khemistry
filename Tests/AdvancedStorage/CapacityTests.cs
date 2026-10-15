@@ -1,6 +1,6 @@
 using System;
 using System.Linq;
-using Khemistry;
+using ChitakTech;
 
 static partial class Program
 {
@@ -32,7 +32,7 @@ static partial class Program
         Equal(25, storage.PutResource("B", 100), "selected B limit");
         storage.TakeResource("B", 25);
         converter.outputList.Add(new ResourceRatio { ResourceName = "B" });
-        var broker = new KhemistryStockResourceBroker(new ResourceBroker(), converter);
+        var broker = new ChitakTechStockResourceBroker(new ResourceBroker(), converter);
         Equal(25, broker.StorageAvailable(part, "B", 1, ResourceFlowMode.ALL_VESSEL, 1), "stock broker quotes custom capacity");
         Equal(-25, broker.StoreResource(part, "B", 50, 1, ResourceFlowMode.ALL_VESSEL), "stock output obeys custom limit");
         Equal(1, storage.ConfigureSupported(CapacityConfig("2")) ? 1 : 0, "reload configuration");
@@ -46,10 +46,10 @@ static partial class Program
         Equal(0, storage.GetAvailableSpace("A"), "overfilled blocks additions");
         Equal(2, storage.TakeResource("A", 2), "overfilled contents recoverable");
 
-        int warnings = KShared.Warnings.Count;
+        int warnings = CTShared.Warnings.Count;
         Equal(1, storage.ConfigureSupported(CapacityConfig(null)) ? 1 : 0, "missing amount accepted");
         Equal(storage.maximumResources, storage.GetResourceCapacity("A"), "missing amount uses main maximum");
-        Equal(1, KShared.Warnings.Count > warnings && KShared.Warnings.Last().Contains("SUPPORTED_RESOURCES") ? 1 : 0,
+        Equal(1, CTShared.Warnings.Count > warnings && CTShared.Warnings.Last().Contains("SUPPORTED_RESOURCES") ? 1 : 0,
             "missing amount recommends plural node");
         config = CapacityConfig("40");
         var plural = config.AddNode("SUPPORTED_RESOURCES");
@@ -62,10 +62,10 @@ static partial class Program
         UnityEngine.Time.fixedTime++;
         Equal(3, storage.PutResource("A", 40), "custom capacity still honors aggregate rate");
         storage.maxInputRate = -1;
-        var transfers = new System.Collections.Generic.List<KhemistryResourceNetwork.Transfer>();
-        Equal(-37, KhemistryResourceNetwork.Request(part, "A", -100, ResourceFlowMode.ALL_VESSEL, transfers),
+        var transfers = new System.Collections.Generic.List<ChitakTechResourceNetwork.Transfer>();
+        Equal(-37, ChitakTechResourceNetwork.Request(part, "A", -100, ResourceFlowMode.ALL_VESSEL, transfers),
             "routed transfer caps at custom limit");
-        KhemistryResourceNetwork.Rollback(transfers);
+        ChitakTechResourceNetwork.Rollback(transfers);
         Equal(3, storage.GetStoredAmount("A"), "rollback preserves custom-capacity contents");
         var saved = new ConfigNode(); storage.OnSave(saved);
         storage.OnLoad(saved); storage.Ready(); storage.ConfigureSupported(config);
@@ -74,10 +74,10 @@ static partial class Program
         foreach (string type in new[] { "single", "multiShared" })
         {
             storage.storageType = type;
-            int errors = KShared.Errors.Count;
+            int errors = CTShared.Errors.Count;
             Equal(1, storage.ConfigureSupported(config) ? 1 : 0, "plural valid on " + type);
             Equal(10, storage.GetResourceCapacity("A"), "custom ignored on " + type);
-            Equal(1, KShared.Errors.Count > errors ? 1 : 0, "wrong type logged");
+            Equal(1, CTShared.Errors.Count > errors ? 1 : 0, "wrong type logged");
             Equal(0, storage.ConfigureSupported(CapacityConfig()) ? 1 : 0, "singular alone invalid on " + type);
         }
         storage.storageType = "multi";

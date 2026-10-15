@@ -6,6 +6,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Program.cs" />
-    <Compile Include="../../KhemistryDLLs/KhemistryConstructionOverhaul/KSCResourceListData.cs" Link="KSCResourceListData.cs" />
+    <Compile Include="../../ChitakTechDLLs/ChitakTech/ConstructionResources/KSCResourceListData.cs" Link="KSCResourceListData.cs" />
   </ItemGroup>
 </Project>

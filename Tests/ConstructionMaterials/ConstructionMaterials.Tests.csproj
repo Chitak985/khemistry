@@ -39,13 +39,9 @@
     <Compile Include="Program.cs" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\KhemistryDLLs\Khemistry\Khemistry.csproj">
+    <ProjectReference Include="..\..\ChitakTechDLLs\ChitakTech\ChitakTech.csproj">
       <Project>{64D42EE0-86B3-4703-9A9C-C2438C639369}</Project>
-      <Name>Khemistry</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\..\KhemistryDLLs\KhemistryConstructionOverhaul\KhemistryConstructionOverhaul.csproj">
-      <Project>{11C3619A-B409-44C4-8176-73B41473F83E}</Project>
-      <Name>KhemistryConstructionOverhaul</Name>
+      <Name>ChitakTech</Name>
     </ProjectReference>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

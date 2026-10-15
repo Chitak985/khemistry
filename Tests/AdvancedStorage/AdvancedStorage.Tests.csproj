@@ -7,24 +7,24 @@
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="DegradationTests.cs" />
-    <Compile Include="../../KhemistryDLLs/Khemistry/KMathExpr.cs" Link="KMathExpr.cs" />
-    <Compile Include="../../KhemistryDLLs/Khemistry/PartModules/AdvancedStorage/StorageDegradation.cs" Link="AdvancedStorageDegradation.cs" />
+    <Compile Include="../../ChitakTechDLLs/ChitakTech/CTMathExpr.cs" Link="CTMathExpr.cs" />
+    <Compile Include="../../ChitakTechDLLs/ChitakTech/PartModules/Storage/StorageDegradation.cs" Link="AdvancedStorageDegradation.cs" />
     <Compile Include="Stubs.cs" />
     <Compile Include="PassiveTests.cs" />
     <Compile Include="CapacityTests.cs" />
     <Compile Include="SharedVolumeTests.cs" />
     <Compile Include="EnvironmentTests.cs" />
     <Compile Include="EnvironmentStubs.cs" />
-    <Compile Include="../../KhemistryDLLs/Khemistry/StorageEnvironment.cs" Link="StorageEnvironment.cs" />
-    <Compile Include="../../KhemistryDLLs/Khemistry/RuntimeData.cs" Link="RuntimeData.cs" />
-    <Compile Include="../../KhemistryDLLs/Khemistry/PartModules/AdvancedStorage/StorageEnvironment.cs" Link="AdvancedStorageEnvironment.cs" />
-    <Compile Include="../../KhemistryDLLs/Khemistry/PartModules/MaterialStorage/MaterialStorageEnvironment.cs" Link="MaterialStorageEnvironment.cs" />
-    <Compile Include="../../KhemistryDLLs/Khemistry/PartModules/KhemistryISRU/ISRUBiomeConfig.cs" Link="ISRUBiomeConfig.cs" />
-    <Compile Include="../../KhemistryDLLs/Khemistry/PartModules/AdvancedStorage/StorageConfig.cs" Link="AdvancedStorageConfig.cs" />
-    <Compile Include="../../KhemistryDLLs/Khemistry/PartModules/AdvancedStorage/StoragePassive.cs" Link="AdvancedStoragePassive.cs" />
-    <Compile Include="../../KhemistryDLLs/Khemistry/PartModules/KhemistryISRU/ISRUPassiveInputConfig.cs" Link="ISRUPassiveInputConfig.cs" />
-    <Compile Include="../../KhemistryDLLs/Khemistry/PartModules/AdvancedStorage/StorageResources.cs" Link="AdvancedStorageResources.cs" />
-    <Compile Include="../../KhemistryDLLs/Khemistry/KhemistryResourceNetwork.cs" Link="KhemistryResourceNetwork.cs" />
-    <Compile Include="../../KhemistryDLLs/Khemistry/KhemistryStockResourceBroker.cs" Link="KhemistryStockResourceBroker.cs" />
+    <Compile Include="../../ChitakTechDLLs/ChitakTech/StorageEnvironment.cs" Link="StorageEnvironment.cs" />
+    <Compile Include="../../ChitakTechDLLs/ChitakTech/RuntimeData.cs" Link="RuntimeData.cs" />
+    <Compile Include="../../ChitakTechDLLs/ChitakTech/PartModules/Storage/StorageEnvironment.cs" Link="AdvancedStorageEnvironment.cs" />
+    <Compile Include="../../ChitakTechDLLs/ChitakTech/PartModules/MaterialStorage/MaterialStorageEnvironment.cs" Link="MaterialStorageEnvironment.cs" />
+    <Compile Include="../../ChitakTechDLLs/ChitakTech/PartModules/ChitakTechISRU/ISRUBiomeConfig.cs" Link="ISRUBiomeConfig.cs" />
+    <Compile Include="../../ChitakTechDLLs/ChitakTech/PartModules/Storage/StorageConfig.cs" Link="AdvancedStorageConfig.cs" />
+    <Compile Include="../../ChitakTechDLLs/ChitakTech/PartModules/Storage/StoragePassive.cs" Link="AdvancedStoragePassive.cs" />
+    <Compile Include="../../ChitakTechDLLs/ChitakTech/PartModules/ChitakTechISRU/ISRUPassiveInputConfig.cs" Link="ISRUPassiveInputConfig.cs" />
+    <Compile Include="../../ChitakTechDLLs/ChitakTech/PartModules/Storage/StorageResources.cs" Link="AdvancedStorageResources.cs" />
+    <Compile Include="../../ChitakTechDLLs/ChitakTech/ChitakTechResourceNetwork.cs" Link="ChitakTechResourceNetwork.cs" />
+    <Compile Include="../../ChitakTechDLLs/ChitakTech/ChitakTechStockResourceBroker.cs" Link="ChitakTechStockResourceBroker.cs" />
   </ItemGroup>
 </Project>

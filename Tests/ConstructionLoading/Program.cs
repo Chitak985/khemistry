@@ -1,17 +1,17 @@
 using System;
 using System.IO;
 using System.Linq;
-using KhemistryConstructionOverhaul;
+using ChitakTech;
 
 static class Program
 {
     static int checks;
     static void Check(bool condition, string message)
     { if (!condition) throw new Exception(message); checks++; }
-    static KhemistryPart Instance(ConfigNode config)
+    static ChitakTechPart Instance(ConfigNode config)
     {
         var part = new Part { partInfo = new PartInfo { partConfig = config } };
-        var module = new KhemistryPart { part = part };
+        var module = new ChitakTechPart { part = part };
         part.Modules.Add(module);
         return module;
     }
@@ -21,7 +21,7 @@ static class Program
         {
             var config = ConfigNode.ReadFixture(Path.Combine(AppContext.BaseDirectory, "WoodenBasin.cfg")).GetNode("PART");
             var prefab = Instance(config);
-            var moduleConfig = config.GetNodes("MODULE").Single(n => n.GetValue("name") == "KhemistryPart");
+            var moduleConfig = config.GetNodes("MODULE").Single(n => n.GetValue("name") == "ChitakTechPart");
             prefab.OnLoad(moduleConfig);
             Check(prefab.CostConfigurationValid, "actual WoodenBasin costs parse");
             Check(prefab.MaterialCosts.Count == 1 && prefab.MaterialCosts[0].shape == "HalfHollowLog", "material cost retained");
@@ -45,7 +45,7 @@ static class Program
             Check(!missing.EnsureCostConfiguration(out var error) && error.Contains("Wooden Basin") && error.Contains("WoodenBasin"), "failure identifies offending part");
             var invalid = new ConfigNode();
             config.CopyTo(invalid);
-            var cost = invalid.GetNodes("MODULE").Single(n => n.GetValue("name") == "KhemistryPart").GetNode("MATERIAL_COST");
+            var cost = invalid.GetNodes("MODULE").Single(n => n.GetValue("name") == "ChitakTechPart").GetNode("MATERIAL_COST");
             cost.RemoveValue("amount"); cost.AddValue("amount", 0);
             var bad = Instance(invalid);
             bad.part.partInfo.partPrefab = prefab.part;

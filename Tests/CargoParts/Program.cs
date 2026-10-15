@@ -1,6 +1,6 @@
 using System;
 using System.Linq;
-using Khemistry;
+using ChitakTech;
 internal static class Program
 {
     static int checks;
@@ -53,14 +53,14 @@ internal static class Program
         {
             var correct = new ModuleInventoryPart();
             var wrong = new ModuleInventoryPart { InventorySlots = 0 };
-            var isru = new KhemistryISRU { moduleType = mode, part = new Part { inventory = mode == "partEVA" ? wrong : correct }, host = new Part { inventory = correct } };
-            isru._activeRecipe._outputCargoParts.Add(new KhemistryISRURecipe.CargoPartEntry { name = "Tool", amountExpression = "(SETTING:quantity)", scale = 1 });
+            var isru = new ChitakTechISRU { moduleType = mode, part = new Part { inventory = mode == "partEVA" ? wrong : correct }, host = new Part { inventory = correct } };
+            isru._activeRecipe._outputCargoParts.Add(new ChitakTechISRURecipe.CargoPartEntry { name = "Tool", amountExpression = "(SETTING:quantity)", scale = 1 });
             Check(isru.Plan(out plan), mode + " cargo batch planned");
             plan.Apply();
             Check(correct.storedParts.Values.Sum(p => p.quantity) == 2 && wrong.storedParts.Count == 0, mode + " uses context inventory");
             foreach (string bad in new[] { "0.5", "-1", "1/0", "2147483648", "unknown", "[2]" })
             {
-                isru._activeRecipe._outputCargoParts[0] = new KhemistryISRURecipe.CargoPartEntry { name = "Tool", amountExpression = bad, scale = 1 };
+                isru._activeRecipe._outputCargoParts[0] = new ChitakTechISRURecipe.CargoPartEntry { name = "Tool", amountExpression = bad, scale = 1 };
                 Check(!isru.Plan(out _), mode + " rejects invalid count " + bad);
             }
         }

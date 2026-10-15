@@ -1,38 +1,38 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Khemistry;
+using ChitakTech;
 
 public class ScreenMessage { public ScreenMessage(string text, float duration, ScreenMessageStyle style) { } }
 public enum ScreenMessageStyle { UPPER_CENTER }
 public static class ScreenMessages { public static void PostScreenMessage(ScreenMessage message) { } }
-namespace Khemistry
+namespace ChitakTech
 {
-    public partial class KShared
+    public partial class CTShared
     {
-        public static KShared Instance = new KShared();
-        public List<KhemistryMaterial> materialList = new List<KhemistryMaterial>();
+        public static CTShared Instance = new CTShared();
+        public List<ChitakTechMaterial> materialList = new List<ChitakTechMaterial>();
         public Dictionary<string,double> dialogValues;
         public Action<Dictionary<string,double>> done;
-        public void ShowRecipeSettings(string title, IEnumerable<KhemistryISRURecipe.RecipeSetting> settings,
+        public void ShowRecipeSettings(string title, IEnumerable<ChitakTechISRURecipe.RecipeSetting> settings,
             IDictionary<string,double> values, Action<Dictionary<string,double>> callback)
         { dialogValues = new Dictionary<string,double>(values); done = callback; }
     }
     // Tests the real setting lifecycle, using a tiny host in place of Unity/PartModule.
-    public partial class KhemistryISRU
+    public partial class ChitakTechISRU
     {
         private readonly Dictionary<string,Dictionary<string,double>> _recipeSettingValues =
             new Dictionary<string,Dictionary<string,double>>();
-        public List<KhemistryISRURecipe> recipes = new List<KhemistryISRURecipe>();
-        public KhemistryISRURecipe _activeRecipe;
+        public List<ChitakTechISRURecipe> recipes = new List<ChitakTechISRURecipe>();
+        public ChitakTechISRURecipe _activeRecipe;
         public bool isRunning;
         public string ConverterName = "Test";
         public int refunds, applies;
         private void RefundPassiveConsumption() => refunds++;
-        private void ApplyRecipe(KhemistryISRURecipe recipe) { _activeRecipe = recipe; applies++; }
+        private void ApplyRecipe(ChitakTechISRURecipe recipe) { _activeRecipe = recipe; applies++; }
         private void UpdateUI() { }
         private void UpdateEventVisibility() { }
-        public void Select(KhemistryISRURecipe recipe)
+        public void Select(ChitakTechISRURecipe recipe)
         { recipes.Add(recipe); _activeRecipe = recipe.WithSettingValues(EnsureRecipeSettingValues(recipe)); }
         public void Open() => ShowRecipeSettings(_activeRecipe);
         public void LoadSettings(ConfigNode node) => LoadRecipeSettingValues(node);
@@ -60,25 +60,25 @@ internal static class SettingStateTests
             output.AddValue("name", "(SETTING:resource)"); output.AddValue("amount", "(SETTING:number)");
             return node;
         }
-        var converter = new KhemistryISRU(); converter.Select(new KhemistryISRURecipe(Config(), "Test"));
+        var converter = new ChitakTechISRU(); converter.Select(new ChitakTechISRURecipe(Config(), "Test"));
         converter.Open();
-        KShared.Instance.dialogValues["resource"] = 1;
+        CTShared.Instance.dialogValues["resource"] = 1;
         Check(converter.Values()["resource"] == 0, "editing/Cancel does not mutate saved choice");
-        KShared.Instance.done(KShared.Instance.dialogValues);
+        CTShared.Instance.done(CTShared.Instance.dialogValues);
         Check(converter.Values()["resource"] == 1 && converter._activeRecipe._outputs[0].resourceName == "Sand", "Done applies choice to actual recipe");
         Check(converter.refunds == 1 && converter.applies == 1, "settings change resets/refunds batch through ApplyRecipe");
         var save = new ConfigNode(); converter.SaveSettings(save);
         var savedSetting = save.GetNode("RECIPE_SETTING_VALUES").GetNode("RECIPE").GetNodes("SETTING").Single(n => n.GetValue("var") == "resource");
         Check(savedSetting.GetValue("option") == "Sand", "option text persisted");
-        var restored = new KhemistryISRU(); restored.LoadSettings(save); restored.Select(new KhemistryISRURecipe(Config(true), "Test"));
+        var restored = new ChitakTechISRU(); restored.LoadSettings(save); restored.Select(new ChitakTechISRURecipe(Config(true), "Test"));
         Check(restored.Values()["resource"] == 0 && restored._activeRecipe._outputs[0].resourceName == "Sand", "option survives reordering on reload");
-        restored.isRunning = true; restored.Open(); KShared.Instance.dialogValues["resource"] = 1; KShared.Instance.done(KShared.Instance.dialogValues);
+        restored.isRunning = true; restored.Open(); CTShared.Instance.dialogValues["resource"] = 1; CTShared.Instance.done(CTShared.Instance.dialogValues);
         Check(restored.Values()["resource"] == 0, "running converter rejects changes");
-        restored.isRunning = false; restored.Open(); KShared.Instance.dialogValues["number"] = 0; KShared.Instance.done(KShared.Instance.dialogValues);
+        restored.isRunning = false; restored.Open(); CTShared.Instance.dialogValues["number"] = 0; CTShared.Instance.done(CTShared.Instance.dialogValues);
         Check(restored.Values()["number"] == 1 && restored._activeRecipe.IsValid, "invalid expression keeps prior settings");
         // An inactive recipe must retain its saved option even if it has not been selected
         // (and therefore normalized to the new index) before the next save.
-        restored = new KhemistryISRU(); restored.LoadSettings(save); restored.recipes.Add(new KhemistryISRURecipe(Config(true), "Test"));
+        restored = new ChitakTechISRU(); restored.LoadSettings(save); restored.recipes.Add(new ChitakTechISRURecipe(Config(true), "Test"));
         var inactiveSave = new ConfigNode(); restored.SaveSettings(inactiveSave);
         Check(inactiveSave.GetNode("RECIPE_SETTING_VALUES").GetNode("RECIPE").GetNodes("SETTING")
             .Single(n => n.GetValue("var") == "resource").GetValue("option") == "Sand", "inactive choice not changed by reordered config");

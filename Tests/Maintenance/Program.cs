@@ -1,6 +1,6 @@
 using System;
 using System.Linq;
-using Khemistry;
+using ChitakTech;
 
 internal static class Program
 {
@@ -57,31 +57,31 @@ internal static class Program
     }
     private static void ParsingAndMultipliers()
     {
-        var root = Config(out var stage); var recipe = new KhemistryISRURecipe();
+        var root = Config(out var stage); var recipe = new ChitakTechISRURecipe();
         Check(recipe.ParseMaintenance(root), "minimal documented config parses");
         var parsed = recipe.maintenance.Single().stages.Single();
         Check(parsed.canFix && !parsed.autoFix && !parsed.timeIsRuntime && !parsed.ignoreOrder
             && parsed.chance == 1 && parsed.evaFixers.All(n => n == 0), "defaults match config contract");
         root = Config(out stage); stage.AddValue("chance", 1.1);
-        Check(!new KhemistryISRURecipe().ParseMaintenance(root), "invalid chance rejected");
+        Check(!new ChitakTechISRURecipe().ParseMaintenance(root), "invalid chance rejected");
         root = Config(out stage); stage.SetValue("time", 0);
-        Check(!new KhemistryISRURecipe().ParseMaintenance(root), "zero time cannot cause a timer loop");
+        Check(!new ChitakTechISRURecipe().ParseMaintenance(root), "zero time cannot cause a timer loop");
         root = Config(out stage); stage.AddValue("canFix", false); stage.AddValue("fixTime", "invalid");
         stage.AddNode("RESOURCE_TO_FIX");
-        Check(new KhemistryISRURecipe().ParseMaintenance(root), "canFix false ignores all fixing fields");
+        Check(new ChitakTechISRURecipe().ParseMaintenance(root), "canFix false ignores all fixing fields");
         root = Config(out stage); stage.AddValue("fixersEngineers", 1.5);
-        Check(!new KhemistryISRURecipe().ParseMaintenance(root), "fractional fixer count rejected");
+        Check(!new ChitakTechISRURecipe().ParseMaintenance(root), "fractional fixer count rejected");
         root = Config(out stage); stage.AddValue("speedMul", 0);
-        Check(!new KhemistryISRURecipe().ParseMaintenance(root), "zero duration multiplier rejected");
+        Check(!new ChitakTechISRURecipe().ParseMaintenance(root), "zero duration multiplier rejected");
         var biomeNode = new ConfigNode(); var a = Stage(1, 10); var b = Stage(1, 10);
-        foreach (string key in KhemistryISRUBiomeConfig.MultiplierFields.Keys)
+        foreach (string key in ChitakTechISRUBiomeConfig.MultiplierFields.Keys)
         { biomeNode.AddValue(key, 2); a.multipliers[key] = 3; b.multipliers[key] = 4; }
-        var biome = new KhemistryISRUBiomeConfig(biomeNode);
+        var biome = new ChitakTechISRUBiomeConfig(biomeNode);
         var effective = biome.WithMaintenance(new[] { a, b });
-        Check(KhemistryISRUBiomeConfig.MultiplierFields.Count == 15, "all fifteen biome multipliers included");
-        foreach (var mapping in KhemistryISRUBiomeConfig.MultiplierFields)
+        Check(ChitakTechISRUBiomeConfig.MultiplierFields.Count == 15, "all fifteen biome multipliers included");
+        foreach (var mapping in ChitakTechISRUBiomeConfig.MultiplierFields)
         {
-            var field = typeof(KhemistryISRUBiomeConfig).GetField(mapping.Value);
+            var field = typeof(ChitakTechISRUBiomeConfig).GetField(mapping.Value);
             Check((double)field.GetValue(effective) == 24, mapping.Key + " combines biome and maintenance types");
             Check((double)field.GetValue(biome) == 2, mapping.Key + " leaves shared config unchanged");
         }
@@ -91,8 +91,8 @@ internal static class Program
         var stage = Stage(1, 10); stage.fixTime = 3;
         stage.resources["Tape"] = 2; stage.tools["Wrench"] = 1; stage.evaFixers[0] = 1;
         stage.crewFixers[1] = 1; stage.fixersCrewSamePart = true;
-        var definition = Definition(stage); var recipe = new KhemistryISRURecipe(); recipe.maintenance.Add(definition);
-        var converter = new KhemistryISRU { _activeRecipe = recipe };
+        var definition = Definition(stage); var recipe = new ChitakTechISRURecipe(); recipe.maintenance.Add(definition);
+        var converter = new ChitakTechISRU { _activeRecipe = recipe };
         var state = converter.State(definition); state.Activate(stage);
         converter.FixMaintenance(); converter.Tick(1);
         Check(state.repairProgress == 0 && state.repairStatus == "missing fixers", "manual repair waits for both fixer groups");
@@ -102,12 +102,12 @@ internal static class Program
         converter.Tick(1); Check(state.repairProgress == 0, "same-part restriction excludes crew on another part");
         converter.part.protoModuleCrew.Add(new ProtoCrewMember { trait = "Pilot" });
         converter.Tick(1); Check(state.repairStatus == "missing Tape", "missing supplies pause repairs");
-        var tape = new KhemistryResourceNetwork.Endpoint { resourceName = "Tape", amount = 5 };
-        var wrench = new KhemistryResourceNetwork.Endpoint { resourceName = "Wrench", amount = 1 };
+        var tape = new ChitakTechResourceNetwork.Endpoint { resourceName = "Tape", amount = 5 };
+        var wrench = new ChitakTechResourceNetwork.Endpoint { resourceName = "Wrench", amount = 1 };
         converter.part.resources.Add(tape); converter.part.resources.Add(wrench);
         converter.Tick(1); Check(state.repairProgress == 1 && tape.amount == 5, "supplies consumed only at completion");
         var saved = new ConfigNode(); converter.ToggleAutoMaintenanceFixing(); converter.SaveState(saved);
-        var restored = new KhemistryISRU { _activeRecipe = recipe, part = converter.part, vessel = converter.vessel };
+        var restored = new ChitakTechISRU { _activeRecipe = recipe, part = converter.part, vessel = converter.vessel };
         restored.LoadState(saved); var restoredState = restored.State(definition);
         Check(restored.autoMaintenanceFixing && restoredState.repairProgress == 1 && restoredState.manualRepair
             && restoredState.activeOrder == 1, "save/load retains repairs, active order and auto toggle");
@@ -139,7 +139,7 @@ internal static class Program
         var type = root.GetNodes("MAINTENANCE").Single();
         var duplicate = type.AddNode("STAGE");
         duplicate.AddValue("order", 1); duplicate.AddValue("status", "Duplicate"); duplicate.AddValue("time", 5);
-        Check(!new KhemistryISRURecipe().ParseMaintenance(root), "duplicate stage orders invalidate maintenance");
+        Check(!new ChitakTechISRURecipe().ParseMaintenance(root), "duplicate stage orders invalidate maintenance");
 
         root = Config(out node); type = root.GetNodes("MAINTENANCE").Single();
         foreach (int order in new[] { 10, 42, 26, 50, 60, 70 })
@@ -153,7 +153,7 @@ internal static class Program
         node.AddValue("requiredOrdersOR", "60,70");
         node.AddValue("requiredOrderNOT", "50");
         node.AddValue("requiredOrderNOT", "1");
-        var recipe = new KhemistryISRURecipe();
+        var recipe = new ChitakTechISRURecipe();
         Check(recipe.ParseMaintenance(root), "repeated AND/OR/NOT conditions parse with whitespace");
         var stage = recipe.maintenance.Single().stages.Single(s => s.order == 1);
         var state = new MaintenanceState();
@@ -170,12 +170,12 @@ internal static class Program
         foreach (var bad in new[] { "", "10,", "10,,42", "1.5", "2147483648", "unknown" })
         {
             root = Config(out node); node.AddValue("requiredOrdersAND", bad);
-            Check(!new KhemistryISRURecipe().ParseMaintenance(root), "malformed prerequisite is rejected: " + bad);
+            Check(!new ChitakTechISRURecipe().ParseMaintenance(root), "malformed prerequisite is rejected: " + bad);
         }
         root = Config(out node); node.AddValue("requiredOrderNOT", "1,2");
-        Check(!new KhemistryISRURecipe().ParseMaintenance(root), "NOT accepts only a single order per value");
+        Check(!new ChitakTechISRURecipe().ParseMaintenance(root), "NOT accepts only a single order per value");
         root = Config(out node); node.AddValue("requiredOrdersOR", "999");
-        Check(!new KhemistryISRURecipe().ParseMaintenance(root), "undefined referenced order is rejected");
+        Check(!new ChitakTechISRURecipe().ParseMaintenance(root), "undefined referenced order is rejected");
 
         var first = Stage(3, 5); var gated = Stage(2, 10, true); var final = Stage(1, 20, true);
         gated.requiredOrdersAND.Add(3);
@@ -207,11 +207,11 @@ internal static class Program
         state.Repair(definition);
         Check(state.occurredOrders.SetEquals(new[] { 1, 2 }), "a predecessor activated by repair is recorded");
 
-        recipe = new KhemistryISRURecipe(); recipe.maintenance.Add(definition);
-        var converter = new KhemistryISRU { _activeRecipe = recipe };
+        recipe = new ChitakTechISRURecipe(); recipe.maintenance.Add(definition);
+        var converter = new ChitakTechISRU { _activeRecipe = recipe };
         converter.State(definition).occurredOrders.UnionWith(new[] { 1, 2 });
         var save = new ConfigNode(); converter.SaveState(save);
-        var restored = new KhemistryISRU { _activeRecipe = recipe }; restored.LoadState(save);
+        var restored = new ChitakTechISRU { _activeRecipe = recipe }; restored.LoadState(save);
         Check(restored.State(definition).occurredOrders.SetEquals(new[] { 1, 2 }), "full history persists even after returning to optimal");
         var otherDefinition = Definition(Stage(1, 10)); otherDefinition.name = "Other type";
         Check(restored.State(otherDefinition).occurredOrders.Count == 0, "history is isolated between maintenance types");

@@ -1,0 +1,437 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+
+namespace ChitakTech
+{
+    /// <summary>
+    /// A PartModule that stores <see cref="ChitakTechMaterialInstance"/> and merges them as needed.
+    /// Uses a completely different resource system than stock KSP.
+    /// </summary>
+    public partial class ChitakTechMaterialStorage : PartModule
+    {
+        /// <summary>Maximum volume held by this storage.</summary>
+        [KSPField(isPersistant = false)]
+        public float volume = 1f;
+
+        /// <summary>Displays used volume as "Volume Used: [0 / 0]"</summary>
+        [KSPField(isPersistant = false, guiActive = true, guiActiveEditor = true,
+                  guiName = "Volume Used", groupName = "chitaktechmatstorage")]
+        public string volumeDisplay = "0 / 0";
+
+        /// <summary>List of supported material names.</summary>
+        public List<string> supportedNames = new List<string>();
+        /// <summary>List of supported material shapes.</summary>
+        public List<string> supportedShapes = new List<string>();
+        /// <summary>Dictionary of parameter requirements as param: requirement.</summary>
+        public Dictionary<string, string> paramRequirements = new Dictionary<string, string>();
+
+        /// <summary>The list of currently stored <see cref="ChitakTechMaterialInstance"/>.</summary>
+        public List<ChitakTechMaterialInstance> contents = new List<ChitakTechMaterialInstance>();
+        /// <summary>Whether a fatal config node occured. If true, module should not function.</summary>
+        private bool _fatalConfigError = false;
+        private readonly List<ConfigNode> _pendingSavedContents = new List<ConfigNode>();
+
+        public override void OnLoad(ConfigNode node)
+        {
+            base.OnLoad(node);
+            contents.Clear();
+            _pendingSavedContents.Clear();
+            foreach (ConfigNode savedNode in node.GetNodes("STORED_MATERIAL"))
+            {
+                ConfigNode copy = new ConfigNode("STORED_MATERIAL");
+                savedNode.CopyTo(copy);
+                _pendingSavedContents.Add(copy);
+            }
+        }
+
+        public override void OnSave(ConfigNode node)
+        {
+            base.OnSave(node);
+
+            while (node.HasNode("STORED_MATERIAL")) node.RemoveNode("STORED_MATERIAL");
+
+            // OnSave can run before OnStart (and a bad future config can prevent a
+            // saved stack from being restored). Keep those opaque nodes verbatim so
+            // a temporary configuration problem never erases a player's materials.
+            foreach (ConfigNode pendingNode in _pendingSavedContents)
+            {
+                ConfigNode copy = new ConfigNode("STORED_MATERIAL");
+                pendingNode.CopyTo(copy);
+                node.AddNode(copy);
+            }
+
+            foreach (ChitakTechMaterialInstance material in contents)
+                if (material != null && material.amount > 0)
+                    node.AddNode(material.ToConfigNode());
+        }
+
+        public override void OnStart(StartState state)
+        {
+            base.OnStart(state);
+
+            _fatalConfigError = false;
+            LoadConfigFromPartInfo();
+
+            if (_fatalConfigError)
+            {
+                foreach (BaseEvent e in Events) e.active = false;
+                return;
+            }
+
+            _environment.Update(part);
+            _restoringContents = true;
+            try { RestoreSavedContents(); }
+            finally { _restoringContents = false; }
+            CheckStorageEnvironment();
+        }
+
+        /// <summary>Restore the storage from saved contents.</summary>
+        private void RestoreSavedContents()
+        {
+            List<ConfigNode> savedContents = new List<ConfigNode>(_pendingSavedContents);
+            _pendingSavedContents.Clear();
+            foreach (ConfigNode savedNode in savedContents)
+            {
+                if (!ChitakTechMaterialInstance.TryFromConfigNode(savedNode, out ChitakTechMaterialInstance material,
+                        "ChitakTechMaterialStorage/RestoreSavedContents"))
+                {
+                    _pendingSavedContents.Add(savedNode);
+                    continue;
+                }
+
+                if (!AddMaterial(material))
+                {
+                    CTShared.LogError(
+                        "Saved material \"" + material.material.name + "\" no longer fits or is no longer supported by part \"" + part.name + "\".",
+                        "ChitakTechMaterialStorage/RestoreSavedContents");
+                    _pendingSavedContents.Add(savedNode);
+                }
+            }
+        }
+
+        public void FixedUpdate()
+        {
+            if (_fatalConfigError || !CheckStorageEnvironment()) { UpdateUI(); return; }
+            // Apply tank-caused contamination to all materials on the part
+            // !TODO
+
+            contents.RemoveAll(material => material == null || material.amount <= 0);
+
+            // Complete a separate exact pass before applying any contamination formula. A
+            // one-pass Merge || ContaminatedMerge loop could contaminate the first stack before
+            // reaching a later exact match, making non-associative custom formulas list-order
+            // dependent even when exact consolidation was possible.
+            for (int i = 0; i < contents.Count; i++)
+            {
+                for (int j = i + 1; j < contents.Count;)
+                {
+                    if (contents[i].Merge(contents[j]))
+                        contents.RemoveAt(j);
+                    else
+                        j++;
+                }
+            }
+
+            // Contaminate only after every original exact stack has been consolidated. Try an
+            // exact merge again because an earlier contamination result can legitimately become
+            // identical to a later stack.
+            for (int i = 0; i < contents.Count; i++)
+            {
+                for (int j = i + 1; j < contents.Count;)
+                {
+                    ChitakTechMaterialInstance receiver = contents[i];
+                    ChitakTechMaterialInstance incoming = contents[j];
+                    bool exactMerge = receiver.Merge(incoming);
+                    if (exactMerge || receiver.ContaminatedMerge(incoming))
+                    {
+                        if (!exactMerge)
+                            CTShared.Log(
+                                $"Instance of {incoming.material.name} was contamination-merged into {receiver.material.name}.",
+                                "ChitakTechMaterialStorage/FixedUpdate/contaminatedMergeLogic"
+                            );
+
+                        contents.RemoveAt(j);
+                    }
+                    else j++;
+                }
+            }
+
+            // Reflect merges in the same physics update instead of displaying stale contents.
+            UpdateUI();
+        }
+
+        private void LoadConfigFromPartInfo()
+        {
+            if (part.partInfo?.partConfig == null)
+            {
+                CTShared.LogError("partInfo.partConfig is null!",
+                    "ChitakTechMaterialStorage/LoadConfigFromPartInfo");
+                _fatalConfigError = true;
+                return;
+            }
+
+            ConfigNode moduleNode = CTShared.FindModuleConfigNode(this,
+                "ChitakTechMaterialStorage");
+
+            if (moduleNode == null)
+            {
+                CTShared.LogError("Could not find MODULE node in partConfig!",
+                    "ChitakTechMaterialStorage/LoadConfigFromPartInfo");
+                _fatalConfigError = true;
+                return;
+            }
+
+            if (float.IsNaN(volume) || float.IsInfinity(volume) || volume <= 0f)
+            {
+                CTShared.LogError(
+                    "Part \"" + part.name + "\" has an invalid ChitakTechMaterialStorage volume. This module will not load.",
+                    "ChitakTechMaterialStorage/LoadConfigFromPartInfo");
+                _fatalConfigError = true;
+                return;
+            }
+
+            if (!_environment.Load(moduleNode, false)) { _fatalConfigError = true; return; }
+            supportedNames.Clear();
+            if (!moduleNode.HasNode("SUPPORTED_NAMES"))
+            {
+                CTShared.LogError(
+                    "Part \"" + part.name + "\" has ChitakTechMaterialStorage but no SUPPORTED_NAMES node. This module will not load.",
+                    "ChitakTechMaterialStorage/LoadConfigFromPartInfo");
+                _fatalConfigError = true;
+                return;
+            }
+            foreach (string n in moduleNode.GetNode("SUPPORTED_NAMES").GetValues("name"))
+            {
+                string trimmed = n?.Trim();
+                if (!string.IsNullOrEmpty(trimmed) && !supportedNames.Contains(trimmed))
+                    supportedNames.Add(trimmed);
+            }
+            if (supportedNames.Count == 0)
+            {
+                CTShared.LogError(
+                    "Part \"" + part.name + "\" has ChitakTechMaterialStorage with an empty SUPPORTED_NAMES node. This module will not load.",
+                    "ChitakTechMaterialStorage/LoadConfigFromPartInfo");
+                _fatalConfigError = true;
+                return;
+            }
+
+            supportedShapes.Clear();
+            if (!moduleNode.HasNode("SUPPORTED_SHAPES"))
+            {
+                CTShared.LogError(
+                    "Part \"" + part.name + "\" has ChitakTechMaterialStorage but no SUPPORTED_SHAPES node. This module will not load.",
+                    "ChitakTechMaterialStorage/LoadConfigFromPartInfo");
+                _fatalConfigError = true;
+                return;
+            }
+            foreach (string n in moduleNode.GetNode("SUPPORTED_SHAPES").GetValues("name"))
+            {
+                string trimmed = n?.Trim();
+                if (!string.IsNullOrEmpty(trimmed) && !supportedShapes.Contains(trimmed))
+                    supportedShapes.Add(trimmed);
+            }
+            if (supportedShapes.Count == 0)
+            {
+                CTShared.LogError(
+                    "Part \"" + part.name + "\" has ChitakTechMaterialStorage with an empty SUPPORTED_SHAPES node. This module will not load.",
+                    "ChitakTechMaterialStorage/LoadConfigFromPartInfo");
+                _fatalConfigError = true;
+                return;
+            }
+
+            paramRequirements.Clear();
+            if (!moduleNode.HasNode("PARAM_REQUIREMENTS")) return;
+
+            paramRequirements = CTShared.NodeToDictionary(moduleNode.GetNode("PARAM_REQUIREMENTS"));
+            if (paramRequirements.Keys.Count == 0)
+            {
+                CTShared.LogError(
+                    "Part \"" + part.name + "\" has ChitakTechMaterialStorage with an empty PARAM_REQUIREMENTS node. This module will not load.",
+                    "ChitakTechMaterialStorage/LoadConfigFromPartInfo");
+                _fatalConfigError = true;
+                return;
+            }
+        }
+
+        /// <summary>
+        /// Add a material instance to storage.
+        /// If the material is already present, it will be merged with the existing one.
+        /// </summary>
+        /// <param name="mat">The material instance to add to storage.</param>
+        /// <returns>Whether the material met the storage restrictions and there was enough space.</returns>
+        public bool AddMaterial(ChitakTechMaterialInstance mat)
+        {
+            if (_fatalConfigError || !CheckStorageEnvironment() || !AcceptsMaterial(mat))
+                return false;
+
+            double incomingVolume = mat.TotalVolume;
+            if (EffectiveVolume <= 0) return false;
+            double capacityTolerance = Math.Max(1e-12, System.Math.Abs(EffectiveVolume) * 1e-6);
+            if (double.IsNaN(incomingVolume) || double.IsInfinity(incomingVolume)
+                || ComputeCurrentVolume(incomingVolume) > EffectiveVolume + capacityTolerance)
+                return false;
+
+            foreach (ChitakTechMaterialInstance m in contents)
+                if (m.Merge(mat))
+                    return true;
+
+            contents.Add(mat);
+            return true;
+        }
+
+        /// <summary>
+        /// Restores a piece removed by an in-progress transaction. The piece was already accepted
+        /// and occupied capacity in this exact container, so reapplying current restrictions could
+        /// lose it when an amount-dependent derived parameter changed during the split.
+        /// </summary>
+        internal bool RestoreRemovedMaterial(ChitakTechMaterialInstance mat)
+        {
+            if (mat?.material == null || mat.amount <= 0 || mat.volume <= 0f
+                || float.IsNaN(mat.volume) || float.IsInfinity(mat.volume))
+                return false;
+            foreach (ChitakTechMaterialInstance existing in contents)
+                if (existing != null && existing.Merge(mat))
+                    return true;
+            contents.Add(mat);
+            return true;
+        }
+
+        private bool AcceptsMaterial(ChitakTechMaterialInstance mat)
+        {
+            if (mat?.material == null || mat.amount <= 0
+                || float.IsNaN(mat.volume) || float.IsInfinity(mat.volume) || mat.volume <= 0f)
+                return false;
+
+            if (!supportedNames.Contains(mat.material.name) || !supportedShapes.Contains(mat.shape))
+                return false;
+
+            mat.UpdateParams("ChitakTechMaterialStorage/AcceptsMaterial");
+            foreach (KeyValuePair<string, string> requirement in paramRequirements)
+            {
+                if (!mat.parameters.TryGetValue(requirement.Key, out string value)
+                    || !CTShared.EvaluateParamComparison(value, requirement.Value))
+                    return false;
+            }
+            return true;
+        }
+
+        [KSPEvent(guiActive = true, guiActiveEditor = true,
+                  guiName = "Material Storage Contents",
+                  groupName = "chitaktechmatstorage",
+                  groupDisplayName = "ChitakTech Material Container",
+                  groupStartCollapsed = false)]
+        public void OpenMaterialStorageContents()
+        {
+            CTShared.Instance?.ShowMaterialContents("Material Storage Contents",
+                () => part == null ? null : contents,
+                (material, amount) => part != null && MaterialDrop.TryDrop(contents, material, amount));
+        }
+
+        public static bool MatchesMaterial(ChitakTechMaterialInstance material, string name, string shape,
+            string size, IEnumerable<KeyValuePair<string, string>> paramConditions)
+        {
+            if (material?.material == null || material.material.name != name
+                || material.shape != shape || material.size != size)
+                return false;
+
+            material.UpdateParams("ChitakTechMaterialStorage/MatchesMaterial");
+            foreach (KeyValuePair<string, string> condition in
+                     paramConditions ?? new Dictionary<string, string>())
+            {
+                if (!material.parameters.TryGetValue(condition.Key, out string value)
+                    || !CTShared.EvaluateParamComparison(value, condition.Value))
+                    return false;
+            }
+            return true;
+        }
+
+        public int GetMatchingMaterialAmount(string name, string shape, string size,
+            IEnumerable<KeyValuePair<string, string>> paramConditions)
+        {
+            if (_fatalConfigError || !CheckStorageEnvironment()) return 0;
+            long total = 0;
+            foreach (ChitakTechMaterialInstance material in contents)
+                if (MatchesMaterial(material, name, shape, size, paramConditions))
+                {
+                    total += material.amount;
+                    if (total >= int.MaxValue) return int.MaxValue;
+                }
+            return (int)total;
+        }
+
+        /// <summary>
+        /// Removes a requirement atomically, combining matching stacks within this storage.
+        /// The exact removed instances are returned so a caller can roll the transaction back.
+        /// </summary>
+        public bool TryRemoveMaterial(string name, string shape, string size,
+            IEnumerable<KeyValuePair<string, string>> paramConditions, int amount,
+            out List<ChitakTechMaterialInstance> removed)
+        {
+            removed = new List<ChitakTechMaterialInstance>();
+            if (amount <= 0 || GetMatchingMaterialAmount(name, shape, size, paramConditions) < amount)
+                return false;
+
+            int remaining = amount;
+            foreach (ChitakTechMaterialInstance stored in contents.ToList())
+            {
+                if (!MatchesMaterial(stored, name, shape, size, paramConditions)) continue;
+
+                int take = Math.Min(remaining, stored.amount);
+                ChitakTechMaterialInstance piece = new ChitakTechMaterialInstance(stored) { amount = take };
+                piece.UpdateParams("ChitakTechMaterialStorage/TryRemoveMaterial");
+                removed.Add(piece);
+
+                if (take == stored.amount) contents.Remove(stored);
+                else
+                {
+                    stored.amount -= take;
+                    stored.UpdateParams("ChitakTechMaterialStorage/TryRemoveMaterial");
+                }
+
+                remaining -= take;
+                if (remaining == 0) return true;
+            }
+
+            foreach (ChitakTechMaterialInstance piece in removed) RestoreRemovedMaterial(piece);
+            removed.Clear();
+            return false;
+        }
+
+        /// <summary>
+        /// Compute the current volume taken up by the contents of this storage.
+        /// Can accept a value to add to the total volume, usually used to check if adding a new material would exceed capacity.
+        /// </summary>
+        /// <param name="usedVolume">An additional amount to add to the volume being used.</param>
+        /// <returns>How much volume is used.</returns>
+        private double ComputeCurrentVolume(double usedVolume = 0.0)
+        {
+            foreach (ChitakTechMaterialInstance m in contents)
+                if (m != null)
+                    usedVolume += m.TotalVolume;
+            foreach (ConfigNode pending in _pendingSavedContents)
+            {
+                if (!ChitakTechMaterialInstance.TryGetSerializedTotalVolume(pending,
+                        out double pendingVolume))
+                    return double.PositiveInfinity;
+                usedVolume += pendingVolume;
+                if (double.IsNaN(usedVolume) || double.IsInfinity(usedVolume))
+                    return double.PositiveInfinity;
+            }
+            return usedVolume;
+        }
+
+        private void UpdateUI()
+        {
+            foreach (ChitakTechMaterialInstance m in contents)
+            {
+                if (m?.material == null || m.amount <= 0) continue;
+                m.UpdateParams("ChitakTechMaterialStorage/UpdateUI");
+            }
+            double usedVolume = ComputeCurrentVolume();
+            volumeDisplay = double.IsNaN(usedVolume) || double.IsInfinity(usedVolume)
+                ? $"Preserved saved material / {EffectiveVolume:F10}"
+                : $"{usedVolume:F10} / {EffectiveVolume:F10}";
+        }
+    }
+}

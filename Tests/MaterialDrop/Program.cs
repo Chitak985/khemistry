@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
-using Khemistry;
-namespace Khemistry
+using ChitakTech;
+namespace ChitakTech
 {
-    public class KhemistryMaterialInstance
+    public class ChitakTechMaterialInstance
     {
         public int amount, updates;
         public void UpdateParams(string context) { updates++; }
@@ -17,9 +17,9 @@ class Program
     {
         try
         {
-            var selected = new KhemistryMaterialInstance { amount = 10 };
-            var other = new KhemistryMaterialInstance { amount = 10 };
-            var contents = new List<KhemistryMaterialInstance> { selected, other };
+            var selected = new ChitakTechMaterialInstance { amount = 10 };
+            var other = new ChitakTechMaterialInstance { amount = 10 };
+            var contents = new List<ChitakTechMaterialInstance> { selected, other };
             foreach (var input in new[] { "", "0", "-1", "1.5", "1e2", "2147483648", "11" })
                 Check(!MaterialDrop.TryReadAmount(input, 10, out _), "Invalid input: " + input);
             Check(MaterialDrop.TryReadAmount("10", 10, out int value) && value == 10, "Exact maximum");

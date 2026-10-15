@@ -14,17 +14,17 @@
     <Compile Include="CargoRecipeTests.cs" />
     <Compile Include="ChoiceSettingTests.cs" />
     <Compile Include="SettingStateTests.cs" />
-    <Compile Include="../../KhemistryDLLs/Khemistry/PartModules/KhemistryISRU/ISRUSettings.cs" Link="ISRUSettings.cs" />
-    <Compile Include="../../KhemistryDLLs/Khemistry/PartModules/KhemistryISRU/ISRUSettingConfig.cs" Link="ISRUSettingConfig.cs" />
-    <Compile Include="../../KhemistryDLLs/Khemistry/PartModules/KhemistryISRU/ISRUCargoConfig.cs" Link="ISRUCargoConfig.cs" />
-    <Compile Include="../../KhemistryDLLs/KhemistryConstructionOverhaul/ConstructionMaterialCosts.cs" Link="ConstructionMaterialCosts.cs" />
-    <None Include="../../Khemistry/Parts/Basins/WoodenBasin/WoodenBasin.cfg" Link="WoodenWashingBasin.cfg" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="../../Khemistry/Definitions/KhemistryRecipes/washing.cfg" Link="washing.cfg" CopyToOutputDirectory="PreserveNewest" />
-    <Compile Include="../../KhemistryDLLs/Khemistry/PartModules/KhemistryISRU/ISRURecipe.cs" Link="ISRURecipe.cs" />
-    <None Include="../../Khemistry/Definitions/KhemistryRecipes/kerbalEva.cfg" Link="kerbalEva.cfg" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="../../Khemistry/Definitions/KhemistryMaterials/materials.cfg" Link="materials.cfg" CopyToOutputDirectory="PreserveNewest" />
-    <Compile Include="../../KhemistryDLLs/Khemistry/KMathExpr.cs" Link="KMathExpr.cs" />
-    <Compile Include="../../KhemistryDLLs/Khemistry/MaterialSystem/MaterialParameterCondition.cs" Link="MaterialParameterCondition.cs" />
-    <Compile Include="../../KhemistryDLLs/Khemistry/KShared/KSharedParameterComparison.cs" Link="KSharedParameterComparison.cs" />
+    <Compile Include="../../ChitakTechDLLs/ChitakTech/PartModules/ChitakTechISRU/ISRUSettings.cs" Link="ISRUSettings.cs" />
+    <Compile Include="../../ChitakTechDLLs/ChitakTech/PartModules/ChitakTechISRU/ISRUSettingConfig.cs" Link="ISRUSettingConfig.cs" />
+    <Compile Include="../../ChitakTechDLLs/ChitakTech/PartModules/ChitakTechISRU/ISRUCargoConfig.cs" Link="ISRUCargoConfig.cs" />
+    <Compile Include="../../ChitakTechDLLs/ChitakTech/ConstructionResources/ConstructionMaterialCosts.cs" Link="ConstructionMaterialCosts.cs" />
+    <None Include="../../ChitakTech/Parts/Basins/WoodenBasin/WoodenBasin.cfg" Link="WoodenWashingBasin.cfg" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../ChitakTech/Definitions/Recipes/washing.cfg" Link="washing.cfg" CopyToOutputDirectory="PreserveNewest" />
+    <Compile Include="../../ChitakTechDLLs/ChitakTech/PartModules/ChitakTechISRU/ISRURecipe.cs" Link="ISRURecipe.cs" />
+    <None Include="../../ChitakTech/Definitions/Recipes/kerbalEva.cfg" Link="kerbalEva.cfg" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../ChitakTech/Definitions/Materials/materials.cfg" Link="materials.cfg" CopyToOutputDirectory="PreserveNewest" />
+    <Compile Include="../../ChitakTechDLLs/ChitakTech/CTMathExpr.cs" Link="CTMathExpr.cs" />
+    <Compile Include="../../ChitakTechDLLs/ChitakTech/MaterialSystem/MaterialParameterCondition.cs" Link="MaterialParameterCondition.cs" />
+    <Compile Include="../../ChitakTechDLLs/ChitakTech/CTShared/ParameterComparison.cs" Link="CTSharedParameterComparison.cs" />
   </ItemGroup>
 </Project>

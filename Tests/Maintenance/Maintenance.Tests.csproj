@@ -7,9 +7,9 @@
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="Stubs.cs" />
-    <Compile Include="../../KhemistryDLLs/Khemistry/PartModules/KhemistryISRU/MaintenanceState.cs" Link="MaintenanceState.cs" />
-    <Compile Include="../../KhemistryDLLs/Khemistry/PartModules/KhemistryISRU/ISRUMaintenanceConfig.cs" Link="ISRUMaintenanceConfig.cs" />
-    <Compile Include="../../KhemistryDLLs/Khemistry/PartModules/KhemistryISRU/ISRUMaintenance.cs" Link="ISRUMaintenance.cs" />
-    <Compile Include="../../KhemistryDLLs/Khemistry/PartModules/KhemistryISRU/ISRUBiomeConfig.cs" Link="ISRUBiomeConfig.cs" />
+    <Compile Include="../../ChitakTechDLLs/ChitakTech/PartModules/ChitakTechISRU/MaintenanceState.cs" Link="MaintenanceState.cs" />
+    <Compile Include="../../ChitakTechDLLs/ChitakTech/PartModules/ChitakTechISRU/ISRUMaintenanceConfig.cs" Link="ISRUMaintenanceConfig.cs" />
+    <Compile Include="../../ChitakTechDLLs/ChitakTech/PartModules/ChitakTechISRU/ISRUMaintenance.cs" Link="ISRUMaintenance.cs" />
+    <Compile Include="../../ChitakTechDLLs/ChitakTech/PartModules/ChitakTechISRU/ISRUBiomeConfig.cs" Link="ISRUBiomeConfig.cs" />
   </ItemGroup>
 </Project>

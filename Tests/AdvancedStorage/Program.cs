@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Khemistry;
+using ChitakTech;
 
 static partial class Program
 {
@@ -12,13 +12,13 @@ static partial class Program
         if (Math.Abs(expected - actual) > 1e-8 || double.IsNaN(actual))
             throw new Exception(message + ": expected " + expected + ", got " + actual);
     }
-    static (Part, KhemistryAdvancedStorage, BaseConverter) Setup()
+    static (Part, ChitakTechStorage, BaseConverter) Setup()
     {
         UnityEngine.Time.fixedTime++;
         var vessel = new Vessel();
         var part = new Part { vessel = vessel };
         vessel.parts.Add(part);
-        var storage = new KhemistryAdvancedStorage { part = part };
+        var storage = new ChitakTechStorage { part = part };
         storage.Ready();
         var converter = new BaseConverter { part = part };
         part.Modules.Add(storage); part.Modules.Add(converter);
@@ -42,11 +42,11 @@ static partial class Program
         Equal(7, storage.PutResource("A", 7), "fill A");
         Equal(3, storage.PutResource("B", 7), "shared capacity");
         Equal(0, storage.PutResource("A", 1), "no overfill");
-        storage.state = KShared.ChargablePartState.Off;
+        storage.state = CTShared.ChargablePartState.Off;
         Equal(0, storage.TakeResource("A", 4), "off blocks withdrawal");
         Equal(0, storage.PutResource("B", 4), "off blocks filling");
         Equal(7, storage.GetStoredAmount("A"), "off preserves contents");
-        storage.state = KShared.ChargablePartState.On;
+        storage.state = CTShared.ChargablePartState.On;
         Equal(0, storage.PutResource("unknown", 1), "unsupported filling");
         Equal(0, storage.PutResource("A", double.NaN), "NaN rejection");
         Equal(0, part.Resources.Count, "no stock tanks created");
@@ -54,7 +54,7 @@ static partial class Program
         Equal(20, storage.GetModuleCost(0, ModifierStagingSituation.CURRENT), "contents cost");
         var saved = new ConfigNode();
         storage.OnSave(saved);
-        var restored = new KhemistryAdvancedStorage();
+        var restored = new ChitakTechStorage();
         restored.OnLoad(saved); restored.Ready();
         Equal(7, restored.GetStoredAmount("A"), "save/load A");
         Equal(3, restored.GetStoredAmount("B"), "save/load B");
@@ -88,34 +88,34 @@ static partial class Program
         Equal(0, storage.TakeResource("A", 1), "zero output rate");
         UnityEngine.Time.fixedTime++;
         Equal(4, storage.PutResource("A", 4), "next tick replenishes budget");
-        var ledger = new List<KhemistryResourceNetwork.Transfer>();
+        var ledger = new List<ChitakTechResourceNetwork.Transfer>();
         storage.maxInputRate = -1; storage.maxOutputRate = -1;
-        Equal(7, KhemistryResourceNetwork.Request(part, "A", 7,
+        Equal(7, ChitakTechResourceNetwork.Request(part, "A", 7,
             ResourceFlowMode.ALL_VESSEL, ledger), "dictionary network withdrawal");
-        storage.state = KShared.ChargablePartState.Off;
-        KhemistryResourceNetwork.Rollback(ledger);
+        storage.state = CTShared.ChargablePartState.Off;
+        ChitakTechResourceNetwork.Rollback(ledger);
         Equal(7, storage.GetStoredAmount("A"), "rollback bypasses changed state");
         Equal(0, ledger.Count, "rollback is single-use");
-        storage.state = KShared.ChargablePartState.On;
-        KhemistryResourceNetwork.Request(part, "A", 5, ResourceFlowMode.ALL_VESSEL, ledger);
-        KhemistryResourceNetwork.RollbackAmount(ledger, 2);
+        storage.state = CTShared.ChargablePartState.On;
+        ChitakTechResourceNetwork.Request(part, "A", 5, ResourceFlowMode.ALL_VESSEL, ledger);
+        ChitakTechResourceNetwork.RollbackAmount(ledger, 2);
         Equal(4, storage.GetStoredAmount("A"), "partial passive rollback");
-        KhemistryResourceNetwork.Rollback(ledger);
+        ChitakTechResourceNetwork.Rollback(ledger);
         Equal(7, storage.GetStoredAmount("A"), "remaining rollback");
 
         (part, storage, converter) = Setup();
         storage.PutResource("A", 3);
         part.Resources.Add(new PartResource { resourceName = "A", amount = 4, maxAmount = 10 });
-        Equal(7, KhemistryResourceNetwork.Request(part, "A", 9,
+        Equal(7, ChitakTechResourceNetwork.Request(part, "A", 9,
             ResourceFlowMode.ALL_VESSEL, ledger), "mixed source partial draw");
-        KhemistryResourceNetwork.Rollback(ledger);
+        ChitakTechResourceNetwork.Rollback(ledger);
         Equal(3, storage.GetStoredAmount("A"), "internal refund to exact source");
         Equal(4, part.Resources[0].amount, "stock refund to exact source");
-        var internalEndpoint = KhemistryResourceNetwork.GetEndpoints(part).First(e => e.storage == storage);
-        storage.state = KShared.ChargablePartState.Off;
+        var internalEndpoint = ChitakTechResourceNetwork.GetEndpoints(part).First(e => e.storage == storage);
+        storage.state = CTShared.ChargablePartState.Off;
         Equal(0, internalEndpoint.Request(1), "selector rechecks storage state");
-        storage.state = KShared.ChargablePartState.On;
-        var stockEndpoint = KhemistryResourceNetwork.GetEndpoints(part).First(e => e.stock != null);
+        storage.state = CTShared.ChargablePartState.On;
+        var stockEndpoint = ChitakTechResourceNetwork.GetEndpoints(part).First(e => e.stock != null);
         part.Resources[0].flowState = false;
         Equal(0, stockEndpoint.Request(1), "ordinary tank lock respected");
         part.Resources[0].flowState = true;
@@ -124,17 +124,17 @@ static partial class Program
         part.Modules.Add(storage);
         var remote = new Part { vessel = part.vessel };
         part.vessel.parts.Add(remote);
-        Equal(0, KhemistryResourceNetwork.Request(remote, "A", 1,
+        Equal(0, ChitakTechResourceNetwork.Request(remote, "A", 1,
             ResourceFlowMode.NO_FLOW), "NO_FLOW");
         remote.crossfeed = false;
-        Equal(0, KhemistryResourceNetwork.Request(remote, "A", 1,
+        Equal(0, ChitakTechResourceNetwork.Request(remote, "A", 1,
             ResourceFlowMode.STAGE_PRIORITY_FLOW), "crossfeed barrier");
 
         (part, storage, converter) = Setup();
         converter.inputList.Add(new ResourceRatio { ResourceName = "A" });
         converter.outputList.Add(new ResourceRatio { ResourceName = "B" });
         storage.PutResource("A", 4);
-        var broker = new KhemistryStockResourceBroker(new ResourceBroker(), converter);
+        var broker = new ChitakTechStockResourceBroker(new ResourceBroker(), converter);
         Equal(4, broker.AmountAvailable(part, 1, 1, ResourceFlowMode.ALL_VESSEL), "stock sees internal input");
         Equal(4, broker.RequestResource(part, 1, 4, 1, ResourceFlowMode.ALL_VESSEL), "stock consumes internal input");
         Equal(10, broker.StorageAvailable(part, 2, 1, ResourceFlowMode.ALL_VESSEL, 1), "stock sees internal capacity");
@@ -146,7 +146,7 @@ static partial class Program
         converter.outputList.Add(new ResourceRatio { ResourceName = "A" });
         converter.outputList.Add(new ResourceRatio { ResourceName = "B" });
         part.Resources.Add(new PartResource { resourceName = "A", amount = 0, maxAmount = 100 });
-        broker = new KhemistryStockResourceBroker(new ResourceBroker(), converter);
+        broker = new ChitakTechStockResourceBroker(new ResourceBroker(), converter);
         Equal(105, broker.StorageAvailable(part, "A", 1, ResourceFlowMode.ALL_VESSEL, 1), "combined stock/shared quota");
         Equal(5, broker.StorageAvailable(part, "B", 1, ResourceFlowMode.ALL_VESSEL, 1), "other shared quota");
         Equal(-50, broker.StoreResource(part, "A", 50, 1, ResourceFlowMode.ALL_VESSEL), "A cannot steal B quota");
@@ -154,11 +154,11 @@ static partial class Program
         Equal(10, storage.GetStoredResources().Values.Sum(), "shared quota capacity");
         Equal(45, part.Resources[0].amount, "remaining output to stock");
         FlightGlobals.VesselsLoaded = new List<Vessel> { part.vessel };
-        new KhemistryStockStorageBridge().FixedUpdate();
-        Equal(1, converter.ResBroker is KhemistryStockResourceBroker ? 1 : 0, "bridge installs broker");
+        new ChitakTechStockStorageBridge().FixedUpdate();
+        Equal(1, converter.ResBroker is ChitakTechStockResourceBroker ? 1 : 0, "bridge installs broker");
         Equal(1, ReferenceEquals(converter.ResBroker, converter.ResConverter.Broker) ? 1 : 0, "processor bound to same broker");
-        new KhemistryStockStorageBridge().FixedUpdate();
-        Equal(1, converter.ResBroker is KhemistryStockResourceBroker ? 1 : 0, "bridge idempotent");
+        new ChitakTechStockStorageBridge().FixedUpdate();
+        Equal(1, converter.ResBroker is ChitakTechStockResourceBroker ? 1 : 0, "bridge idempotent");
         PassiveTests();
         CapacityTests();
         SharedVolumeTests();

@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Reflection;
-using Khemistry;
+using ChitakTech;
 
 internal static class Program
 {
@@ -43,7 +43,7 @@ internal static class Program
     {
         Assert(MaterialParameterCondition.TryResolve(condition, Setting, out string resolved,
             out string error), condition + ": " + error);
-        Assert(KShared.EvaluateParamComparison(actual, resolved) == expected,
+        Assert(CTShared.EvaluateParamComparison(actual, resolved) == expected,
             condition + " compared against " + actual);
         Assert(MaterialParameterCondition.TryResolve(condition, Setting, out _, out error,
             validateOnly: true), "Validation: " + condition + ": " + error);
@@ -94,29 +94,29 @@ internal static class Program
             Assert(!MaterialParameterCondition.TryResolve(invalid, Setting, out _, out error, true)
                 && !string.IsNullOrEmpty(error), "Validation should reject " + invalid);
         }
-        int calls = KShared.RandomCalls;
+        int calls = CTShared.RandomCalls;
         Assert(MaterialParameterCondition.TryResolve("EMrandf(1,2)", Setting, out _, out _, true),
             "Validate random numeric comparison");
         Assert(MaterialParameterCondition.TryResolve("piece[randf(1,2)]", Setting, out _, out _, true),
             "Validate random equality");
-        Assert(calls == KShared.RandomCalls, "Condition validation must not draw random numbers.");
+        Assert(calls == CTShared.RandomCalls, "Condition validation must not draw random numbers.");
         Match("EMrandf(1,3)", "2", true);
         Match("piece[randf(1,3)]", "piece2", true);
-        Assert(KShared.EvaluateParamComparison("M4", MaterialParameterCondition.LiteralPrefix + "M4"),
+        Assert(CTShared.EvaluateParamComparison("M4", MaterialParameterCondition.LiteralPrefix + "M4"),
             "Resolved equality is never reinterpreted as an operator");
-        Assert(KShared.EvaluateParamComparison("4", "EM3"), "Legacy storage comparison preserved");
-        Assert(!KShared.EvaluateParamComparison("4", "EM2+1"), "Non-ISRU conditions unchanged");
+        Assert(CTShared.EvaluateParamComparison("4", "EM3"), "Legacy storage comparison preserved");
+        Assert(!CTShared.EvaluateParamComparison("4", "EM2+1"), "Non-ISRU conditions unchanged");
     }
 
-    private static KMathExpr.ValueRange Range(string expression, double amin, double amax,
+    private static CTMathExpr.ValueRange Range(string expression, double amin, double amax,
         double bmin, double bmax)
     {
-        var vars = new Dictionary<string, KMathExpr.ValueRange>
+        var vars = new Dictionary<string, CTMathExpr.ValueRange>
         {
-            ["a"] = new KMathExpr.ValueRange(amin, amax),
-            ["b"] = new KMathExpr.ValueRange(bmin, bmax)
+            ["a"] = new CTMathExpr.ValueRange(amin, amax),
+            ["b"] = new CTMathExpr.ValueRange(bmin, bmax)
         };
-        Assert(KMathExpr.TryEvaluateRange(expression, out var range, out string error, vars),
+        Assert(CTMathExpr.TryEvaluateRange(expression, out var range, out string error, vars),
             expression + ": " + error);
         return range;
     }
@@ -132,12 +132,12 @@ internal static class Program
     private static void Reject(string expression, double amin = 0, double amax = 1,
         double bmin = 0, double bmax = 1)
     {
-        var vars = new Dictionary<string, KMathExpr.ValueRange>
+        var vars = new Dictionary<string, CTMathExpr.ValueRange>
         {
-            ["a"] = new KMathExpr.ValueRange(amin, amax),
-            ["b"] = new KMathExpr.ValueRange(bmin, bmax)
+            ["a"] = new CTMathExpr.ValueRange(amin, amax),
+            ["b"] = new CTMathExpr.ValueRange(bmin, bmax)
         };
-        Assert(!KMathExpr.TryEvaluateRange(expression, out _, out string error, vars)
+        Assert(!CTMathExpr.TryEvaluateRange(expression, out _, out string error, vars)
             && !string.IsNullOrEmpty(error), "Expected rejection: " + expression);
     }
 
@@ -178,7 +178,7 @@ internal static class Program
         // Every registered function must parse in both evaluators and bound sampled results.
         foreach (string dictionaryName in new[] { "functions1Arg", "functions2Arg" })
         {
-            var dictionary = (System.Collections.IDictionary)typeof(KMathExpr)
+            var dictionary = (System.Collections.IDictionary)typeof(CTMathExpr)
                 .GetField(dictionaryName, BindingFlags.NonPublic | BindingFlags.Static).GetValue(null);
             foreach (string name in dictionary.Keys)
             {
@@ -192,19 +192,19 @@ internal static class Program
                         ["a"] = (0.25 + i * 0.375).ToString("R", CultureInfo.InvariantCulture),
                         ["b"] = (0.5 + j * 0.25).ToString("R", CultureInfo.InvariantCulture)
                     };
-                    Assert(KMathExpr.TryEvaluate(expression, out double value, out string error, vars),
+                    Assert(CTMathExpr.TryEvaluate(expression, out double value, out string error, vars),
                         expression + ": " + error);
                     Assert(value >= range.Minimum - 1e-12 && value <= range.Maximum + 1e-12,
                         expression + " sample fell outside bounds");
                 }
             }
         }
-        int calls = KShared.RandomCalls;
+        int calls = CTShared.RandomCalls;
         Bounds("randf(Sqrt(1),Pow(2,3))", 0, 0, 0, 0, 1, 8);
-        Assert(calls == KShared.RandomCalls, "Range validation must not draw random numbers.");
-        Assert(KMathExpr.TryEvaluate("randf(1,3)", out double random, out _,
+        Assert(calls == CTShared.RandomCalls, "Range validation must not draw random numbers.");
+        Assert(CTMathExpr.TryEvaluate("randf(1,3)", out double random, out _,
             randomFunction: (a, b) => b) && random == 3, "Scalar random override preserved");
-        Assert(KMathExpr.TryInterpolate("piece[Sqrt(9)]-[Max(1,2)]", out string label, out _)
+        Assert(CTMathExpr.TryInterpolate("piece[Sqrt(9)]-[Max(1,2)]", out string label, out _)
             && label == "piece3-2", "Interpolation still uses all scalar functions");
     }
 }

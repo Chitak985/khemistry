@@ -1,5 +1,5 @@
 using System;
-using Khemistry;
+using ChitakTech;
 static partial class Program
 {
     static ConfigNode EnvironmentConfig(string biome, params string[] settings)
@@ -43,7 +43,7 @@ static partial class Program
         Equal(0, storage.TakeResource("A", 1), "disabled blocks transfers");
         Equal(0, storage.GetStoredAmount("A"), "disabled voids contents");
 
-        var mat = new KhemistryMaterialStorage { part = part };
+        var mat = new ChitakTechMaterialStorage { part = part };
         mat.contents.Add(8);
         Equal(1, mat.Configure(EnvironmentConfig("ALL", "volumeMul", "0.5")) ? 1 : 0, "material biome accepted");
         Equal(1, mat.TransfersEnabled ? 1 : 0, "material can operate after void");

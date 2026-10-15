@@ -1,0 +1,2536 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using UnityEngine;
+
+namespace ChitakTech
+{
+    /// <summary>
+    /// An ISRU module that uses batches and is the main ChitakTech ISRU module.
+    /// </summary>
+    public partial class ChitakTechISRU : PartModule
+    {
+        private void SetupActiveAnimation()
+        {
+            ModuleAnimationGroup animGroup = part.FindModuleImplementing<ModuleAnimationGroup>();
+            string animName = (animGroup != null && !string.IsNullOrEmpty(animGroup.activeAnimationName))
+                ? animGroup.activeAnimationName
+                : activeAnimationNameOverride;
+
+            if (string.IsNullOrEmpty(animName))
+            {
+                _activeAnim = null;
+                _activeAnimationName = null;
+                return;
+            }
+
+            Animation[] animators = part.FindModelAnimators(animName);
+            if (animators.Length == 0)
+            {
+                CTShared.LogError(
+                    "Converter \"" + ConverterName + "\": No animator found for clip \"" + animName + "\".",
+                    "ChitakTechISRU/SetupActiveAnimation");
+                _activeAnim = null;
+                _activeAnimationName = null;
+                return;
+            }
+
+            _activeAnim = animators[0];
+            _activeAnimationName = animName;
+            AnimationState animationState = _activeAnim[_activeAnimationName];
+            if (animationState == null)
+            {
+                CTShared.LogError(
+                    "Converter \"" + ConverterName + "\": Animator does not contain clip \""
+                    + animName + "\".", "ChitakTechISRU/SetupActiveAnimation");
+                _activeAnim = null;
+                _activeAnimationName = null;
+                return;
+            }
+            animationState.wrapMode = WrapMode.Loop;
+
+            CTShared.Log(
+                "Converter \"" + ConverterName + "\": Hooked active animation \"" + animName + "\""
+                + (animGroup != null ? " (from ModuleAnimationGroup)." : " (from activeAnimationNameOverride)."),
+                "ChitakTechISRU/SetupActiveAnimation");
+        }
+
+        /// <summary>
+        /// Start or stop the active animation.
+        /// Will play it until it is turned off.
+        /// </summary>
+        /// <param name="playing">Whether to play the active animation or not.</param>
+        private void SetActiveAnimationPlaying(bool playing)
+        {
+            if (_activeAnim == null || string.IsNullOrEmpty(_activeAnimationName)) return;
+            if (playing == _animationPlaying) return;
+
+            if (playing) _activeAnim.Play(_activeAnimationName);
+            else _activeAnim.Stop(_activeAnimationName);
+
+            _animationPlaying = playing;
+        }
+
+        ///// Powerfail /////
+        /// <summary>
+        /// Applies a powerfail result against the current batch. PAUSE leaves the batch and
+        /// converter untouched (caller is expected to just skip this tick). STOP refunds
+        /// everything consumed so far this batch (via _passiveConsumedThisBatch) and resets
+        /// progress, then stops the converter. VOID does the same but discards the consumed
+        /// resources instead of refunding them. MAINT is VOID plus a maintenance requirement.
+        /// EXPLODE destroys the part and applies falling-off heat to nearby parts.
+        /// </summary>
+        protected void TriggerPowerfail(Part contextPart, ChitakTechISRURecipe.PowerfailResult powerfailResult,
+            double explosionRadius = 0.0, double explosionTemperatureCelsius = 0.0)
+        {
+            CTShared.Log(
+                "Converter \"" + ConverterName + "\" powerfailed. Result: " + powerfailResult,
+                "ChitakTechISRU/TriggerPowerfail");
+
+            switch (powerfailResult)
+            {
+                case ChitakTechISRURecipe.PowerfailResult.Pause:
+                    statusDisplay = "Paused";
+                    break;
+                case ChitakTechISRURecipe.PowerfailResult.Stop:
+                    RefundPassiveConsumption();
+                    ResetPassiveTimers();
+                    batchProgress = 0.0;
+                    resolvedRecipeTime = 0.0;
+                    isRunning = false;
+                    statusDisplay = "Stopped (powerfail)";
+                    break;
+                case ChitakTechISRURecipe.PowerfailResult.Void:
+                    ClearPassiveConsumption();
+                    ResetPassiveTimers();
+                    batchProgress = 0.0;
+                    resolvedRecipeTime = 0.0;
+                    isRunning = false;
+                    statusDisplay = "Stopped (powerfail, resources lost)";
+                    break;
+                case ChitakTechISRURecipe.PowerfailResult.Maint:
+                    ClearPassiveConsumption();
+                    ResetPassiveTimers();
+                    batchProgress = 0.0;
+                    resolvedRecipeTime = 0.0;
+                    isRunning = false;
+                    needsMaintenance = true;
+                    statusDisplay = "Needs maintenance";
+                    ScreenMessages.PostScreenMessage(new ScreenMessage(
+                        "Converter \"" + ConverterName + "\": Requires maintenance by an Engineer.",
+                        8f, ScreenMessageStyle.UPPER_CENTER));
+                    break;
+                case ChitakTechISRURecipe.PowerfailResult.Explode:
+                    CTShared.TriggerExplosionWithHeat(contextPart, (float)explosionRadius, (float)explosionTemperatureCelsius);
+                    break;
+            }
+        }
+
+        private bool ResetForBiomeTransition()
+        {
+            if (_runtimeData == null) return false;
+            string currentPlanet = _runtimeData.planet ?? "";
+            string currentBiome = _runtimeData.biome ?? "";
+            if (!hasLastBiome)
+            {
+                hasLastBiome = true;
+                lastBiomePlanet = currentPlanet;
+                lastBiomeName = currentBiome;
+                return false;
+            }
+            if (string.Equals(lastBiomePlanet, currentPlanet, StringComparison.Ordinal)
+                && string.Equals(lastBiomeName, currentBiome, StringComparison.Ordinal))
+                return false;
+
+            string previous = lastBiomePlanet + "/" + lastBiomeName;
+            lastBiomePlanet = currentPlanet;
+            lastBiomeName = currentBiome;
+            TriggerPowerfail(GetPowerfailContextPart(), ChitakTechISRURecipe.PowerfailResult.Void);
+            CTShared.Log("Converter \"" + ConverterName + "\" crossed from biome \""
+                + previous + "\" to \"" + currentPlanet + "/" + currentBiome
+                + "\"; the active batch was voided and the converter was stopped.",
+                "ChitakTechISRU/ResetForBiomeTransition");
+            return true;
+        }
+
+        /// <summary>
+        /// Gives back everything withdrawn by passive inputs during the in-progress batch.
+        /// </summary>
+        protected void RefundPassiveConsumption()
+        {
+            if (_activeRecipe == null) return;
+            for (int i = 0; i < _activeRecipe._passiveInputs.Count && i < _passiveConsumedThisBatch.Count; i++)
+            {
+                double amount = _passiveConsumedThisBatch[i];
+                if (double.IsNaN(amount) || double.IsInfinity(amount) || amount <= 0.0)
+                {
+                    _passiveConsumedThisBatch[i] = 0.0;
+                    continue;
+                }
+                ChitakTechISRURecipe.PassiveResourceInput input =
+                    _activeRecipe._passiveInputs[i];
+                double returned = Math.Abs(RequestResourceRouted(input.resourceName,
+                    -amount, input.flowMode));
+                if (double.IsNaN(returned) || double.IsInfinity(returned)
+                    || returned < 0.0) returned = 0.0;
+                double unreturned = amount - Math.Min(amount, returned);
+                if (unreturned > 0.0)
+                    QueuePassiveRefund(input.resourceName, input.flowMode, unreturned);
+                _passiveConsumedThisBatch[i] = 0.0;
+            }
+        }
+
+        /// <summary>
+        /// Whether the vessel's current location satisfies at least one of this converter's
+        /// depositCondition entries (surface or underground). Logs an error and returns false —
+        /// rather than throwing — if CTShared isn't loaded yet. Always true if depositCondition
+        /// is empty (no restriction configured).
+        /// </summary>
+        protected List<string> GetRequiredDepositConditions(ChitakTechISRUBiomeConfig biomeConfig)
+        {
+            List<string> conditions = new List<string>();
+            if (_activeRecipe != null) conditions.AddRange(_activeRecipe._depositConditions);
+            if (biomeConfig != null) conditions.AddRange(biomeConfig.depositConditions);
+            return conditions.Where(c => !string.IsNullOrWhiteSpace(c)).Distinct().ToList();
+        }
+
+        protected bool IsAtRequiredDeposit(ChitakTechISRUBiomeConfig biomeConfig)
+        {
+            List<string> conditions = GetRequiredDepositConditions(biomeConfig);
+            if (conditions.Count == 0) return true;
+
+            CTShared shared = CTShared.Instance;
+            // CTSharedMainMenu (and thus its deposit lists) may not be loaded yet.
+            if (shared == null)
+            {
+                CTShared.LogError(
+                    "Converter \"" + ConverterName + "\": Cannot check depositCondition — CTShared instance is not loaded yet.",
+                    "ChitakTechISRU/IsAtRequiredDeposit");
+                return false;
+            }
+
+            Vessel processingVessel = GetProcessingVessel();
+            if (processingVessel == null || processingVessel.mainBody == null) return false;
+
+            List<string> here = shared.SurfaceDepositsAtPoint((float)processingVessel.latitude,
+                (float)processingVessel.longitude, processingVessel.mainBody.name, 0);
+            here.AddRange(shared.UndergroundDepositsBelowPoint((float)processingVessel.latitude,
+                (float)processingVessel.longitude, processingVessel.mainBody.name));
+            return conditions.Any(d => here.Contains(d));
+        }
+
+        ///// Config loading /////
+        /// <summary>
+        /// Load the config values from part information.
+        /// </summary>
+        protected void LoadConfigFromPartInfo()
+        {
+            ConfigNode moduleNode = CTShared.FindModuleConfigNode(part, ConverterName, "ChitakTechISRU");
+            LoadConfig(moduleNode);
+        }
+
+        private void LoadConfig(ConfigNode moduleNode)
+        {
+            if (moduleNode == null)
+            {
+                // Already logged by FindModuleConfigNode — fail loudly instead of NRE-ing through
+                // the rest of this method (which would otherwise be silently swallowed by Unity's
+                // per-callback exception handling and never show up as a ChitakTech-prefixed log).
+                _fatalConfigError = true;
+                statusDisplay = "ERROR: config node not found, see log";
+                return;
+            }
+            if (!ChitakTechISRURecipe.ValidateModuleSettingScope(moduleNode))
+            {
+                _fatalConfigError = true;
+                statusDisplay = "ERROR: invalid setting scope, see log";
+                return;
+            }
+            CTShared shared = CTShared.Instance;
+
+            ///// Module type /////
+            moduleType = IsPartEVAConfig(moduleNode)
+                ? "partEVA"
+                : IsKerbalEVAConfig(moduleNode)
+                    ? "kerbalEVA"
+                    : CTShared.GetStrValueFromCFG(moduleNode, "moduleType", "normal");
+            useSuitCell = bool.TryParse(CTShared.GetStrValueFromCFG(moduleNode,
+                "useSuitCell", "false"), out bool useSuit) && useSuit;
+
+            if (moduleType == "kerbalEVA")
+            {
+                // kerbalEVA-specific defaults: a bare converter with no explicit ConverterName
+                // or recipeType is named "Kerbal" and imports the "kerbalEVA" recipeType.
+                ConverterName = CTShared.GetStrValueFromCFG(moduleNode, "ConverterName", "Kerbal");
+                StartActionName = CTShared.GetStrValueFromCFG(moduleNode, "StartActionName", "Start working");
+                StopActionName = CTShared.GetStrValueFromCFG(moduleNode, "StopActionName", "Stop working");
+            }
+            else
+            {
+                ConverterName = CTShared.GetStrValueFromCFG(moduleNode, "ConverterName", "Converter");
+                StartActionName = CTShared.GetStrValueFromCFG(moduleNode, "StartActionName", "Start working");
+                StopActionName = CTShared.GetStrValueFromCFG(moduleNode, "StopActionName", "Stop working");
+            }
+
+            ///// Charging /////
+            _moduleChargingRequired = chargingRequired;
+            _moduleChargeRate = chargeRate;
+            _moduleChargeDecayRate = chargeDecayRate;
+            _moduleChargeNames.Clear();
+            _moduleChargeAmounts.Clear();
+            if (_moduleChargingRequired)
+            {
+                _moduleChargeNames.AddRange(CTShared.GetChargingFromCFG(moduleNode, out List<float> moduleChargeAmounts));
+                _moduleChargeAmounts.AddRange(moduleChargeAmounts);
+
+                if (float.IsNaN(_moduleChargeRate) || float.IsInfinity(_moduleChargeRate)
+                    || _moduleChargeRate <= 0f
+                    || float.IsNaN(_moduleChargeDecayRate) || float.IsInfinity(_moduleChargeDecayRate)
+                    || _moduleChargeDecayRate < 0f
+                    || _moduleChargeNames.Count == 0)
+                {
+                    CTShared.LogError("Converter \"" + ConverterName
+                        + "\": chargingRequired needs a finite positive chargeRate, a finite non-negative chargeDecayRate, and valid charging resources; the converter was disabled to prevent uncharged operation.",
+                        "ChitakTechISRU/LoadConfigFromPartInfo");
+                    _fatalConfigError = true;
+                    return;
+                }
+            }
+
+            ///// Recipes: local RECIPE nodes /////
+            recipes.Clear();
+            if (moduleNode.HasNode("RECIPE"))
+            {
+                foreach (ConfigNode recipeNode in moduleNode.GetNodes("RECIPE"))
+                {
+                    ConfigNode mergedNode = ChitakTechISRURecipe.ApplyModuleOverrides(moduleNode, recipeNode);
+                    ChitakTechISRURecipe recipe = new ChitakTechISRURecipe(mergedNode, ConverterName);
+                    if (recipe.IsValid)
+                        recipe.ValidateReferences(shared?.materialList,
+                            "ChitakTechISRU/LoadConfigFromPartInfo");
+                    if (recipe.IsValid && !recipes.Any(existing => existing._name == recipe._name))
+                        recipes.Add(recipe);
+                    else if (!recipe.IsValid)
+                        CTShared.LogError("Converter \"" + ConverterName + "\": invalid local recipe \""
+                            + recipe._name + "\" was ignored.", "ChitakTechISRU/LoadConfigFromPartInfo");
+                    else
+                        CTShared.LogError("Converter \"" + ConverterName + "\": duplicate local recipe \""
+                            + recipe._name + "\" was ignored.", "ChitakTechISRU/LoadConfigFromPartInfo");
+                }
+            }
+
+            ///// Recipes: imported by name (RECIPE_NAMES & RECIPE_MULTIPLIERS) /////
+            recipeMultiplier = CTShared.GetFloatValueFromCFG(moduleNode, "recipeMultiplier", 1f);
+            if (float.IsNaN(recipeMultiplier) || float.IsInfinity(recipeMultiplier) || recipeMultiplier <= 0f)
+            {
+                CTShared.LogError("Converter \"" + ConverterName
+                    + "\": recipeMultiplier must be finite and greater than zero; using 1.",
+                    "ChitakTechISRU/LoadConfigFromPartInfo");
+                recipeMultiplier = 1f;
+            }
+
+            recipeType = CTShared.GetStrValueFromCFG(moduleNode, "recipeType",
+                IsEVAModuleType() ? moduleType : null);
+            recipeSubtype = CTShared.GetStrValueFromCFG(moduleNode, "recipeSubtype",
+                CTShared.GetStrValueFromCFG(moduleNode, "recipeSubype", null));
+            if (!moduleNode.HasValue("recipeSubtype") && moduleNode.HasValue("recipeSubype"))
+                CTShared.LogWarning("Converter \"" + ConverterName
+                    + "\" uses legacy misspelling \"recipeSubype\"; use \"recipeSubtype\".",
+                    "ChitakTechISRU/LoadConfigFromPartInfo");
+            recipeSubsubtype = CTShared.GetStrValueFromCFG(moduleNode, "recipeSubsubtype", null);
+
+            _recipeNames.Clear();
+            _recipeMultipliers.Clear();
+            if (moduleNode.HasNode("RECIPE_NAMES"))
+            {
+                if (!moduleNode.GetNode("RECIPE_NAMES").HasValue("name"))
+                    CTShared.LogError(
+                        "Converter \"" + ConverterName + "\": Node RECIPE_NAMES is present but has no \"name\" values, skipping.",
+                        "ChitakTechISRU/LoadConfigFromPartInfo");
+                else
+                    _recipeNames.AddRange(moduleNode.GetNode("RECIPE_NAMES").GetValues("name"));
+
+                if (moduleNode.HasNode("RECIPE_MULTIPLIERS"))
+                {
+                    bool validMultipliers = true;
+                    foreach (string amt in moduleNode.GetNode("RECIPE_MULTIPLIERS").GetValues("amount"))
+                        if (float.TryParse(amt, NumberStyles.Float, CultureInfo.InvariantCulture, out float mTmp)
+                            && !float.IsNaN(mTmp) && !float.IsInfinity(mTmp) && mTmp > 0f)
+                            _recipeMultipliers.Add(mTmp);
+                        else
+                            validMultipliers = false;
+
+                    if (!validMultipliers || _recipeMultipliers.Count != _recipeNames.Count)
+                    {
+                        CTShared.LogError(
+                            "Converter \"" + ConverterName + "\": RECIPE_MULTIPLIERS must contain one finite positive amount for every RECIPE_NAMES entry — ignoring RECIPE_MULTIPLIERS.",
+                            "ChitakTechISRU/LoadConfigFromPartInfo");
+                        _recipeMultipliers.Clear();
+                    }
+                }
+            }
+            else if (moduleNode.HasNode("RECIPE_MULTIPLIERS"))
+                CTShared.LogError(
+                    "Converter \"" + ConverterName + "\": Node RECIPE_MULTIPLIERS is present but no RECIPE_NAMES node is present.",
+                    "ChitakTechISRU/LoadConfigFromPartInfo");
+
+            if (shared != null)
+            {
+                if (_recipeNames.Count > 0)
+                {
+                    for (int i = 0; i < _recipeNames.Count; i++)
+                    {
+                        string wantedName = _recipeNames[i]?.Trim();
+                        ChitakTechISRURecipe found = shared.batchRecipeList.FirstOrDefault(r => r._name == wantedName);
+                        if (found == null)
+                        {
+                            CTShared.LogError(
+                                "Converter \"" + ConverterName + "\": RECIPE_NAMES entry \"" + wantedName
+                                + "\" does not match any loaded CHITAKTECHISRU_RECIPE.",
+                                "ChitakTechISRU/LoadConfigFromPartInfo");
+                            continue;
+                        }
+                        // Global recipeMultiplier and the per-name RECIPE_MULTIPLIERS entry stack:
+                        // global is applied first, then the local (per-name) multiplier.
+                        float localMult = (i < _recipeMultipliers.Count) ? _recipeMultipliers[i] : 1f;
+                        ConfigNode mergedFoundNode = ChitakTechISRURecipe.ApplyModuleOverrides(moduleNode, found.mainNode);
+                        ChitakTechISRURecipe overriddenFound = new ChitakTechISRURecipe(mergedFoundNode, ConverterName);
+                        if (overriddenFound.IsValid)
+                            overriddenFound.ValidateReferences(shared.materialList,
+                                "ChitakTechISRU/LoadConfigFromPartInfo");
+                        if (!overriddenFound.IsValid)
+                        {
+                            CTShared.LogError("Converter \"" + ConverterName + "\": overridden recipe \""
+                                + wantedName + "\" is invalid and was ignored.", "ChitakTechISRU/LoadConfigFromPartInfo");
+                            continue;
+                        }
+
+                        ChitakTechISRURecipe scaled = overriddenFound.ScaledCopy(recipeMultiplier * localMult);
+                        if (!recipes.Any(recipe => recipe._name == scaled._name))
+                            recipes.Add(scaled);
+                    }
+                }
+                if (recipeType != null || recipeSubtype != null || recipeSubsubtype != null)
+                {
+                    foreach (ChitakTechISRURecipe candidate in shared.batchRecipeList)
+                    {
+                        if (candidate.MatchesTypes(recipeType, recipeSubtype, recipeSubsubtype))
+                        {
+                            ConfigNode mergedCandidateNode = ChitakTechISRURecipe.ApplyModuleOverrides(moduleNode, candidate.mainNode);
+                            ChitakTechISRURecipe overriddenCandidate = new ChitakTechISRURecipe(mergedCandidateNode, ConverterName);
+                            if (overriddenCandidate.IsValid)
+                                overriddenCandidate.ValidateReferences(shared.materialList,
+                                    "ChitakTechISRU/LoadConfigFromPartInfo");
+
+                            if (!overriddenCandidate.IsValid)
+                            {
+                                CTShared.LogError("Converter \"" + ConverterName + "\": overridden recipe \""
+                                    + candidate._name + "\" is invalid and was ignored.", "ChitakTechISRU/LoadConfigFromPartInfo");
+                                continue;
+                            }
+
+                            if (recipes.Any(recipe => recipe._name == overriddenCandidate._name))
+                                continue;
+
+                            recipes.Add(overriddenCandidate.ScaledCopy(recipeMultiplier));
+                        }
+                    }
+                }
+            }
+
+            if (recipes.Count == 0)
+            {
+                _fatalConfigError = true;
+                CTShared.LogError("Converter \"" + ConverterName + "\": No recipes were loaded!",
+                        "ChitakTechISRU/LoadSharedConfig");
+                return;
+            }
+
+            if (IsEVAModuleType())
+            {
+                StripEVAIncompatibleFields(moduleNode);
+                // Interaction/display distance are meaningless here — the GUI lives on the
+                // kerbal itself, so it's always "in range" of its own converter.
+                if (moduleNode.HasValue("maxInteractionDistance"))
+                    CTShared.LogError(
+                        "Converter \"" + ConverterName + "\" (moduleType=" + moduleType + "): \"maxInteractionDistance\" is ignored.",
+                        "ChitakTechISRU/LoadConfigFromPartInfo");
+                if (moduleNode.HasValue("maxDisplayDistance"))
+                    CTShared.LogError(
+                        "Converter \"" + ConverterName + "\" (moduleType=" + moduleType + "): \"maxDisplayDistance\" is ignored.",
+                        "ChitakTechISRU/LoadConfigFromPartInfo");
+                if (moduleNode.HasValue("workersCrewSamePart"))
+                    CTShared.LogError(
+                        "Converter \"" + ConverterName + "\" (moduleType=" + moduleType + "): \"workersCrewSamePart\" is ignored.",
+                        "ChitakTechISRU/LoadConfigFromPartInfo");
+                _configMaxInteractionDistance = float.MaxValue;
+                _configMaxDisplayDistance = float.MaxValue;
+            }
+            else
+            {
+                if (bool.TryParse(CTShared.GetStrValueFromCFG(moduleNode, "workersCrewSamePart", "false"), out bool wcspTmp))
+                    workersCrewSamePart = wcspTmp;
+                _configMaxInteractionDistance = CTShared.GetFloatValueFromCFG(moduleNode, "maxInteractionDistance", _configMaxInteractionDistance);
+                _configMaxDisplayDistance = CTShared.GetFloatValueFromCFG(moduleNode, "maxDisplayDistance", _configMaxDisplayDistance);
+                if (float.IsNaN(_configMaxInteractionDistance) || float.IsInfinity(_configMaxInteractionDistance)
+                    || _configMaxInteractionDistance < 0f)
+                {
+                    CTShared.LogError("Converter \"" + ConverterName
+                        + "\": maxInteractionDistance must be finite and non-negative; using 7.",
+                        "ChitakTechISRU/LoadConfigFromPartInfo");
+                    _configMaxInteractionDistance = 7f;
+                }
+                if (float.IsNaN(_configMaxDisplayDistance) || float.IsInfinity(_configMaxDisplayDistance)
+                    || _configMaxDisplayDistance < 0f)
+                {
+                    CTShared.LogError("Converter \"" + ConverterName
+                        + "\": maxDisplayDistance must be finite and non-negative; using 10.",
+                        "ChitakTechISRU/LoadConfigFromPartInfo");
+                    _configMaxDisplayDistance = 10f;
+                }
+            }
+            _maxInteractionDistance = _configMaxInteractionDistance;
+            _maxDisplayDistance = _configMaxDisplayDistance;
+
+            SelectActiveRecipeFromLoadedState();
+        }
+
+        private void SelectActiveRecipeFromLoadedState()
+        {
+            ///// Select active recipe /////
+            ChitakTechISRURecipe initial = null;
+            string savedRecipeName = activeRecipeName;
+            if (!string.IsNullOrEmpty(savedRecipeName))
+                initial = recipes.FirstOrDefault(r => r._name == savedRecipeName);
+            bool restoringSavedRecipe = initial != null;
+            PrepareLegacyPassiveStates(savedRecipeName, initial);
+            if (!string.IsNullOrEmpty(savedRecipeName) && !restoringSavedRecipe)
+            {
+                // A different first recipe is useful for the selector/UI, but must never start
+                // automatically using progress and withdrawals that belonged to a removed one.
+                isRunning = false;
+                batchProgress = 0.0;
+                resolvedRecipeTime = 0.0;
+                CTShared.LogWarning("Converter \"" + ConverterName + "\": saved recipe \""
+                    + savedRecipeName
+                    + "\" is no longer available; the converter was stopped and selected the first available recipe.",
+                    "ChitakTechISRU/LoadConfigFromPartInfo");
+            }
+            if (initial == null) initial = recipes[0];
+            ApplyRecipe(initial, resetProgress: !restoringSavedRecipe);
+            ProcessPendingPassiveRefunds();
+        }
+
+        /// <summary>
+        /// Makes the given recipe the active one: applies its own charging fields
+        /// (falling back to module-level charging if the recipe doesn't define its own),
+        /// resets batch progress, and updates control show-rules.
+        /// </summary>
+        protected void ApplyRecipe(ChitakTechISRURecipe recipe, bool resetProgress = true)
+        {
+            if (recipe._settings.Count > 0)
+            {
+                var resolved = recipe.WithSettingValues(EnsureRecipeSettingValues(recipe));
+                if (!resolved.IsValid || !resolved.ValidateReferences(CTShared.Instance?.materialList, ConverterName))
+                {
+                    _activeRecipe = recipe;
+                    isRunning = false;
+                    _fatalConfigError = true;
+                    statusDisplay = "ERROR: invalid recipe settings, see log";
+                    return;
+                }
+                recipe = resolved;
+            }
+            _activeRecipe = recipe;
+            // A top-level recipe may opt a partEVA converter into the kerbal's suit cells.
+            // A MODULE-level value is merged into every loaded recipe and therefore remains
+            // the convenient way to set the same policy for the whole converter.
+            useSuitCell = moduleType == "partEVA" && recipe._useSuitCell;
+            EnsureRecipeSettingValues(recipe);
+            ClearParallaxTargetCache();
+            activeRecipeName = recipe._name;
+            if (resetProgress || double.IsNaN(batchProgress) || double.IsInfinity(batchProgress)
+                || batchProgress < 0.0)
+            {
+                batchProgress = 0.0;
+                resolvedRecipeTime = 0.0;
+            }
+            else
+            {
+                double savedTime = resolvedRecipeTime > 0.0
+                    && !double.IsNaN(resolvedRecipeTime)
+                    && !double.IsInfinity(resolvedRecipeTime)
+                    ? resolvedRecipeTime : recipe._recipeTime;
+                if (batchProgress > savedTime) batchProgress = savedTime;
+            }
+
+            _passiveTimers.Clear();
+            _passiveConsumedThisBatch.Clear();
+            for (int i = 0; i < recipe._passiveInputs.Count; i++)
+            {
+                double timer = 0.0;
+                double consumed = 0.0;
+                if (!resetProgress)
+                {
+                    ChitakTechISRURecipe.PassiveResourceInput input = recipe._passiveInputs[i];
+                    int savedIndex = _loadedPassiveStates.FindIndex(saved =>
+                        SavedPassiveInputMatches(saved, input));
+                    if (savedIndex >= 0)
+                    {
+                        timer = _loadedPassiveStates[savedIndex].timer;
+                        consumed = _loadedPassiveStates[savedIndex].consumed;
+                        _loadedPassiveStates.RemoveAt(savedIndex);
+                    }
+                }
+                _passiveTimers.Add(timer);
+                _passiveConsumedThisBatch.Add(consumed);
+            }
+
+            // A saved entry whose recipe identity no longer exists cannot safely be attached
+            // to a different input. Return its tracked withdrawal using its own saved identity.
+            foreach (PassiveInputSaveState unmatched in _loadedPassiveStates)
+            {
+                if (unmatched.consumed > 0.0)
+                    QueuePassiveRefund(unmatched.resourceName, unmatched.flowMode,
+                        unmatched.consumed);
+                CTShared.LogWarning("Converter \"" + ConverterName
+                    + "\": detached unmatched saved passive-input state for \""
+                    + unmatched.resourceName
+                    + "\" after its recipe definition changed; its consumed resource is queued for refund.",
+                    "ChitakTechISRU/ApplyRecipe");
+            }
+            _loadedPassiveStates.Clear();
+
+            if (recipe._chargingRequired)
+            {
+                chargingRequired = true;
+                chargeRate = recipe._chargeRate;
+                chargeDecayRate = recipe._chargeDecay;
+                _chargeNames.Clear();
+                _chargeNames.AddRange(recipe._chargeNames);
+                _chargeAmounts.Clear();
+                _chargeAmounts.AddRange(recipe._chargeAmounts);
+            }
+            else
+            {
+                chargingRequired = _moduleChargingRequired;
+                chargeRate = _moduleChargeRate;
+                chargeDecayRate = _moduleChargeDecayRate;
+                _chargeNames.Clear();
+                _chargeNames.AddRange(_moduleChargeNames);
+                _chargeAmounts.Clear();
+                _chargeAmounts.AddRange(_moduleChargeAmounts);
+            }
+
+            chargeDecayRateInactive = recipe._chargeDecayRateInactive;
+            chargeDecayRateActive = recipe._chargeDecayRateActive;
+            chargeThreshold = recipe._chargeThreshold;
+            chargeWhileRunning = recipe._chargeWhileRunning;
+            _controlsShowPAW = recipe._controlsShowPAW;
+            _controlsShowEVA = recipe._controlsShowEVA;
+        }
+
+        private void PrepareLegacyPassiveStates(string savedRecipeName,
+            ChitakTechISRURecipe selectedRecipe)
+        {
+            if (_pendingLegacyPassiveNodes.Count == 0) return;
+
+            foreach (ConfigNode legacyNode in _pendingLegacyPassiveNodes)
+            {
+                string legacyRecipeName = legacyNode.GetValue("recipeName")?.Trim();
+                bool belongsToSelected = selectedRecipe != null
+                    && !string.IsNullOrEmpty(savedRecipeName)
+                    && string.Equals(legacyRecipeName, savedRecipeName,
+                        StringComparison.Ordinal)
+                    && string.Equals(selectedRecipe._name, savedRecipeName,
+                        StringComparison.Ordinal);
+
+                bool alreadyQuarantined = bool.TryParse(
+                    legacyNode.GetValue("quarantined"), out bool quarantined)
+                    && quarantined;
+                if (alreadyQuarantined) continue;
+
+                legacyNode.SetValue("quarantined", true, true);
+                if (belongsToSelected && _loadedPassiveStates.Count == 0)
+                {
+                    // The old format stores only list positions. Even a same-name recipe may
+                    // have changed or reordered its passive inputs, so applying or refunding
+                    // those values could create the wrong resource. Start a fresh batch once,
+                    // while retaining the opaque record for possible manual/future recovery.
+                    isRunning = false;
+                    batchProgress = 0.0;
+                    resolvedRecipeTime = 0.0;
+                }
+
+                CTShared.LogWarning("Converter \"" + ConverterName
+                    + "\": quarantined legacy positional passive-input state for recipe \""
+                    + (legacyRecipeName ?? "")
+                    + "\" because it has no resource identities; it was not applied or refunded.",
+                    "ChitakTechISRU/PrepareLegacyPassiveStates");
+            }
+        }
+
+        private void QueuePassiveRefund(string resourceName, ResourceFlowMode flowMode,
+            double amount)
+        {
+            if (string.IsNullOrWhiteSpace(resourceName) || double.IsNaN(amount)
+                || double.IsInfinity(amount) || amount <= 0.0
+                || !Enum.IsDefined(typeof(ResourceFlowMode), flowMode)) return;
+            resourceName = resourceName.Trim();
+            PassiveRefundSaveState existing = _pendingPassiveRefunds.FirstOrDefault(
+                refund => refund.resourceName == resourceName && refund.flowMode == flowMode);
+            if (existing != null)
+            {
+                double combined = existing.amount + amount;
+                if (!double.IsNaN(combined) && !double.IsInfinity(combined))
+                {
+                    existing.amount = combined;
+                    return;
+                }
+            }
+            _pendingPassiveRefunds.Add(new PassiveRefundSaveState
+            {
+                resourceName = resourceName,
+                flowMode = flowMode,
+                amount = amount
+            });
+        }
+
+        private void ProcessPendingPassiveRefunds()
+        {
+            for (int i = _pendingPassiveRefunds.Count - 1; i >= 0; i--)
+            {
+                PassiveRefundSaveState refund = _pendingPassiveRefunds[i];
+                if (refund == null || string.IsNullOrEmpty(refund.resourceName)
+                    || double.IsNaN(refund.amount) || double.IsInfinity(refund.amount)
+                    || refund.amount <= 0.0)
+                {
+                    _pendingPassiveRefunds.RemoveAt(i);
+                    continue;
+                }
+
+                double returned = Math.Abs(RequestResourceRouted(refund.resourceName,
+                    -refund.amount, refund.flowMode));
+                if (double.IsNaN(returned) || double.IsInfinity(returned)
+                    || returned < 0.0) returned = 0.0;
+                returned = Math.Min(returned, refund.amount);
+                refund.amount -= returned;
+                if (refund.amount <= 0.0) _pendingPassiveRefunds.RemoveAt(i);
+            }
+        }
+
+        private static bool SavedPassiveInputMatches(PassiveInputSaveState saved,
+            ChitakTechISRURecipe.PassiveResourceInput input)
+        {
+            return saved != null
+                && string.Equals(saved.resourceName, input.resourceName,
+                    StringComparison.Ordinal)
+                && saved.flowMode == input.flowMode
+                && NearlyEqualSavedValue(saved.amount, input.amount)
+                && NearlyEqualSavedValue(saved.period, input.period);
+        }
+
+        private static bool NearlyEqualSavedValue(double left, double right)
+        {
+            return !double.IsNaN(left) && !double.IsInfinity(left)
+                && !double.IsNaN(right) && !double.IsInfinity(right)
+                && left.Equals(right);
+        }
+
+        public override void OnLoad(ConfigNode node)
+        {
+            base.OnLoad(node);
+            if (node != null && (node.HasValue("isRunning")
+                || node.HasValue("needsMaintenance") || node.HasValue("state")
+                || node.HasValue("chargePercent") || node.HasValue("activeRecipeName")
+                || node.HasValue("batchProgress") || node.HasValue("hasLastBiome")
+                || node.HasValue("lastBiomePlanet") || node.HasValue("lastBiomeName")
+                || node.HasNode("PASSIVE_INPUT_STATE")
+                || node.HasNode("PENDING_PASSIVE_REFUND")
+                || node.HasNode("ORPHANED_LEGACY_PASSIVE_STATE")
+                || node.HasNode("RECIPE_SETTING_VALUES")
+                || node.HasNode("MAINTENANCE_STATE")
+                || node.HasNode("MATERIAL_OUTPUT_BUFFER")))
+                _loadedAuthoritativePersistentState = true;
+            LoadRecipeSettingValues(node);
+            LoadMaintenanceState(node);
+            _loadedPassiveStates.Clear();
+            _opaquePassiveInputNodes.Clear();
+            _pendingPassiveRefunds.Clear();
+            _opaquePassiveRefundNodes.Clear();
+            _pendingLegacyPassiveNodes.Clear();
+            _pendingMaterialOutputNodes.Clear();
+            _materialOutputAmount.Clear();
+            _materialOutputRandomSeed.Clear();
+            _materialOutputRandomSequence.Clear();
+
+            ConfigNode passiveNode = node.GetNode("PASSIVE_INPUT_STATE");
+            if (passiveNode != null)
+            {
+                foreach (ConfigNode inputNode in passiveNode.GetNodes("INPUT"))
+                {
+                    string resourceName = inputNode.GetValue("name")?.Trim();
+                    string flowModeRaw = inputNode.GetValue("flowmode");
+                    if (string.IsNullOrEmpty(resourceName)
+                        || !TryReadSavedPassiveDouble(inputNode, "amount", true,
+                            out double amount)
+                        || !TryReadSavedPassiveDouble(inputNode, "period", true,
+                            out double period)
+                        || !TryReadSavedPassiveDouble(inputNode, "timer", false,
+                            out double timer)
+                        || !TryReadSavedPassiveDouble(inputNode, "consumed", false,
+                            out double consumed)
+                        || !Enum.TryParse(flowModeRaw, true, out ResourceFlowMode flowMode)
+                        || !Enum.IsDefined(typeof(ResourceFlowMode), flowMode))
+                    {
+                        CTShared.LogError("Converter \"" + ConverterName
+                            + "\": preserved a malformed named passive-input save record without applying it.",
+                            "ChitakTechISRU/OnLoad");
+                        ConfigNode opaque = new ConfigNode("INPUT");
+                        inputNode.CopyTo(opaque);
+                        _opaquePassiveInputNodes.Add(opaque);
+                        continue;
+                    }
+
+                    _loadedPassiveStates.Add(new PassiveInputSaveState
+                    {
+                        resourceName = resourceName,
+                        amount = amount,
+                        period = period,
+                        flowMode = flowMode,
+                        timer = timer,
+                        consumed = consumed
+                    });
+                }
+
+                // Preserve old positional values exactly until their original recipe identity
+                // can be checked. Parsing them here used to collapse invalid/missing positions
+                // and could attach a withdrawal to the wrong resource.
+                if (passiveNode.GetValues("timer").Length > 0
+                    || passiveNode.GetValues("consumed").Length > 0)
+                {
+                    ConfigNode legacy = new ConfigNode("ORPHANED_LEGACY_PASSIVE_STATE");
+                    legacy.AddValue("recipeName", activeRecipeName ?? "");
+                    foreach (string raw in passiveNode.GetValues("timer"))
+                        legacy.AddValue("timer", raw ?? "");
+                    foreach (string raw in passiveNode.GetValues("consumed"))
+                        legacy.AddValue("consumed", raw ?? "");
+                    _pendingLegacyPassiveNodes.Add(legacy);
+                }
+            }
+
+            foreach (ConfigNode legacyNode in node.GetNodes("ORPHANED_LEGACY_PASSIVE_STATE"))
+            {
+                ConfigNode copy = new ConfigNode("ORPHANED_LEGACY_PASSIVE_STATE");
+                legacyNode.CopyTo(copy);
+                _pendingLegacyPassiveNodes.Add(copy);
+            }
+
+            foreach (ConfigNode refundNode in node.GetNodes("PENDING_PASSIVE_REFUND"))
+            {
+                string resourceName = refundNode.GetValue("name")?.Trim();
+                string flowModeRaw = refundNode.GetValue("flowmode");
+                if (!string.IsNullOrEmpty(resourceName)
+                    && TryReadSavedPassiveDouble(refundNode, "amount", true,
+                        out double amount)
+                    && Enum.TryParse(flowModeRaw, true, out ResourceFlowMode flowMode)
+                    && Enum.IsDefined(typeof(ResourceFlowMode), flowMode))
+                {
+                    QueuePassiveRefund(resourceName, flowMode, amount);
+                }
+                else
+                {
+                    ConfigNode copy = new ConfigNode("PENDING_PASSIVE_REFUND");
+                    refundNode.CopyTo(copy);
+                    _opaquePassiveRefundNodes.Add(copy);
+                    CTShared.LogError("Converter \"" + ConverterName
+                        + "\": preserved a malformed pending passive refund without applying it.",
+                        "ChitakTechISRU/OnLoad");
+                }
+            }
+
+            foreach (ConfigNode bufferedNode in node.GetNodes("MATERIAL_OUTPUT_BUFFER"))
+            {
+                ConfigNode copy = new ConfigNode("MATERIAL_OUTPUT_BUFFER");
+                bufferedNode.CopyTo(copy);
+                _pendingMaterialOutputNodes.Add(copy);
+            }
+            _completedOnLoadCount++;
+        }
+
+        internal bool HasAuthoritativePersistentState
+            => _loadedAuthoritativePersistentState;
+
+        internal bool LoadEVAISRUBoardingState(ConfigNode node)
+        {
+            if (node == null) return false;
+            int completedBefore = _completedOnLoadCount;
+            Load(node);
+            return _completedOnLoadCount > completedBefore;
+        }
+
+        private void ResetPassiveTimers()
+        {
+            for (int i = 0; i < _passiveTimers.Count; i++)
+                _passiveTimers[i] = 0.0;
+        }
+
+        /// <summary>
+        /// Reverses only the passive-resource work performed during one attempted simulation
+        /// step. This keeps PAUSE atomic when a later passive input cannot be satisfied.
+        /// </summary>
+        private void RollBackPassiveInputStep(IList<double> timersBefore,
+            IList<double> consumedBefore)
+        {
+            if (_passiveStepTransfers != null)
+                ChitakTechResourceNetwork.Rollback(_passiveStepTransfers);
+            else if (_activeRecipe != null)
+            {
+                int count = Math.Min(_activeRecipe._passiveInputs.Count,
+                    Math.Min(_passiveConsumedThisBatch.Count, consumedBefore.Count));
+                for (int i = count - 1; i >= 0; i--)
+                {
+                    double newlyConsumed = _passiveConsumedThisBatch[i] - consumedBefore[i];
+                    if (double.IsNaN(newlyConsumed) || double.IsInfinity(newlyConsumed)
+                        || newlyConsumed <= 0.0) continue;
+                    ChitakTechISRURecipe.PassiveResourceInput input =
+                        _activeRecipe._passiveInputs[i];
+                    RequestResourceRouted(input.resourceName, -newlyConsumed, input.flowMode);
+                }
+            }
+
+            _passiveTimers.Clear();
+            _passiveTimers.AddRange(timersBefore);
+            _passiveConsumedThisBatch.Clear();
+            _passiveConsumedThisBatch.AddRange(consumedBefore);
+        }
+
+        public override void OnSave(ConfigNode node)
+        {
+            base.OnSave(node);
+            if (node == null) return;
+
+            SaveRecipeSettingValues(node);
+            SaveMaintenanceState(node);
+
+            while (node.HasNode("PASSIVE_INPUT_STATE"))
+                node.RemoveNode("PASSIVE_INPUT_STATE");
+            while (node.HasNode("PENDING_PASSIVE_REFUND"))
+                node.RemoveNode("PENDING_PASSIVE_REFUND");
+            while (node.HasNode("ORPHANED_LEGACY_PASSIVE_STATE"))
+                node.RemoveNode("ORPHANED_LEGACY_PASSIVE_STATE");
+            while (node.HasNode("MATERIAL_OUTPUT_BUFFER"))
+                node.RemoveNode("MATERIAL_OUTPUT_BUFFER");
+
+            ConfigNode passiveNode = new ConfigNode("PASSIVE_INPUT_STATE");
+            foreach (ConfigNode opaqueInput in _opaquePassiveInputNodes)
+            {
+                ConfigNode copy = new ConfigNode("INPUT");
+                opaqueInput.CopyTo(copy);
+                passiveNode.AddNode(copy);
+            }
+            if (_activeRecipe != null
+                && _passiveTimers.Count == _activeRecipe._passiveInputs.Count
+                && _passiveConsumedThisBatch.Count == _activeRecipe._passiveInputs.Count)
+            {
+                for (int i = 0; i < _activeRecipe._passiveInputs.Count; i++)
+                {
+                    ChitakTechISRURecipe.PassiveResourceInput input =
+                        _activeRecipe._passiveInputs[i];
+                    AddPassiveInputSaveNode(passiveNode, input.resourceName, input.amount,
+                        input.period, input.flowMode, _passiveTimers[i],
+                        _passiveConsumedThisBatch[i]);
+                }
+            }
+            if (_loadedPassiveStates.Count > 0)
+            {
+                foreach (PassiveInputSaveState saved in _loadedPassiveStates)
+                {
+                    AddPassiveInputSaveNode(passiveNode, saved.resourceName, saved.amount,
+                        saved.period, saved.flowMode, saved.timer, saved.consumed);
+                }
+            }
+
+            if (passiveNode.nodes.Count > 0 || passiveNode.values.Count > 0)
+                node.AddNode(passiveNode);
+
+            foreach (ConfigNode legacyNode in _pendingLegacyPassiveNodes)
+            {
+                ConfigNode copy = new ConfigNode("ORPHANED_LEGACY_PASSIVE_STATE");
+                legacyNode.CopyTo(copy);
+                node.AddNode(copy);
+            }
+
+            foreach (ConfigNode opaqueRefund in _opaquePassiveRefundNodes)
+            {
+                ConfigNode copy = new ConfigNode("PENDING_PASSIVE_REFUND");
+                opaqueRefund.CopyTo(copy);
+                node.AddNode(copy);
+            }
+            foreach (PassiveRefundSaveState refund in _pendingPassiveRefunds)
+            {
+                if (refund == null || string.IsNullOrEmpty(refund.resourceName)
+                    || double.IsNaN(refund.amount) || double.IsInfinity(refund.amount)
+                    || refund.amount <= 0.0) continue;
+                ConfigNode refundNode = new ConfigNode("PENDING_PASSIVE_REFUND");
+                refundNode.AddValue("name", refund.resourceName);
+                refundNode.AddValue("flowmode", refund.flowMode.ToString());
+                refundNode.AddValue("amount",
+                    refund.amount.ToString("R", CultureInfo.InvariantCulture));
+                node.AddNode(refundNode);
+            }
+
+            // Preserve saved output records that could not be interpreted with the current
+            // configuration. A broken or temporarily missing recipe must not silently erase them.
+            foreach (ConfigNode pendingNode in _pendingMaterialOutputNodes)
+            {
+                ConfigNode copy = new ConfigNode("MATERIAL_OUTPUT_BUFFER");
+                pendingNode.CopyTo(copy);
+                node.AddNode(copy);
+            }
+
+            foreach (KeyValuePair<ChitakTechISRURecipe.ResourceOutputMaterial, double> buffered in _materialOutputAmount)
+            {
+                if (double.IsNaN(buffered.Value) || double.IsInfinity(buffered.Value)
+                    || buffered.Value <= 0.0) continue;
+                ChitakTechISRURecipe.ResourceOutputMaterial material = buffered.Key;
+                EnsureMaterialOutputRandomState(material);
+                ConfigNode outputNode = new ConfigNode("MATERIAL_OUTPUT_BUFFER");
+                outputNode.AddValue("name", material.name ?? "");
+                outputNode.AddValue("shape", material.shape ?? "");
+                outputNode.AddValue("size", material.size ?? "");
+                outputNode.AddValue("amount", buffered.Value.ToString("R", CultureInfo.InvariantCulture));
+                outputNode.AddValue("outVolume", material.outVolume ?? "0");
+                if (material.parallaxResolved)
+                    outputNode.AddValue("parallaxResolved", true);
+                if (material.inputMaterialResolved)
+                    outputNode.AddValue("inputMaterialResolved", true);
+                outputNode.AddValue("randomSeed", _materialOutputRandomSeed[material]
+                    .ToString(CultureInfo.InvariantCulture));
+                outputNode.AddValue("randomSequence", _materialOutputRandomSequence[material]
+                    .ToString(CultureInfo.InvariantCulture));
+                ConfigNode paramsNode = new ConfigNode("PARAMS");
+                IEnumerable<KeyValuePair<string, string>> assignments =
+                    (IEnumerable<KeyValuePair<string, string>>)material.parameterAssignments
+                    ?? (material.parameters ?? new Dictionary<string, string>())
+                        .OrderBy(value => value.Key, StringComparer.Ordinal);
+                foreach (KeyValuePair<string, string> parameter in assignments)
+                    paramsNode.AddValue(parameter.Key, parameter.Value);
+                if (material.parameterAssignments != null)
+                    outputNode.AddValue("parameterOrderVersion", "1");
+                outputNode.AddNode(paramsNode);
+                node.AddNode(outputNode);
+            }
+        }
+
+        private static bool TryReadSavedPassiveDouble(ConfigNode node, string key,
+            bool requirePositive, out double value)
+        {
+            value = 0.0;
+            return node != null
+                && double.TryParse(node.GetValue(key), NumberStyles.Float,
+                    CultureInfo.InvariantCulture, out value)
+                && !double.IsNaN(value) && !double.IsInfinity(value)
+                && (requirePositive ? value > 0.0 : value >= 0.0);
+        }
+
+        private static void AddPassiveInputSaveNode(ConfigNode parent, string resourceName,
+            double amount, double period, ResourceFlowMode flowMode, double timer,
+            double consumed)
+        {
+            if (parent == null || string.IsNullOrEmpty(resourceName)
+                || double.IsNaN(amount) || double.IsInfinity(amount) || amount <= 0.0
+                || double.IsNaN(period) || double.IsInfinity(period) || period <= 0.0
+                || double.IsNaN(timer) || double.IsInfinity(timer) || timer < 0.0
+                || double.IsNaN(consumed) || double.IsInfinity(consumed) || consumed < 0.0)
+                return;
+
+            ConfigNode inputNode = new ConfigNode("INPUT");
+            inputNode.AddValue("name", resourceName);
+            inputNode.AddValue("amount", amount.ToString("R", CultureInfo.InvariantCulture));
+            inputNode.AddValue("period", period.ToString("R", CultureInfo.InvariantCulture));
+            inputNode.AddValue("flowmode", flowMode.ToString());
+            inputNode.AddValue("timer", timer.ToString("R", CultureInfo.InvariantCulture));
+            inputNode.AddValue("consumed", consumed.ToString("R", CultureInfo.InvariantCulture));
+            parent.AddNode(inputNode);
+        }
+
+        private static bool OutputMaterialsEquivalent(ChitakTechISRURecipe.ResourceOutputMaterial left,
+            ChitakTechISRURecipe.ResourceOutputMaterial right)
+        {
+            if (left.name != right.name || left.shape != right.shape || left.size != right.size
+                || left.outVolume != right.outVolume)
+                return false;
+            if (!ReferenceEquals(left.parameters, right.parameters))
+            {
+                if (left.parameters == null || right.parameters == null
+                    || left.parameters.Count != right.parameters.Count) return false;
+                foreach (KeyValuePair<string, string> parameter in left.parameters)
+                    if (!right.parameters.TryGetValue(parameter.Key, out string value)
+                        || value != parameter.Value)
+                        return false;
+            }
+
+            // Buffers written before parameter order was persisted have no ordered list.
+            // Treat those as compatible based on their dictionary values so old saves still load.
+            if (left.parameterAssignments == null || right.parameterAssignments == null)
+                return true;
+            if (left.parameterAssignments.Count != right.parameterAssignments.Count)
+                return false;
+            for (int index = 0; index < left.parameterAssignments.Count; index++)
+                if (!string.Equals(left.parameterAssignments[index].Key,
+                        right.parameterAssignments[index].Key, StringComparison.Ordinal)
+                    || !string.Equals(left.parameterAssignments[index].Value,
+                        right.parameterAssignments[index].Value, StringComparison.Ordinal))
+                    return false;
+            return true;
+        }
+
+        private bool TryGetBufferedMaterialKey(
+            ChitakTechISRURecipe.ResourceOutputMaterial candidate,
+            out ChitakTechISRURecipe.ResourceOutputMaterial key)
+        {
+            foreach (ChitakTechISRURecipe.ResourceOutputMaterial bufferedKey in
+                     _materialOutputAmount.Keys)
+            {
+                if (!OutputMaterialsEquivalent(bufferedKey, candidate)) continue;
+                key = bufferedKey;
+                return true;
+            }
+            key = default;
+            return false;
+        }
+
+        private static ChitakTechISRURecipe.ResourceOutputMaterial CloneMaterialOutputKey(
+            ChitakTechISRURecipe.ResourceOutputMaterial source)
+        {
+            source.parameters = source.parameters == null
+                ? new Dictionary<string, string>()
+                : new Dictionary<string, string>(source.parameters);
+            source.parameterAssignments = source.parameterAssignments == null
+                ? null
+                : new List<KeyValuePair<string, string>>(source.parameterAssignments);
+            return source;
+        }
+
+        private static int CreateMaterialOutputRandomSeed()
+            => UnityEngine.Random.Range(1, int.MaxValue);
+
+        private void EnsureMaterialOutputRandomState(
+            ChitakTechISRURecipe.ResourceOutputMaterial material)
+        {
+            if (!_materialOutputRandomSeed.ContainsKey(material))
+                _materialOutputRandomSeed[material] = CreateMaterialOutputRandomSeed();
+            if (!_materialOutputRandomSequence.ContainsKey(material))
+                _materialOutputRandomSequence[material] = 0L;
+        }
+
+        private static System.Random CreateMaterialOutputRandom(int seed, long sequence)
+        {
+            unchecked
+            {
+                int mixed = seed;
+                mixed = (mixed * 397) ^ (int)sequence;
+                mixed = (mixed * 397) ^ (int)(sequence >> 32);
+                return new System.Random(mixed & int.MaxValue);
+            }
+        }
+
+        private void RestoreMaterialOutputBuffer()
+        {
+            _materialOutputAmount.Clear();
+            _materialOutputRandomSeed.Clear();
+            _materialOutputRandomSequence.Clear();
+            List<ConfigNode> unrestored = new List<ConfigNode>();
+            foreach (ConfigNode outputNode in _pendingMaterialOutputNodes)
+            {
+                if (!double.TryParse(outputNode.GetValue("amount"), NumberStyles.Float,
+                        CultureInfo.InvariantCulture, out double amount)
+                    || double.IsNaN(amount) || double.IsInfinity(amount) || amount <= 0.0)
+                {
+                    unrestored.Add(outputNode);
+                    continue;
+                }
+
+                ConfigNode savedParamsNode = outputNode.HasNode("PARAMS")
+                    ? outputNode.GetNode("PARAMS")
+                    : null;
+                Dictionary<string, string> parameters = savedParamsNode != null
+                    ? CTShared.NodeToDictionary(savedParamsNode)
+                    : new Dictionary<string, string>();
+                List<KeyValuePair<string, string>> parameterAssignments = null;
+                if (outputNode.HasValue("parameterOrderVersion"))
+                {
+                    if (outputNode.GetValue("parameterOrderVersion") != "1")
+                    {
+                        unrestored.Add(outputNode);
+                        continue;
+                    }
+
+                    parameterAssignments = new List<KeyValuePair<string, string>>();
+                    if (savedParamsNode != null)
+                        foreach (ConfigNode.Value parameter in savedParamsNode.values)
+                            parameterAssignments.Add(new KeyValuePair<string, string>(
+                                parameter.name, parameter.value));
+                }
+                bool parallaxResolved = false;
+                if (outputNode.HasValue("parallaxResolved")
+                    && !bool.TryParse(outputNode.GetValue("parallaxResolved"),
+                        out parallaxResolved))
+                {
+                    unrestored.Add(outputNode);
+                    continue;
+                }
+                bool inputMaterialResolved = false;
+                if (outputNode.HasValue("inputMaterialResolved")
+                    && !bool.TryParse(outputNode.GetValue("inputMaterialResolved"),
+                        out inputMaterialResolved))
+                {
+                    unrestored.Add(outputNode);
+                    continue;
+                }
+                ChitakTechISRURecipe.ResourceOutputMaterial restored = new ChitakTechISRURecipe.ResourceOutputMaterial
+                {
+                    name = outputNode.GetValue("name"),
+                    shape = outputNode.GetValue("shape"),
+                    size = outputNode.GetValue("size"),
+                    usesParams = parameters.Count > 0,
+                    parameters = parameters,
+                    parameterAssignments = parameterAssignments,
+                    amount = 0.0,
+                    amountScale = 1.0,
+                    outVolume = outputNode.GetValue("outVolume"),
+                    parallaxResolved = parallaxResolved,
+                    inputMaterialResolved = inputMaterialResolved
+                };
+
+                bool matched = false;
+                foreach (ChitakTechISRURecipe.ResourceOutputMaterial configured in
+                         recipes.SelectMany(recipe => recipe._outputMaterials))
+                {
+                    if (OutputMaterialsEquivalent(restored, configured))
+                    {
+                        restored = configured;
+                        matched = true;
+                        break;
+                    }
+                    if (IsSavedParallaxMaterialRealization(restored, configured))
+                    {
+                        matched = true;
+                        break;
+                    }
+                    if (IsSavedInputMaterialRealization(restored, configured))
+                    {
+                        matched = true;
+                        break;
+                    }
+                }
+
+                if (!matched)
+                {
+                    // Keep output from a removed, renamed, or temporarily invalid recipe as
+                    // opaque save data. Replaying it without a current matching definition
+                    // could manufacture a material with an obsolete shape/volume contract.
+                    unrestored.Add(outputNode);
+                    continue;
+                }
+
+                bool hasSeed = outputNode.HasValue("randomSeed");
+                bool hasSequence = outputNode.HasValue("randomSequence");
+                int randomSeed = 0;
+                long randomSequence = 0L;
+                if (hasSeed != hasSequence
+                    || (hasSeed && (!int.TryParse(outputNode.GetValue("randomSeed"),
+                            NumberStyles.Integer, CultureInfo.InvariantCulture,
+                            out randomSeed)
+                        || !long.TryParse(outputNode.GetValue("randomSequence"),
+                            NumberStyles.Integer, CultureInfo.InvariantCulture,
+                            out randomSequence)
+                        || randomSequence < 0L)))
+                {
+                    unrestored.Add(outputNode);
+                    continue;
+                }
+                if (!hasSeed)
+                {
+                    // Legacy buffers did not preserve realized randomness. Assign the stream
+                    // once during migration; all subsequent failed attempts and reloads are stable.
+                    randomSeed = CreateMaterialOutputRandomSeed();
+                    randomSequence = 0L;
+                }
+
+                // Distinct saved records retain distinct streams. This matters for malformed or
+                // hand-edited saves containing duplicate logical templates: combining their
+                // streams would change already-promised randomized units.
+                if (_materialOutputAmount.Keys.Any(key =>
+                        OutputMaterialsEquivalent(key, restored)))
+                    restored = CloneMaterialOutputKey(restored);
+                _materialOutputAmount[restored] = amount;
+                _materialOutputRandomSeed[restored] = randomSeed;
+                _materialOutputRandomSequence[restored] = randomSequence;
+            }
+            _pendingMaterialOutputNodes.Clear();
+            _pendingMaterialOutputNodes.AddRange(unrestored);
+        }
+
+        public override void OnStart(StartState state)
+        {
+            base.OnStart(state);
+
+            // This must precede recipe/config initialization: PartModule.Load restores both
+            // persistent KSPFields and custom PASSIVE_INPUT_STATE/MATERIAL_OUTPUT_BUFFER nodes
+            // which the remainder of OnStart then resolves against the current recipes.
+            ChitakTechKerbalSuitScenario suitScenario = ChitakTechKerbalSuitScenario.Instance;
+            if (suitScenario != null && suitScenario.IsReady)
+                suitScenario.TryRestoreEVAISRUState(this);
+
+            _fatalConfigError = false;
+            // Peek moduleType early (before LoadConfigFromPartInfo runs its full parse) so the
+            // kerbal-host / duplicate checks below can bail out before doing anything else.
+            ConfigNode precheckNode = CTShared.FindModuleConfigNode(part, ConverterName, "ChitakTechISRU");
+            moduleType = IsPartEVAConfig(precheckNode)
+                ? "partEVA"
+                : IsKerbalEVAConfig(precheckNode)
+                    ? "kerbalEVA"
+                    : CTShared.GetStrValueFromCFG(precheckNode, "moduleType", "normal");
+
+            if (moduleType == "partEVA")
+            {
+                LoadConfig(precheckNode);
+                DisableAllUI();
+                enabled = false;
+                statusDisplay = _fatalConfigError
+                    ? "ERROR: see log"
+                    : "Available while held by a kerbal";
+                return;
+            }
+
+            if (moduleType == "kerbalEVA")
+            {
+                _kerbalHost = part.FindModuleImplementing<ChitakTechKerbal>();
+                if (_kerbalHost == null)
+                {
+                    CTShared.LogError(
+                        "Converter \"" + ConverterName + "\" has moduleType=kerbalEVA but part \"" + part.name
+                        + "\" has no ChitakTechKerbal module — this module only works on a kerbal part.",
+                        "ChitakTechISRU/OnStart");
+                    _fatalConfigError = true;
+                    DisableAllUI();
+                    statusDisplay = "ERROR: not on a kerbal part, see log";
+                    return;
+                }
+
+                // Only one kerbalEVA-type ChitakTechISRU may run per kerbal. Rather than
+                // re-deriving each sibling's moduleType from its (possibly already-renamed)
+                // ConverterName — which breaks once the first instance renames itself to
+                // "Kerbal" — claim a slot on the (already deduplicated, singular) ChitakTechKerbal
+                // host. This is robust regardless of how many duplicate module instances KSP's
+                // EVA-construct/DLC part assembly ends up creating, and in what order they start.
+                if (_kerbalHost.kerbalEVAISRU != null && _kerbalHost.kerbalEVAISRU != this)
+                {
+                    CTShared.LogError(
+                        "Converter \"" + ConverterName + "\": another kerbalEVA ChitakTechISRU is already present on this kerbal — only one is allowed, disabling this one.",
+                        "ChitakTechISRU/OnStart");
+                    _fatalConfigError = true;
+                    DisableAllUI();
+                    statusDisplay = "ERROR: duplicate kerbalEVA module, see log";
+                    return;
+                }
+                _kerbalHost.kerbalEVAISRU = this;
+            }
+
+            LoadConfigFromPartInfo();
+
+            if (_fatalConfigError)
+            {
+                DisableAllUI();
+                statusDisplay = "ERROR: see log";
+                return;
+            }
+
+            if (float.IsNaN(chargePercent) || float.IsInfinity(chargePercent)) chargePercent = 0f;
+            chargePercent = Mathf.Clamp(chargePercent, 0f, 100f);
+            if (!Enum.IsDefined(typeof(CTShared.ChargablePartState), this.state))
+                this.state = CTShared.ChargablePartState.Off;
+
+            RestoreMaterialOutputBuffer();
+
+            Fields["statusDisplay"].guiActiveUnfocused = true;
+            Fields["chargeDisplay"].guiActiveUnfocused = true;
+            Fields["progressDisplay"].guiActiveUnfocused = true;
+            Fields["stateDisplay"].guiActiveUnfocused = true;
+
+            Events["StartConverter"].guiName = StartActionName;
+            Events["StopConverter"].guiName = StopActionName;
+            Actions["StartConverterAction"].guiName = StartActionName;
+            Actions["StopConverterAction"].guiName = StopActionName;
+
+            ApplyInteractionRanges();
+
+            if (!chargingRequired)
+                this.state = CTShared.ChargablePartState.On;
+
+            _runtimeData = new ChitakTechRuntimeData(vessel);  // vessel could be null
+            ResetForBiomeTransition();
+
+            SetupActiveAnimation();
+
+            UpdateEventVisibility();
+        }
+
+        protected void UpdateEventVisibility()
+        {
+            _maxInteractionDistance = _configMaxInteractionDistance;
+            _maxDisplayDistance = _configMaxDisplayDistance;
+            if (_activeRecipe != null && _runtimeData != null)
+            {
+                ChitakTechISRUBiomeConfig currentBiome = GetEffectiveBiomeConfig();
+                if (currentBiome != null)
+                {
+                    double interaction = _configMaxInteractionDistance
+                        * currentBiome.maxInteractionDistanceMultiplier;
+                    double display = _configMaxDisplayDistance
+                        * currentBiome.maxDisplayDistanceMultiplier;
+                    _maxInteractionDistance = interaction >= float.MaxValue
+                        ? float.MaxValue : (float)interaction;
+                    _maxDisplayDistance = display >= float.MaxValue
+                        ? float.MaxValue : (float)display;
+                }
+            }
+            ApplyInteractionRanges();
+            ApplyShowRule(Events["StartConverter"],
+                showPAW: !isRunning && !needsMaintenance && _controlsShowPAW,
+                showEVA: !isRunning && !needsMaintenance && _controlsShowEVA);
+
+            ApplyShowRule(Events["StopConverter"],
+                showPAW: isRunning && _controlsShowPAW,
+                showEVA: isRunning && _controlsShowEVA);
+
+            Events["PerformMaintenance"].active = needsMaintenance;
+            Events["PerformMaintenance"].guiActiveUnfocused = needsMaintenance;
+
+            ApplyShowRule(Events["SwitchRecipe"],
+                showPAW: !isRunning && recipes.Count > 1 && _controlsShowPAW,
+                showEVA: !isRunning && recipes.Count > 1 && _controlsShowEVA);
+
+            ApplyShowRule(Events["ChangeRecipeParameters"],
+                showPAW: !isRunning && _activeRecipe != null
+                    && _activeRecipe._settings.Count > 0 && _controlsShowPAW,
+                showEVA: !isRunning && _activeRecipe != null
+                    && _activeRecipe._settings.Count > 0 && _controlsShowEVA);
+            UpdateMaintenanceDisplay();
+        }
+
+        /// <summary>
+        /// Pulls the given resources from the vessel network. Returns true only if every
+        /// resource was fully satisfied. Refunds all pulled resources if any fall short
+        /// (all-or-nothing semantics).
+        /// </summary>
+        private List<ChitakTechResourceNetwork.Transfer> _lastResourceTransfers;
+        private List<ChitakTechResourceNetwork.Transfer> _passiveStepTransfers;
+
+        private struct ResourceDraw
+        {
+            public List<ChitakTechResourceNetwork.Transfer> transfers;
+            public string name;
+            public double amount;
+            public ResourceFlowMode flowMode;
+        }
+
+        private static bool WasFullyTransferred(double requested, double actual)
+        {
+            if (double.IsNaN(requested) || double.IsInfinity(requested) || requested < 0.0
+                || double.IsNaN(actual) || double.IsInfinity(actual) || actual < 0.0)
+                return false;
+
+            if (requested == 0.0) return actual == 0.0;
+            if (actual == 0.0) return false;
+
+            // Scale the tolerance to the request. An absolute floor made every positive
+            // transfer at or below that floor look complete even when KSP moved nothing.
+            double tolerance = requested * 1e-9;
+            return actual >= requested - tolerance;
+        }
+
+        private sealed class MaterialRemovalRecord
+        {
+            public ChitakTechMaterialStorage storage;
+            public ChitakTechKerbal suitHost;
+            public List<ChitakTechMaterialInstance> pieces;
+        }
+
+        private bool ConsumeVesselResources(IList<string> names, IList<double> amounts,
+            List<ResourceFlowMode> flowModes, double dt, out List<ResourceDraw> draws)
+        {
+            draws = new List<ResourceDraw>();
+            if (names == null || amounts == null || flowModes == null
+                || double.IsNaN(dt) || double.IsInfinity(dt) || dt < 0.0)
+                return false;
+            if (names.Count != amounts.Count || names.Count != flowModes.Count) return false;
+            if (names.Count == 0) return true;
+
+            bool allSatisfied = true;
+
+            for (int i = 0; i < names.Count; i++)
+            {
+                double rate = amounts[i];
+                if (double.IsNaN(rate) || double.IsInfinity(rate) || rate < 0.0
+                    || string.IsNullOrWhiteSpace(names[i]))
+                {
+                    allSatisfied = false;
+                    continue;
+                }
+                if (rate == 0.0 || dt == 0.0) continue;
+
+                var def = PartResourceLibrary.Instance.GetDefinition(names[i]);
+                if (def == null)
+                {
+                    CTShared.LogError("Unknown resource \"" + names[i] + "\" in consumption list.",
+                        "ChitakTechISRU/ConsumeVesselResources");
+                    allSatisfied = false;
+                    continue;
+                }
+
+                double needed = rate * dt;
+                if (double.IsNaN(needed) || double.IsInfinity(needed) || needed <= 0.0)
+                {
+                    allSatisfied = false;
+                    continue;
+                }
+                double got = RequestResourceRouted(names[i], needed, flowModes[i]);
+                if (!double.IsNaN(got) && !double.IsInfinity(got) && got > 0.0)
+                    draws.Add(new ResourceDraw { name = names[i], amount = got, flowMode = flowModes[i], transfers = _lastResourceTransfers });
+
+                if (!WasFullyTransferred(needed, got))
+                    allSatisfied = false;
+            }
+
+            if (!allSatisfied)
+            {
+                RefundResourceDraws(draws);
+                draws.Clear();
+                return false;
+            }
+
+            return true;
+        }
+
+        private bool ConsumeVesselResources(IList<string> names, IList<double> amounts, double dt)
+        {
+            List<ResourceFlowMode> modes = Enumerable.Repeat(ResourceFlowMode.STAGE_PRIORITY_FLOW, names.Count).ToList();
+            return ConsumeVesselResources(names, amounts, modes, dt, out _);
+        }
+
+        private void RefundResourceDraws(IEnumerable<ResourceDraw> draws)
+        {
+            foreach (ResourceDraw draw in draws.Reverse())
+                if (draw.transfers != null) ChitakTechResourceNetwork.Rollback(draw.transfers);
+                else RequestResourceRouted(draw.name, -draw.amount, draw.flowMode);
+        }
+
+        /// <summary>
+        /// Pulls the given input material from the vessel network. Returns true only if the
+        /// material was fully satisfied.
+        /// </summary>
+        private bool ConsumeVesselMaterials(ChitakTechISRURecipe.ResourceInputMaterial material, int amount,
+            List<MaterialRemovalRecord> transaction,
+            out List<ChitakTechMaterialInstance> consumed)
+        {
+            consumed = new List<ChitakTechMaterialInstance>();
+            if (amount <= 0) return true;
+            if (!TryResolveInputMaterialConditions(ref material)) return false;
+
+            if ((moduleType == "kerbalEVA"
+                    || (moduleType == "partEVA" && useSuitCell))
+                && _kerbalHost != null)
+            {
+                if (!_kerbalHost.TryRemoveMaterialFromSuitCell(material.name, material.shape, material.size,
+                        material.parameters, amount, out List<ChitakTechMaterialInstance> removed))
+                    return false;
+                transaction.Add(new MaterialRemovalRecord { suitHost = _kerbalHost, pieces = removed });
+                consumed.AddRange(removed);
+                return true;
+            }
+
+            if (moduleType == "partEVA") return false;
+
+            List<ChitakTechMaterialStorage> storages = vessel.parts
+                .SelectMany(vesselPart => vesselPart.Modules.OfType<ChitakTechMaterialStorage>())
+                .ToList();
+            long available = 0;
+            foreach (ChitakTechMaterialStorage storage in storages)
+            {
+                available += storage.GetMatchingMaterialAmount(
+                    material.name, material.shape, material.size, material.parameters);
+                if (available >= amount) break;
+            }
+            if (available < amount) return false;
+
+            int remaining = amount;
+            foreach (ChitakTechMaterialStorage storage in storages)
+            {
+                int availableHere = storage.GetMatchingMaterialAmount(
+                    material.name, material.shape, material.size, material.parameters);
+                int take = Math.Min(remaining, availableHere);
+                if (take <= 0) continue;
+
+                if (!storage.TryRemoveMaterial(material.name, material.shape, material.size,
+                        material.parameters, take, out List<ChitakTechMaterialInstance> removed))
+                    return false;
+                transaction.Add(new MaterialRemovalRecord { storage = storage, pieces = removed });
+                consumed.AddRange(removed);
+                remaining -= take;
+                if (remaining == 0) return true;
+            }
+            return false;
+        }
+
+        private void RefundMaterialRemovals(IEnumerable<MaterialRemovalRecord> transaction)
+        {
+            foreach (MaterialRemovalRecord record in transaction.Reverse())
+            {
+                foreach (ChitakTechMaterialInstance piece in record.pieces)
+                {
+                    bool restored = record.suitHost != null
+                        ? record.suitHost.RestoreRemovedMaterialToSuitCell(piece)
+                        : record.storage?.RestoreRemovedMaterial(piece) == true;
+                    if (!restored)
+                        CTShared.LogError("Could not restore a material removed by a rolled-back batch.",
+                            "ChitakTechISRU/RefundMaterialRemovals");
+                }
+            }
+        }
+
+        public void UpdateUI()
+        {
+            chargeDisplay = chargingRequired
+                ? string.Format("{0:F1}%", chargePercent)
+                : "N/A";
+
+            if (state == CTShared.ChargablePartState.On)
+                stateDisplay = CanOperate ? "Ready" : "Below charge threshold";
+            else
+                stateDisplay = state.ToString();
+
+            Events["EnableCharging"].active = chargingRequired && state != CTShared.ChargablePartState.Charging && chargePercent < 100f;
+            Events["DisableCharging"].active = chargingRequired && state == CTShared.ChargablePartState.Charging;
+            Events["TurnOnConverter"].active = state != CTShared.ChargablePartState.On;
+            Events["TurnOffConverter"].active = state != CTShared.ChargablePartState.Off;
+        }
+
+        public void FixedUpdate()
+        {
+            if (!HighLogic.LoadedSceneIsFlight) return;
+            if (vessel == null || part == null) return;
+            if (_fatalConfigError) return;
+
+            _runtimeData.Update(vessel);
+            ResetForBiomeTransition();
+
+            double dt = TimeWarp.fixedDeltaTime;
+            if (double.IsNaN(dt) || double.IsInfinity(dt) || dt <= 0.0) return;
+            _maintenanceRuntime = 0;
+            HandleCharging(dt);
+            UpdateUI();
+            ProcessPendingPassiveRefunds();
+            TryTransferMaterialOutputBuffer();
+            UpdateEventVisibility();
+
+            if (needsMaintenance || !isRunning || !CanOperate || _activeRecipe == null)
+            {
+                statusDisplay = needsMaintenance ? "Needs maintenance" : (!isRunning ? "Stopped" : "Not ready");
+                progressDisplay = "Off";
+                SetActiveAnimationPlaying(false);
+                ApplyChargeDecay(dt, 0);
+                TickMaintenance(dt);
+                return;
+            }
+
+            SetActiveAnimationPlaying(RunBatchCycle(RecipeTimeAvailable(dt)));
+            ApplyChargeDecay(dt, _maintenanceRuntime);
+            TickMaintenance(dt);
+        }
+
+        /// <summary>
+        /// Check the current BIOME_CONFIG to update values and explode if needed.
+        /// </summary>
+        /// <param name="biomeConfig">The <see cref="ChitakTechISRUBiomeConfig"/> fetched outside the function.</param>
+        /// <returns>If <see langword="true"/>, an explosion or error happened.</returns>
+        protected bool CheckBiomeConfig(ChitakTechISRUBiomeConfig biomeConfig)
+        {
+            if (biomeConfig == null)
+            {
+                statusDisplay = "ERROR, please report this to the dev with the KSP.log.";
+                CTShared.LogError($"Biome config is null for recipe \"{_activeRecipe._name}\" on planet \"{_runtimeData.planet}\" in biome \"{_runtimeData.biome}\"!",
+                    "ChitakTechISRU/CheckBiomeConfig");
+                return true;
+            }
+
+            // One hundred and one ways to explode
+            if (ChitakTechEnvironmentConditions.Destructive(biomeConfig, _runtimeData))
+            {
+                TriggerPowerfail(GetPowerfailContextPart(), ChitakTechISRURecipe.PowerfailResult.Explode);
+                return true;
+            }
+
+            // Apply multipliers
+            double interactionDistance = _configMaxInteractionDistance * biomeConfig.maxInteractionDistanceMultiplier;
+            double displayDistance = _configMaxDisplayDistance * biomeConfig.maxDisplayDistanceMultiplier;
+            _maxInteractionDistance = interactionDistance >= float.MaxValue
+                ? float.MaxValue : (float)interactionDistance;
+            _maxDisplayDistance = displayDistance >= float.MaxValue
+                ? float.MaxValue : (float)displayDistance;
+            ApplyInteractionRanges();
+
+            return false;
+        }
+
+        /// <summary>
+        /// Looks up the applicable biome config for the active recipe at the vessel's current
+        /// location and, if found and operable, advances batch progress; consumes the full
+        /// batch of inputs and produces the full batch of outputs once recipeTime is reached.
+        /// </summary>
+        protected bool RunBatchCycle(double dt)
+        {
+            ChitakTechISRUBiomeConfig biomeConfig = GetEffectiveBiomeConfig();
+            if (biomeConfig == null)
+            {
+                progressDisplay = FormatProgress(batchProgress,
+                    resolvedRecipeTime > 0.0
+                        ? resolvedRecipeTime : _activeRecipe._recipeTime);
+                statusDisplay = "ERROR, please report this to the dev with the KSP.log.";
+                CTShared.LogError($"Biome config is null for recipe \"{_activeRecipe._name}\" on planet \"{_runtimeData.planet}\" in biome \"{_runtimeData.biome}\"!",
+                    "ChitakTechISRU/RunBatchCycle");
+                return false;
+            }
+
+            // Reflect pre-tick progress for every early-return branch below (converter is
+            // "on" but may be paused this tick). speedMul is a duration multiplier, so it
+            // must also be reflected before the timing loop advances.
+            double previewRecipeTime = (resolvedRecipeTime > 0.0
+                ? resolvedRecipeTime : _activeRecipe._recipeTime) * biomeConfig.speedMul;
+            progressDisplay = FormatProgress(batchProgress, previewRecipeTime);
+
+            if (CheckBiomeConfig(biomeConfig))
+                return false;
+
+            string environmentFailure = ChitakTechEnvironmentConditions.OperatingFailure(biomeConfig, _runtimeData);
+            if (environmentFailure != null)
+            {
+                statusDisplay = environmentFailure;
+                return false;
+            }
+
+            if (!IsAtRequiredDeposit(biomeConfig))
+            {
+                statusDisplay = "Not at a required deposit";
+                return false;
+            }
+
+            if (_activeRecipe.UsesParallaxScatters
+                && !TryGetNearbyParallaxTarget(false, out _))
+            {
+                statusDisplay = ChitakTechParallaxIntegration.NoSuitableTreeMessage;
+                return false;
+            }
+
+
+            if (!CountWorkers(out uint engineers, out uint pilots, out uint scientists))
+            {
+                statusDisplay = "No workers nearby";
+                return false;
+            }
+
+            double reqEngineers = _activeRecipe._workersEngineers * biomeConfig.workersEngineersMultiplier;
+            double reqPilots = _activeRecipe._workersPilots * biomeConfig.workersPilotsMultiplier;
+            double reqScientists = _activeRecipe._workersScientists * biomeConfig.workersScientistsMultiplier;
+
+            if (engineers < reqEngineers || pilots < reqPilots || scientists < reqScientists)
+            {
+                statusDisplay = "Insufficient workers";
+                return false;
+            }
+
+            if (double.IsNaN(resolvedRecipeTime)
+                || double.IsInfinity(resolvedRecipeTime) || resolvedRecipeTime <= 0.0)
+            {
+                if (!TryResolveRecipeTime(biomeConfig, out double newlyResolvedTime))
+                {
+                    statusDisplay = "Recipe time inputs unavailable";
+                    return false;
+                }
+                resolvedRecipeTime = newlyResolvedTime;
+            }
+            double recipeTimeMultiplier = biomeConfig.speedMul;
+            double effectiveRecipeTime = resolvedRecipeTime * recipeTimeMultiplier;
+            if (double.IsNaN(dt) || double.IsInfinity(dt) || dt <= 0.0
+                || double.IsNaN(recipeTimeMultiplier)
+                || double.IsInfinity(recipeTimeMultiplier)
+                || recipeTimeMultiplier <= 0.0
+                || double.IsNaN(effectiveRecipeTime) || double.IsInfinity(effectiveRecipeTime)
+                || effectiveRecipeTime <= 0.0)
+            {
+                statusDisplay = "ERROR: invalid recipe timing, see log";
+                CTShared.LogError("Converter \"" + ConverterName
+                    + "\": batch timing contains a non-finite or non-positive value.",
+                    "ChitakTechISRU/RunBatchCycle");
+                return false;
+            }
+
+            if (double.IsNaN(batchProgress) || double.IsInfinity(batchProgress) || batchProgress < 0.0)
+                batchProgress = 0.0;
+            if (batchProgress > effectiveRecipeTime) batchProgress = effectiveRecipeTime;
+
+            const int maxBatchesPerTick = 1000;
+            int completedBatches = 0;
+            bool performedWork = false;
+            double remainingDt = dt;
+
+            // Consume only the slice of wall-clock time needed to reach a batch boundary.
+            // This prevents high time warp from charging passive inputs beyond a blocked batch,
+            // and permits multiple complete batches in one physics update.
+            while ((remainingDt > 0.0
+                    || batchProgress >= effectiveRecipeTime)
+                   && completedBatches < maxBatchesPerTick)
+            {
+                if (batchProgress >= effectiveRecipeTime)
+                {
+                    batchProgress = effectiveRecipeTime;
+                    if (!TryRunBatch(biomeConfig))
+                    {
+                        statusDisplay = string.IsNullOrEmpty(_lastBatchFailureStatus)
+                            ? "Insufficient resources / no output space"
+                            : _lastBatchFailureStatus;
+                        progressDisplay = FormatProgress(batchProgress, effectiveRecipeTime);
+                        return performedWork;
+                    }
+
+                    batchProgress = 0.0;
+                    resolvedRecipeTime = 0.0;
+                    ClearPassiveConsumption();
+                    completedBatches++;
+                    performedWork = true;
+                    if (remainingDt > 0.0)
+                    {
+                        if (!TryResolveRecipeTime(biomeConfig,
+                                out double newlyResolvedTime))
+                        {
+                            statusDisplay = "Recipe time inputs unavailable";
+                            progressDisplay = "0%";
+                            return performedWork;
+                        }
+                        resolvedRecipeTime = newlyResolvedTime;
+                        effectiveRecipeTime = newlyResolvedTime * recipeTimeMultiplier;
+                        if (double.IsNaN(effectiveRecipeTime)
+                            || double.IsInfinity(effectiveRecipeTime)
+                            || effectiveRecipeTime <= 0.0)
+                        {
+                            statusDisplay = "ERROR: invalid recipe timing, see log";
+                            CTShared.LogError("Converter \"" + ConverterName
+                                + "\": recipeTime multiplied by speedMul is non-finite or non-positive.",
+                                "ChitakTechISRU/RunBatchCycle");
+                            return performedWork;
+                        }
+                    }
+                    continue;
+                }
+
+                double secondsToBoundary = effectiveRecipeTime - batchProgress;
+                if (double.IsNaN(secondsToBoundary) || double.IsInfinity(secondsToBoundary)
+                    || secondsToBoundary <= 0.0)
+                {
+                    statusDisplay = "ERROR: invalid recipe timing, see log";
+                    return performedWork;
+                }
+
+                double step = Math.Min(remainingDt, secondsToBoundary);
+                bool reachesBoundary = step >= secondsToBoundary;
+                if (!ProcessPassiveInputs(biomeConfig, step))
+                {
+                    progressDisplay = FormatProgress(batchProgress, effectiveRecipeTime);
+                    return performedWork;
+                }
+
+                batchProgress = reachesBoundary
+                    ? effectiveRecipeTime
+                    : batchProgress + step;
+                _maintenanceRuntime += step;
+                if (step > 0.0) performedWork = true;
+                if (batchProgress > effectiveRecipeTime) batchProgress = effectiveRecipeTime;
+                remainingDt -= step;
+                if (remainingDt < 0.0) remainingDt = 0.0;
+            }
+
+            progressDisplay = FormatProgress(batchProgress, effectiveRecipeTime);
+            if (completedBatches >= maxBatchesPerTick && remainingDt > 0.0)
+            {
+                statusDisplay = "Time-warp batch limit reached";
+                CTShared.LogWarning("Converter \"" + ConverterName
+                    + "\" reached the safety limit of 1000 batches in one physics update; excess elapsed time was not processed.",
+                    "ChitakTechISRU/RunBatchCycle");
+            }
+            else if (completedBatches > 0)
+                statusDisplay = completedBatches == 1 ? "Batch complete" : completedBatches + " batches complete";
+            else
+                statusDisplay = string.Format("Running ({0:F0}%)",
+                    100.0 * batchProgress / effectiveRecipeTime);
+            return performedWork;
+        }
+
+        /// <summary>
+        /// Processes every PINPUT_RESOURCE on the active recipe: consumes <c>amount</c> every
+        /// <c>period</c> seconds, tracking the cumulative amount taken from each since the batch
+        /// last completed/reset. On insufficient resource: if ignorePowerfail, silently skips
+        /// consumption for that tick and the batch continues normally; otherwise applies the
+        /// configured powefail result — PAUSE (default) just stalls this tick, STOP refunds
+        /// everything consumed so far this batch and halts the converter, VOID/MAINT discard
+        /// it instead (MAINT also requiring maintenance), and EXPLODE destroys the part with
+        /// falling-off heat. Returns false if the current tick's batch progress should not be
+        /// advanced (anything other than a successful tick).
+        /// </summary>
+        protected bool ProcessPassiveInputs(ChitakTechISRUBiomeConfig biomeConfig, double dt)
+        {
+            if (_activeRecipe._passiveInputs.Count == 0) return true;
+            if (double.IsNaN(dt) || double.IsInfinity(dt) || dt < 0.0) return false;
+
+            List<double> timersBefore = new List<double>(_passiveTimers);
+            List<double> consumedBefore = new List<double>(_passiveConsumedThisBatch);
+            _passiveStepTransfers = IsEVAModuleType() ? null
+                : new List<ChitakTechResourceNetwork.Transfer>();
+
+            for (int i = 0; i < _activeRecipe._passiveInputs.Count; i++)
+            {
+                ChitakTechISRURecipe.PassiveResourceInput pinp = _activeRecipe._passiveInputs[i];
+                double timer = (i < _passiveTimers.Count) ? _passiveTimers[i] : 0.0;
+                if (double.IsNaN(timer) || double.IsInfinity(timer) || timer < 0.0) timer = 0.0;
+                timer += dt;
+                double effectivePeriod = pinp.period * biomeConfig.passivePeriodMultiplier;
+                double perOccurrence = pinp.amount * biomeConfig.inputMultiplier
+                    * biomeConfig.passiveMultiplier;
+                if (double.IsNaN(timer) || double.IsInfinity(timer)
+                    || double.IsNaN(effectivePeriod) || double.IsInfinity(effectivePeriod)
+                    || effectivePeriod <= 0.0
+                    || double.IsNaN(perOccurrence) || double.IsInfinity(perOccurrence)
+                    || perOccurrence < 0.0)
+                {
+                    CTShared.LogError("Converter \"" + ConverterName
+                        + "\": passive-input timing or amount became invalid.",
+                        "ChitakTechISRU/ProcessPassiveInputs");
+                    RollBackPassiveInputStep(timersBefore, consumedBefore);
+                    return false;
+                }
+
+                double dueOccurrences = Math.Floor(timer / effectivePeriod);
+                if (dueOccurrences < 1.0 || perOccurrence == 0.0)
+                {
+                    if (perOccurrence == 0.0 && dueOccurrences >= 1.0)
+                        timer -= dueOccurrences * effectivePeriod;
+                    if (i < _passiveTimers.Count) _passiveTimers[i] = Math.Max(0.0, timer);
+                    continue;
+                }
+
+                double totalNeeded = dueOccurrences * perOccurrence;
+                if (double.IsNaN(totalNeeded) || double.IsInfinity(totalNeeded))
+                {
+                    CTShared.LogError("Converter \"" + ConverterName
+                        + "\": passive-input consumption overflowed.",
+                        "ChitakTechISRU/ProcessPassiveInputs");
+                    RollBackPassiveInputStep(timersBefore, consumedBefore);
+                    return false;
+                }
+
+                double alreadyConsumed = i < _passiveConsumedThisBatch.Count
+                    ? _passiveConsumedThisBatch[i] : 0.0;
+                if (double.IsNaN(alreadyConsumed) || double.IsInfinity(alreadyConsumed)
+                    || alreadyConsumed < 0.0
+                    || double.IsInfinity(alreadyConsumed + totalNeeded))
+                {
+                    CTShared.LogError("Converter \"" + ConverterName
+                        + "\": passive-input consumption accounting overflowed.",
+                        "ChitakTechISRU/ProcessPassiveInputs");
+                    RollBackPassiveInputStep(timersBefore, consumedBefore);
+                    return false;
+                }
+
+                // A single routed request avoids an unbounded loop at high time warp. If KSP
+                // returns a partial draw, retain only whole configured occurrences and refund
+                // the fractional remainder.
+                double got = RequestResourceRouted(pinp.resourceName, totalNeeded, pinp.flowMode);
+                if (double.IsNaN(got) || double.IsInfinity(got) || got < 0.0) got = 0.0;
+                double satisfiedOccurrences = Math.Min(dueOccurrences,
+                    Math.Floor((got + perOccurrence * 1e-9) / perOccurrence));
+                double kept = satisfiedOccurrences * perOccurrence;
+                double partial = got - kept;
+                if (partial > perOccurrence * 1e-9)
+                {
+                    if (_lastResourceTransfers != null)
+                        ChitakTechResourceNetwork.RollbackAmount(_lastResourceTransfers, partial);
+                    else RequestResourceRouted(pinp.resourceName, -partial, pinp.flowMode);
+                }
+                if (_passiveStepTransfers != null && _lastResourceTransfers != null)
+                    _passiveStepTransfers.AddRange(_lastResourceTransfers);
+
+                if (kept > 0.0 && i < _passiveConsumedThisBatch.Count)
+                    _passiveConsumedThisBatch[i] += kept;
+                timer -= satisfiedOccurrences * effectivePeriod;
+
+                if (satisfiedOccurrences < dueOccurrences)
+                {
+                    if (pinp.ignorePowerfail)
+                    {
+                        // Missing ignored occurrences are skipped, matching the configured
+                        // "nothing happens" behavior without issuing thousands of requests.
+                        timer -= (dueOccurrences - satisfiedOccurrences) * effectivePeriod;
+                    }
+                    else
+                    {
+                        if (pinp.powerfail == ChitakTechISRURecipe.PowerfailResult.Pause)
+                        {
+                            RollBackPassiveInputStep(timersBefore, consumedBefore);
+                            TriggerPowerfail(GetPowerfailContextPart(), pinp.powerfail,
+                                pinp.powerfailExplosionRadius,
+                                pinp.powerfailExplosionTemperature);
+                            statusDisplay = "Paused: out of " + pinp.resourceName;
+                            return false;
+                        }
+
+                        // Consume the failed occurrence's timer just as the old per-period loop
+                        // did; any later due occurrences remain queued for a future update.
+                        timer -= effectivePeriod;
+                        if (i < _passiveTimers.Count) _passiveTimers[i] = Math.Max(0.0, timer);
+
+                        TriggerPowerfail(GetPowerfailContextPart(), pinp.powerfail, pinp.powerfailExplosionRadius,
+                            pinp.powerfailExplosionTemperature);
+                        return false;
+                    }
+                }
+
+                if (i < _passiveTimers.Count) _passiveTimers[i] = Math.Max(0.0, timer);
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Attempts to consume a full batch of the active recipe's INPUT_RESOURCE amounts
+        /// (all-or-nothing) and, if successful, produces the OUTPUT_RESOURCE amounts and
+        /// buffers OUTPUT_MATERIAL production for ChitakTechMaterialStorage pickup.
+        /// </summary>
+        private struct PreparedResourceOutput
+        {
+            public string name;
+            public double amount;
+            public bool dumpExcess;
+        }
+
+        private List<PreparedResourceOutput> PrepareResourceOutputs(ChitakTechISRUBiomeConfig biomeConfig)
+        {
+            List<PreparedResourceOutput> outputs = new List<PreparedResourceOutput>();
+            foreach (ChitakTechISRURecipe.ResourceOutput output in _activeRecipe._outputs)
+            {
+                double amount = output.amount * biomeConfig.outputMultiplier;
+                if (double.IsNaN(amount) || double.IsInfinity(amount) || amount <= 0.0) continue;
+                outputs.Add(new PreparedResourceOutput
+                {
+                    name = output.resourceName,
+                    amount = amount,
+                    dumpExcess = output.dumpExcess
+                });
+            }
+            foreach (ChitakTechISRURecipe.ResourceOutput output in biomeConfig.outputs)
+            {
+                double amount = output.amount * _activeRecipe._biomeResourceScale
+                    * biomeConfig.outputMultiplier;
+                if (double.IsNaN(amount) || double.IsInfinity(amount) || amount <= 0.0) continue;
+                outputs.Add(new PreparedResourceOutput
+                {
+                    name = output.resourceName,
+                    amount = amount,
+                    dumpExcess = output.dumpExcess
+                });
+            }
+            return outputs;
+        }
+
+        private void RollBackProducedResources(IEnumerable<ResourceDraw> produced)
+        {
+            foreach (ResourceDraw output in produced.Reverse())
+                if (output.transfers != null) ChitakTechResourceNetwork.Rollback(output.transfers);
+                else RequestResourceRouted(output.name, output.amount, output.flowMode);
+        }
+
+        private bool HasRequiredOutputSpace(List<PreparedResourceOutput> outputs)
+        {
+            List<ResourceDraw> probeOutputs = new List<ResourceDraw>();
+            bool enoughSpace = true;
+            foreach (PreparedResourceOutput output in outputs.Where(value => !value.dumpExcess))
+            {
+                double added = Math.Abs(RequestResourceRouted(output.name, -output.amount));
+                if (added > 0.0)
+                    probeOutputs.Add(new ResourceDraw
+                    {
+                        name = output.name,
+                        amount = added,
+                        flowMode = ResourceFlowMode.STAGE_PRIORITY_FLOW,
+                        transfers = _lastResourceTransfers
+                    });
+                if (!WasFullyTransferred(output.amount, added))
+                {
+                    enoughSpace = false;
+                    break;
+                }
+            }
+            RollBackProducedResources(probeOutputs);
+            return enoughSpace;
+        }
+
+        private bool CommitResourceOutputs(List<PreparedResourceOutput> outputs,
+            out List<ResourceDraw> committed)
+        {
+            committed = new List<ResourceDraw>();
+
+            // Outputs that may not be dumped go first. The preflight above should make each
+            // request succeed in full; any unexpected shortfall rolls the entire output set back.
+            foreach (PreparedResourceOutput output in outputs.Where(value => !value.dumpExcess))
+            {
+                double added = Math.Abs(RequestResourceRouted(output.name, -output.amount));
+                if (added > 0.0)
+                    committed.Add(new ResourceDraw
+                    {
+                        name = output.name,
+                        amount = added,
+                        flowMode = ResourceFlowMode.STAGE_PRIORITY_FLOW,
+                        transfers = _lastResourceTransfers
+                    });
+                if (!WasFullyTransferred(output.amount, added))
+                {
+                    RollBackProducedResources(committed);
+                    committed.Clear();
+                    return false;
+                }
+            }
+
+            // Dumpable output is all-or-nothing per entry. If a full amount cannot be stored,
+            // remove the partial probe and silently dump the complete output amount.
+            foreach (PreparedResourceOutput output in outputs.Where(value => value.dumpExcess))
+            {
+                double added = Math.Abs(RequestResourceRouted(output.name, -output.amount));
+                if (WasFullyTransferred(output.amount, added))
+                {
+                    committed.Add(new ResourceDraw
+                    {
+                        name = output.name,
+                        amount = added,
+                        flowMode = ResourceFlowMode.STAGE_PRIORITY_FLOW,
+                        transfers = _lastResourceTransfers
+                    });
+                }
+                else if (added > 0.0)
+                {
+                    if (_lastResourceTransfers != null)
+                        ChitakTechResourceNetwork.Rollback(_lastResourceTransfers);
+                    else RequestResourceRouted(output.name, added);
+                }
+            }
+            return true;
+        }
+
+        private static int ScaleDiscreteMaterialAmount(int amount, double multiplier)
+        {
+            if (amount <= 0 || double.IsNaN(multiplier) || double.IsInfinity(multiplier)
+                || multiplier <= 0.0) return 0;
+            double scaled = amount * multiplier;
+            if (double.IsNaN(scaled) || scaled <= 0.0) return 0;
+            if (scaled >= int.MaxValue) return int.MaxValue;
+            int result = (int)Math.Round(scaled, MidpointRounding.AwayFromZero);
+            return Math.Max(1, result);
+        }
+
+        private bool CanBufferMaterialOutputs(ChitakTechISRUBiomeConfig biomeConfig,
+            IList<ChitakTechISRURecipe.ResourceOutputMaterial> materialOutputs)
+        {
+            for (int i = 0; i < materialOutputs.Count; i++)
+            {
+                ChitakTechISRURecipe.ResourceOutputMaterial material =
+                    materialOutputs[i];
+                double amount = material.amount * biomeConfig.outputMultiplier;
+                if (double.IsNaN(amount) || double.IsInfinity(amount) || amount < 0.0)
+                    return false;
+
+                double projected = 0.0;
+                foreach (KeyValuePair<ChitakTechISRURecipe.ResourceOutputMaterial, double>
+                         buffered in _materialOutputAmount)
+                {
+                    if (!OutputMaterialsEquivalent(buffered.Key, material)) continue;
+                    projected += buffered.Value;
+                    if (double.IsNaN(projected) || double.IsInfinity(projected)) return false;
+                }
+                for (int previous = 0; previous <= i; previous++)
+                {
+                    ChitakTechISRURecipe.ResourceOutputMaterial other =
+                        materialOutputs[previous];
+                    if (!OutputMaterialsEquivalent(other, material)) continue;
+                    double otherAmount = other.amount * biomeConfig.outputMultiplier;
+                    if (double.IsNaN(otherAmount) || double.IsInfinity(otherAmount)
+                        || otherAmount < 0.0) return false;
+                    projected += otherAmount;
+                    if (double.IsNaN(projected) || double.IsInfinity(projected)) return false;
+                }
+            }
+            return true;
+        }
+
+        protected bool TryRunBatch(ChitakTechISRUBiomeConfig biomeConfig)
+        {
+            _lastBatchFailureStatus = null;
+            ChitakTechParallaxTarget parallaxTarget = null;
+            List<ChitakTechISRURecipe.ResourceOutputMaterial> materialOutputs =
+                _activeRecipe._outputMaterials;
+            if (_activeRecipe.UsesParallaxScatters)
+            {
+                if (!TryGetNearbyParallaxTarget(true, out parallaxTarget))
+                {
+                    _lastBatchFailureStatus =
+                        ChitakTechParallaxIntegration.NoSuitableTreeMessage;
+                    return false;
+                }
+                materialOutputs = ResolveParallaxMaterialOutputs(materialOutputs,
+                    parallaxTarget);
+            }
+
+            List<PreparedResourceOutput> outputs = PrepareResourceOutputs(biomeConfig);
+            List<MaterialRemovalRecord> materialTransaction = new List<MaterialRemovalRecord>();
+            Dictionary<string, ChitakTechMaterialInstance> inputMaterialValues =
+                new Dictionary<string, ChitakTechMaterialInstance>(StringComparer.Ordinal);
+            foreach (ChitakTechISRURecipe.ResourceInputMaterial material in _activeRecipe._inputMaterials)
+            {
+                int amount = ScaleDiscreteMaterialAmount(material.amount, biomeConfig.inputMultiplier);
+                if (!ConsumeVesselMaterials(material, amount, materialTransaction,
+                        out List<ChitakTechMaterialInstance> consumed))
+                {
+                    RefundMaterialRemovals(materialTransaction);
+                    return false;
+                }
+                if (!string.IsNullOrEmpty(material.id))
+                {
+                    ChitakTechMaterialInstance snapshot =
+                        CreateConsumedInputMaterialSnapshot(consumed);
+                    if (snapshot == null)
+                    {
+                        CTShared.LogError("Converter \"" + ConverterName
+                            + "\": INPUT_MATERIAL id \"" + material.id
+                            + "\" consumed no material instance.",
+                            "ChitakTechISRU/TryRunBatch");
+                        RefundMaterialRemovals(materialTransaction);
+                        return false;
+                    }
+                    inputMaterialValues[material.id] = snapshot;
+                }
+            }
+
+            if (!TryResolveInputMaterialOutputs(materialOutputs, inputMaterialValues,
+                    out materialOutputs, out var outputMaterialValues, biomeConfig.outputMultiplier))
+            {
+                RefundMaterialRemovals(materialTransaction);
+                return false;
+            }
+
+            if (!CanBufferMaterialOutputs(biomeConfig, materialOutputs))
+            {
+                CTShared.LogError("Converter \"" + ConverterName
+                    + "\": material output buffer would overflow; batch was not run.",
+                    "ChitakTechISRU/TryRunBatch");
+                RefundMaterialRemovals(materialTransaction);
+                return false;
+            }
+
+            List<string> names = new List<string>();
+            List<double> amounts = new List<double>();
+            List<ResourceFlowMode> flowModes = new List<ResourceFlowMode>();
+
+            foreach (var inp in _activeRecipe._inputs)
+            {
+                names.Add(inp.resourceName);
+                amounts.Add(inp.amount * biomeConfig.inputMultiplier);
+                flowModes.Add(inp.flowMode);
+            }
+            foreach (var inp in biomeConfig.inputs)
+            {
+                names.Add(inp.resourceName);
+                amounts.Add(inp.amount * _activeRecipe._biomeResourceScale
+                    * biomeConfig.inputMultiplier);
+                flowModes.Add(inp.flowMode);
+            }
+            if (!ConsumeVesselResources(names, amounts, flowModes, 1.0, out List<ResourceDraw> resourceDraws))
+            {
+                RefundMaterialRemovals(materialTransaction);
+                return false;
+            }
+
+            if (!HasRequiredOutputSpace(outputs))
+            {
+                RefundResourceDraws(resourceDraws);
+                RefundMaterialRemovals(materialTransaction);
+                return false;
+            }
+
+            if (!CommitResourceOutputs(outputs, out List<ResourceDraw> committedOutputs))
+            {
+                RefundResourceDraws(resourceDraws);
+                RefundMaterialRemovals(materialTransaction);
+                return false;
+            }
+
+            if (!TryPlanCargo(biomeConfig, inputMaterialValues, outputMaterialValues,
+                    out CargoInventoryTransaction cargoTransaction))
+            {
+                RollBackProducedResources(committedOutputs);
+                RefundResourceDraws(resourceDraws);
+                RefundMaterialRemovals(materialTransaction);
+                return false;
+            }
+            try { cargoTransaction?.Apply(); }
+            catch (Exception error)
+            {
+                cargoTransaction?.Rollback();
+                RollBackProducedResources(committedOutputs);
+                RefundResourceDraws(resourceDraws);
+                RefundMaterialRemovals(materialTransaction);
+                _lastBatchFailureStatus = "Cargo inventory error (see log)";
+                CTShared.LogError(error.ToString(), "ChitakTechISRU/TryRunBatch");
+                return false;
+            }
+
+            if (parallaxTarget != null
+                && !ChitakTechParallaxIntegration.TryHarvest(parallaxTarget))
+            {
+                cargoTransaction?.Rollback();
+                RollBackProducedResources(committedOutputs);
+                RefundResourceDraws(resourceDraws);
+                RefundMaterialRemovals(materialTransaction);
+                ClearParallaxTargetCache();
+                _lastBatchFailureStatus =
+                    ChitakTechParallaxIntegration.NoSuitableTreeMessage;
+                return false;
+            }
+            if (parallaxTarget != null) ClearParallaxTargetCache();
+
+            foreach (var mat in materialOutputs)
+            {
+                double amount = mat.amount * biomeConfig.outputMultiplier;
+                if (double.IsNaN(amount) || double.IsInfinity(amount) || amount <= 0.0) continue;
+                if (!TryGetBufferedMaterialKey(mat, out ChitakTechISRURecipe.ResourceOutputMaterial key))
+                {
+                    key = mat;
+                    _materialOutputAmount.Add(key, 0.0);
+                }
+                EnsureMaterialOutputRandomState(key);
+                _materialOutputAmount[key] += amount;
+            }
+
+            try { cargoTransaction?.Publish(); }
+            catch (Exception error)
+            {
+                // The batch is already committed. A UI subscriber failure must not replay it.
+                CTShared.LogError(error.ToString(), "ChitakTechISRU/CargoInventoryChanged");
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Counts nearby engineer/pilot/scientist workers for the active recipe's workersType:
+        /// CREW counts seated crew on this vessel (optionally restricted to this part if
+        /// workersCrewSamePart is set), EVA counts a nearby EVA kerbal within maxInteractionDistance.
+        /// </summary>
+        protected bool CountWorkers(out uint engineers, out uint pilots, out uint scientists)
+        {
+            engineers = 0; pilots = 0; scientists = 0;
+            bool anyWorkerTypeAllowed = _activeRecipe._workersEVA || _activeRecipe._workersCREW;
+            if (!anyWorkerTypeAllowed) return true;  // No workers required at all
+
+            if (_activeRecipe._workersCREW)
+            {
+                IEnumerable<ProtoCrewMember> crew = workersCrewSamePart
+                    ? part.protoModuleCrew
+                    : vessel.GetVesselCrew();
+
+                foreach (ProtoCrewMember c in crew)
+                {
+                    if (c.trait == "Engineer") engineers++;
+                    else if (c.trait == "Pilot") pilots++;
+                    else if (c.trait == "Scientist") scientists++;
+                }
+            }
+
+            if (_activeRecipe._workersEVA)
+            {
+                foreach (Vessel v in FlightGlobals.Vessels)
+                {
+                    if (v == null || !v.isEVA || v.loaded == false) continue;
+                    double dist = Vector3d.Distance(v.transform.position, part.transform.position);
+                    if (dist > _maxInteractionDistance) continue;
+
+                    foreach (ProtoCrewMember c in v.GetVesselCrew())
+                    {
+                        if (c.trait == "Engineer") engineers++;
+                        else if (c.trait == "Pilot") pilots++;
+                        else if (c.trait == "Scientist") scientists++;
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Attempts to drain any buffered material output into a ChitakTechMaterialStorage
+        /// module on the vessel. Only whole units are ever moved.
+        /// </summary>
+        protected bool TryTransferMaterialOutputBuffer()
+        {
+            Vessel processingVessel = GetProcessingVessel();
+            if (processingVessel == null || GetPowerfailContextPart() == null) return false;
+            if (_materialOutputAmount.Count == 0) return false;
+
+            bool transferredAny = false;
+            int transferredThisUpdate = 0;
+            const int maxTransfersPerUpdate = 1000;
+            foreach (var matOutput in _materialOutputAmount.Keys.ToList())
+            {
+                double buffered = _materialOutputAmount[matOutput];
+                if (double.IsNaN(buffered) || double.IsInfinity(buffered) || buffered < 0.0)
+                {
+                    CTShared.LogError("Converter \"" + ConverterName
+                        + "\": discarded an invalid material-output buffer value.",
+                        "ChitakTechISRU/TryTransferMaterialOutputBuffer");
+                    _materialOutputAmount.Remove(matOutput);
+                    _materialOutputRandomSeed.Remove(matOutput);
+                    _materialOutputRandomSequence.Remove(matOutput);
+                    continue;
+                }
+                if (buffered < 1.0) continue;
+
+                ChitakTechMaterial material = CTShared.Instance?.materialList.FirstOrDefault(m => m.name == matOutput.name);
+                if (material == null)
+                {
+                    CTShared.LogError(
+                        "Converter \"" + ConverterName + "\": OUTPUT_MATERIAL \"" + matOutput.name
+                        + "\" does not match any loaded CHITAKTECH_MATERIAL definition.",
+                        "ChitakTechISRU/TryTransferMaterialOutputBuffer");
+                    continue;
+                }
+
+                while (buffered >= 1.0 && transferredThisUpdate < maxTransfersPerUpdate)
+                {
+                    EnsureMaterialOutputRandomState(matOutput);
+                    int randomSeed = _materialOutputRandomSeed[matOutput];
+                    long randomSequence = _materialOutputRandomSequence[matOutput];
+                    System.Random random = CreateMaterialOutputRandom(randomSeed,
+                        randomSequence);
+                    double randomFunction(double first, double second)
+                    {
+                        double low = Math.Min(first, second);
+                        double high = Math.Max(first, second);
+                        double interpolation = random.NextDouble();
+                        return low * (1.0 - interpolation)
+                            + high * interpolation;
+                    }
+                    if (!CTMathExpr.TryInterpolate(matOutput.size,
+                            out string resolvedSize, out string sizeError, null,
+randomFunction))
+                    {
+                        CTShared.LogError("Converter \"" + ConverterName
+                            + "\": OUTPUT_MATERIAL \"" + matOutput.name
+                            + "\" size could not be resolved: " + sizeError + ".",
+                            "ChitakTechISRU/TryTransferMaterialOutputBuffer");
+                        break;
+                    }
+                    IEnumerable<KeyValuePair<string, string>> assignments =
+                        (IEnumerable<KeyValuePair<string, string>>)matOutput.parameterAssignments
+                        ?? (matOutput.parameters ?? new Dictionary<string, string>())
+                            .OrderBy(value => value.Key, StringComparer.Ordinal);
+                    // Start with the material defaults so expressions can reference either a
+                    // preceding assignment or a parameter that this OUTPUT_MATERIAL leaves at
+                    // its default value. Volume-dependent derived helpers are refreshed after
+                    // the real per-unit volume has been calculated below.
+                    ChitakTechMaterialInstance instance = new ChitakTechMaterialInstance(
+                        material, matOutput.shape, resolvedSize, 1f, null)
+                    {
+                        amount = 1
+                    };
+                    if (!instance.ApplyParameterValuesInOrder(assignments,
+                            "ChitakTechISRU/TryTransferMaterialOutputBuffer",
+randomFunction))
+                        break;
+
+                    if (!CTShared.TryEvaluateOutVolumeExpression(matOutput.outVolume, resolvedSize, instance.parameters,
+                            "ChitakTechISRU/TryTransferMaterialOutputBuffer", out double perUnitVolume,
+randomFunction))
+                        break;
+                    if (double.IsNaN(perUnitVolume) || double.IsInfinity(perUnitVolume) || perUnitVolume <= 0.0
+                        || perUnitVolume > float.MaxValue)
+                    {
+                        CTShared.LogError(
+                            "Converter \"" + ConverterName + "\": OUTPUT_MATERIAL \"" + matOutput.name
+                            + "\" produced an invalid per-unit volume.",
+                            "ChitakTechISRU/TryTransferMaterialOutputBuffer");
+                        break;
+                    }
+
+                    instance.volume = (float)perUnitVolume;
+                    instance.UpdateParams(
+                        "ChitakTechISRU/TryTransferMaterialOutputBuffer");
+
+                    bool placed = false;
+                    if ((moduleType == "kerbalEVA"
+                            || (moduleType == "partEVA" && useSuitCell))
+                        && _kerbalHost != null)
+                    {
+                        placed = _kerbalHost.TryAddMaterialToSuitCell(instance);
+                    }
+                    else if (moduleType != "partEVA")
+                    {
+                        foreach (Part vesselPart in processingVessel.parts)
+                        {
+                            foreach (ChitakTechMaterialStorage storageModule in vesselPart.Modules.OfType<ChitakTechMaterialStorage>())
+                            {
+                                if (storageModule.AddMaterial(instance))
+                                {
+                                    placed = true;
+                                    break;
+                                }
+                            }
+                            if (placed) break;
+                        }
+                    }
+
+                    if (!placed) break;
+                    buffered -= 1.0;
+                    if (randomSequence == long.MaxValue)
+                    {
+                        _materialOutputRandomSeed[matOutput] =
+                            CreateMaterialOutputRandomSeed();
+                        _materialOutputRandomSequence[matOutput] = 0L;
+                    }
+                    else
+                        _materialOutputRandomSequence[matOutput] = randomSequence + 1L;
+                    if (buffered == 0.0)
+                    {
+                        _materialOutputAmount.Remove(matOutput);
+                        _materialOutputRandomSeed.Remove(matOutput);
+                        _materialOutputRandomSequence.Remove(matOutput);
+                    }
+                    else
+                        _materialOutputAmount[matOutput] = buffered;
+                    transferredAny = true;
+                    transferredThisUpdate++;
+                }
+
+                if (transferredThisUpdate >= maxTransfersPerUpdate) break;
+            }
+
+            return transferredAny;
+        }
+    }
+}

@@ -1,4 +1,4 @@
-<img src="https://raw.githubusercontent.com/Chitak985/khemistry/refs/heads/main/Khemistry/Flags/Logo.png">
+<img src="https://raw.githubusercontent.com/Chitak985/khemistry/refs/heads/main/ChitakTech/Flags/Logo.png">
 A GregTech-like mod for KSP, it adds many resources, recipes, machines, and long and complicated processing lines. Start from primitive tools in the Primitive Age and progress further through the game, eventually obtaining your first solid rocket boosters to begin your journey to space! <br><br>
 It also has some very unique features, including but not limited to:
 
@@ -10,10 +10,13 @@ It also has some very unique features, including but not limited to:
 - Advanced storage containers that can charge, consume something to function, explode if things inside are not contained, store multiple types of resources at the same time using a shared volume, have maximum transfer speeds to simulate real world logistics, and be affected by the environment just like ChitakTech ISRUs!
 - Complex processing lines that require deep understanding of the mod and its machines, making it a similar challenge to GregTech, Factorio, and Satisfactory!
 
-## ChitakTech Construction Overhaul
-An addon for ChitakTech, this mod overhauls VAB construction to require resources! This mod must be installed with ChitakTech and makes it play a bigger role than just more complicated ISRU processes. This mod is currently in development and including it as of now (10/14/2026) will make some parts impossible to construct due to various required resources being impossible to obtain or even hold.
+## Construction system
+ChitakTech includes the construction overhaul in its main DLL. It makes VAB construction require resources and materials rather than being a separate addon. This system is still in development; some parts require resources that are not yet obtainable.
 
-**IMPORTANT**: Once it is complete, the mod will be integrated into ChitakTech, making it required and only possible to disable it with a config option!
+## Installation and development layout
+Install the `ChitakTech` folder into `GameData`. The main assembly is `ChitakTech/ChitakTech.dll`; do not install a separate construction-overhaul DLL alongside it.
+
+The main project is `ChitakTechDLLs/ChitakTech/ChitakTech.csproj`, and the solution is `ChitakTechDLLs/ChitakTechDLLs.slnx`. The optional development bridge is built from `ChitakTechDLLs/ChitakTechDebugBridge`; its companion tool and rebuild script are under `Tools/ChitakTechDebugMcp` and `Tools/Install-ChitakTechDebugTool.ps1`.
 
 ## Known Issues:
 - Far Future Technologies does not work properly with the mod in many ways. 
@@ -30,7 +33,7 @@ An addon for ChitakTech, this mod overhauls VAB construction to require resource
 - **B9 Part Switch** (used to assign the custom per planet ores to cargo tanks and some storage, mod will easily break without it)
 - **SystemHeat** (used for many things, without it, some ISRU and all drills will become unusable)
 - **ParallaxContinued** (yes it's a dependency, you can chop down trees and do similar things with its scatter objects)
-- **CustomPrelaunchChecks** (used for the ChitakTechConstructionOverhaul addon so not strictly required for the base mod)
+- **CustomPrelaunchChecks** (used by ChitakTech's built-in construction resource checks)
 - **Resourceful Technologies** (my ISRU parts mod, ChitakTech integrates various parts from there into this mod)
 - **Far Future Technologies** (while not strictly required and the game will work without it, its parts are used for progression) 
 

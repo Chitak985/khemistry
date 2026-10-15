@@ -57,19 +57,19 @@ public sealed class ConfigNode
 public class PartModule { public Part part; public virtual void OnLoad(ConfigNode node) { } }
 public class Part { public string name = "WoodenBasin"; public PartInfo partInfo; public List<PartModule> Modules = new List<PartModule>(); }
 public class PartInfo { public string name = "WoodenBasin", title = "Wooden Basin"; public ConfigNode partConfig; public Part partPrefab; }
-namespace Khemistry
+namespace ChitakTech
 {
-    public static class KShared
+    public static class CTShared
     {
         public static void Log(string message, string context) { }
         public static void LogError(string message, string context) { }
         public static ConfigNode FindModuleConfigNode(PartModule module, string name)
         {
-            int index = module.part.Modules.OfType<KhemistryConstructionOverhaul.KhemistryPart>().ToList().IndexOf((KhemistryConstructionOverhaul.KhemistryPart)module);
+            int index = module.part.Modules.OfType<ChitakTech.ChitakTechPart>().ToList().IndexOf((ChitakTech.ChitakTechPart)module);
             return module.part.partInfo?.partConfig?.GetNodes("MODULE").Where(n => n.GetValue("name") == name).ElementAtOrDefault(index);
         }
     }
-    public class KhemistryISRURecipe
+    public class ChitakTechISRURecipe
     {
         public struct ResourceInputMaterial
         {
@@ -80,13 +80,13 @@ namespace Khemistry
         }
     }
 }
-namespace KhemistryConstructionOverhaul
+namespace ChitakTech
 {
-    public static class KhemistryResourceCheckManager
+    public static class ChitakTechResourceCheckManager
     {
-        public static bool TryCheckCosts(Dictionary<string, double> resources, List<Khemistry.KhemistryISRURecipe.ResourceInputMaterial> materials, out string error)
+        public static bool TryCheckCosts(Dictionary<string, double> resources, List<ChitakTech.ChitakTechISRURecipe.ResourceInputMaterial> materials, out string error)
         { error = null; return true; }
-        public static bool TryCommitCosts(Dictionary<string, double> resources, List<Khemistry.KhemistryISRURecipe.ResourceInputMaterial> materials, out string error)
+        public static bool TryCommitCosts(Dictionary<string, double> resources, List<ChitakTech.ChitakTechISRURecipe.ResourceInputMaterial> materials, out string error)
         { error = null; return true; }
     }
 }

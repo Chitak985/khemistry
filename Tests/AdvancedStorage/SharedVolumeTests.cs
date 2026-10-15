@@ -1,5 +1,5 @@
 using System;
-using Khemistry;
+using ChitakTech;
 
 static partial class Program
 {
@@ -39,7 +39,7 @@ static partial class Program
         storage.maxInputRate = -1;
         storage.TakeResource("B", 1);
         converter.outputList.Add(new ResourceRatio { ResourceName = "B" });
-        var broker = new KhemistryStockResourceBroker(new ResourceBroker(), converter);
+        var broker = new ChitakTechStockResourceBroker(new ResourceBroker(), converter);
         Equal(5, broker.StorageAvailable(part, "B", 1, ResourceFlowMode.ALL_VESSEL, 1), "stock broker weighted quote");
         Equal(-5, broker.StoreResource(part, "B", 10, 1, ResourceFlowMode.ALL_VESSEL), "stock broker weighted insertion");
         storage.TakeResource("B", 5);
@@ -55,10 +55,10 @@ static partial class Program
             new[] { "1", "0" }, new[] { "1", "-1" }, new[] { "1", "NaN" },
             new[] { "1", "Infinity" }, new[] { "1", "bad" } })
         {
-            int warnings = KShared.Warnings.Count;
+            int warnings = CTShared.Warnings.Count;
             Equal(1, storage.ConfigureSupported(SharedVolumeConfig(invalid)) ? 1 : 0, "bad multipliers not fatal");
             Equal(10, storage.GetResourceCapacity("B"), "bad multipliers fall back atomically");
-            Equal(1, KShared.Warnings.Count > warnings ? 1 : 0, "fallback logged");
+            Equal(1, CTShared.Warnings.Count > warnings ? 1 : 0, "fallback logged");
         }
         config = SharedVolumeConfig("1", "2");
         config.AddNode("SUPPORTED_RESOURCE_VOL_MUL").AddValue("amount", "1");

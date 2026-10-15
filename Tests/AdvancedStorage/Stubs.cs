@@ -143,9 +143,9 @@ public class BaseConverter : PartModule
     public ResourceConverter ResConverter => _resConverter ?? (_resConverter = new ResourceConverter(ResBroker));
     public List<ResourceRatio> inputList = new List<ResourceRatio>(), outputList = new List<ResourceRatio>();
 }
-namespace Khemistry
+namespace ChitakTech
 {
-    public partial class KShared
+    public partial class CTShared
     {
         public static bool ContainsInterpolation(string value)
             => !string.IsNullOrEmpty(value) && value.IndexOf('[') >= 0;
@@ -171,15 +171,15 @@ namespace Khemistry
         public static int Explosions;
         public static void TriggerExplosionWithHeat(Part part, float radius, float temperature) => Explosions++;
     }
-    public partial class KhemistryAdvancedStorage : PartModule
+    public partial class ChitakTechStorage : PartModule
     {
         private List<string> _supportedResources = new List<string>();
         private bool _fatalConfigError = false;
         public string contentsDisplay;
-        private const string SavedFlowStateNodeName = "KHEMISTRY_ORIGINAL_FLOW_STATE";
+        private const string SavedFlowStateNodeName = "CHITAKTECH_ORIGINAL_FLOW_STATE";
         public string storageType = "multiShared", activeResource = "A";
         public float maximumResources = 10, maxInputRate = -1, maxOutputRate = -1;
-        public KShared.ChargablePartState state = KShared.ChargablePartState.On;
+        public CTShared.ChargablePartState state = CTShared.ChargablePartState.On;
         public void Ready() { _storageReady = true; _supportedResources.AddRange(new[] { "A", "B" }); }
         public void Migrate() => MigrateLegacyResources();
         public bool ConfigureSupported(ConfigNode node) => LoadSupportedResources(node);
@@ -187,11 +187,11 @@ namespace Khemistry
         private bool HasAnyStoredResources() => _resources.Values.Any(v => v > 0.0) || _unreadableContents.Count > 0;
         public bool ConfigurePassive(ConfigNode node) => LoadPassiveInputs(node);
         public void TickPassive(double dt = 1, double? poweredDt = null)
-            => ProcessStoragePassiveInputs(dt, poweredDt ?? (state == KShared.ChargablePartState.On ? dt : 0));
+            => ProcessStoragePassiveInputs(dt, poweredDt ?? (state == CTShared.ChargablePartState.On ? dt : 0));
         public bool Paused => _passivePaused;
         public bool Maintenance => _passiveNeedsMaintenance;
     }
-    public partial class KhemistryISRURecipe
+    public partial class ChitakTechISRURecipe
     {
         public enum PowerfailResult { Pause, Stop, Explode, Maint, Void }
         public struct PassiveResourceInput
@@ -204,9 +204,9 @@ namespace Khemistry
         }
         private static bool TryReadRequiredDouble(ConfigNode node, string key, out double value)
             => double.TryParse(node.GetValue(key), System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture, out value) && KShared.IsFinite(value);
+                System.Globalization.CultureInfo.InvariantCulture, out value) && CTShared.IsFinite(value);
     }
-    public class KhemistryFluidCell : PartModule
+    public class ChitakTechFluidCell : PartModule
     {
         public float ResourceMaxAmount = 10;
         public HashSet<string> SupportedResources = new HashSet<string>();

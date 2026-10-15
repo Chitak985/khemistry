@@ -22,11 +22,11 @@ public partial class Part
     public int explosions;
     public void explode() { explosions++; }
 }
-namespace Khemistry
+namespace ChitakTech
 {
-    public partial class KShared
+    public partial class CTShared
     {
-        public static KShared Instance = new KShared();
+        public static CTShared Instance = new CTShared();
         public enum SituationCondition { Landed, FlyingLow, SplashedDown }
         public static SituationCondition GetVesselSituation(Vessel vessel) => SituationCondition.Landed;
         public List<string> SurfaceDepositsAtPoint(float a, float b, string planet, int c) => new List<string>();
@@ -36,14 +36,14 @@ namespace Khemistry
             => GetDoubleValueFromCFG(n, key, fallback);
     }
     public class MaintenanceStage { public Dictionary<string, double> multipliers = new Dictionary<string, double>(); }
-    public partial class KhemistryISRURecipe
+    public partial class ChitakTechISRURecipe
     {
         public struct ResourceInput { }
         public struct ResourceOutput { }
         public static bool TryParseResourceInput(ConfigNode n, string c, out ResourceInput input) { input = default; return true; }
         public static bool TryParseResourceOutput(ConfigNode n, string c, out ResourceOutput output) { output = default; return true; }
     }
-    public partial class KhemistryAdvancedStorage
+    public partial class ChitakTechStorage
     {
         public float chargeRate = 2, chargeDecayRate = 3;
         public bool ConfigureEnvironment(ConfigNode n) => _environment.Load(n, true);
@@ -53,7 +53,7 @@ namespace Khemistry
         public double PassiveMultiplierForTest => EffectivePassiveMultiplier;
     }
     // Test the production MaterialStorage environment binding without Unity's PartModule host.
-    public partial class KhemistryMaterialStorage
+    public partial class ChitakTechMaterialStorage
     {
         public Part part;
         public float volume = 10;
