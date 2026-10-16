@@ -2,21 +2,17 @@
 A GregTech-like mod for KSP, it adds many resources, recipes, machines, and long and complicated processing lines. Start from primitive tools in the Primitive Age and progress further through the game, eventually obtaining your first solid rocket boosters to begin your journey to space! <br><br>
 It also has some very unique features, including but not limited to:
 
-- A resource and recipe library that automatically fetches data on every single currently loaded resource! Extremely useful if you want to understand processing chains and how to make something. It is inspired by NEI for Minecraft.
+- A resource and recipe library that automatically fetches data on every single currently loaded resource! Extremely useful if you want to understand processing chains and how to make something. It is inspired by the NEI for Minecraft.
 - EVA items that can now move resources around different vessels, removing the need for things like KAS and docking ports simply to transfer a few resources. No longer have to deal with KSP glitchiness to transfer a resource, just EVA a kerbal and move it manually!
 - Resource deposits that must be found in a specific biome and are required to even start progressing! Eventually you will need to set up mining outposts to automate mining so far away from your base.
 - ISRUs that may need maintenance, charging, passively provided inputs, and are even affected by the current biome, planet, pressure, temperature, and many other environmental conditions!
 - Degrading batteries that will become useless after some time based on complex equations with numerous variables, making it depend on charging cycles and quality of the battery. They will slowly degrade to zero capacity over the course of their life, however there are some batteries that are advanced enough to last years or even forever!
 - Advanced storage containers that can charge, consume something to function, explode if things inside are not contained, store multiple types of resources at the same time using a shared volume, have maximum transfer speeds to simulate real world logistics, and be affected by the environment just like ChitakTech ISRUs!
+- VAB and SPH now require resources and materials to create some parts, so you can't spam Large Hadron Colliders for free now!
 - Complex processing lines that require deep understanding of the mod and its machines, making it a similar challenge to GregTech, Factorio, and Satisfactory!
 
-## Construction system
-ChitakTech includes the construction overhaul in its main DLL. It makes VAB construction require resources and materials rather than being a separate addon. This system is still in development; some parts require resources that are not yet obtainable.
-
-## Installation and development layout
-Install the `ChitakTech` folder into `GameData`. The main assembly is `ChitakTech/ChitakTech.dll`; do not install a separate construction-overhaul DLL alongside it.
-
-The main project is `ChitakTechDLLs/ChitakTech/ChitakTech.csproj`, and the solution is `ChitakTechDLLs/ChitakTechDLLs.slnx`. The optional development bridge is built from `ChitakTechDLLs/ChitakTechDebugBridge`; its companion tool and rebuild script are under `Tools/ChitakTechDebugMcp` and `Tools/Install-ChitakTechDebugTool.ps1`.
+## Installation
+Simply put the ChitakTech folder into GameData and install all of the dependencies from CKAN or in a different way. You can download a stable version from releases (none yet) or download the source code by pressing the green "Code" button and then "Download ZIP". Open it and extract the ChitakTech folder from it, you don't need the rest of the files unless you want to build and modify the mod's C# code.
 
 ## Known Issues:
 - Far Future Technologies does not work properly with the mod in many ways. 
@@ -32,8 +28,8 @@ The main project is `ChitakTechDLLs/ChitakTech/ChitakTech.csproj`, and the solut
 - **Kopernicus** (used to add custom ores for all planets, mod may break without it)
 - **B9 Part Switch** (used to assign the custom per planet ores to cargo tanks and some storage, mod will easily break without it)
 - **SystemHeat** (used for many things, without it, some ISRU and all drills will become unusable)
-- **ParallaxContinued** (yes it's a dependency, you can chop down trees and do similar things with its scatter objects)
-- **CustomPrelaunchChecks** (used by ChitakTech's built-in construction resource checks)
+- **Parallax Continued** (yes it's a dependency, you can chop down trees and do similar things with its scatter objects)
+- **CustomPrelaunchChecks** (used to consume resources and materials when launching vessels)
 - **Resourceful Technologies** (my ISRU parts mod, ChitakTech integrates various parts from there into this mod)
 - **Far Future Technologies** (while not strictly required and the game will work without it, its parts are used for progression) 
 
@@ -43,7 +39,7 @@ The main project is `ChitakTechDLLs/ChitakTech/ChitakTech.csproj`, and the solut
 - **Near Future Construction**
 - **Near Future Electrical** (parts from this mod have full support, even deprecated ones. May have some problems with reactor core lifetime calculations. IMPORTANT: The "Legacy" folder inside the mod needs to be deleted in order for the game to finish loading!) 
 - **CryoTanks** 
-- **SpaceDust** (used to create resource belts around planets and atmosphere resources) 
+- **Space Dust** (used to create resource belts around planets and atmosphere resources) 
 - **Kerbalism** (this thing is kind of insane, I don't know if the mod even works properly with it as I have never tested it. Any feedback is appreciated!)
 
 ## Configurable Per-Version Support:
@@ -87,7 +83,7 @@ These mods are confirmed to work flawlessly with ChitakTech and need no patches 
 - **Connected Living Space (CLS)**
 
 ## Current Statistics:
-(As of 10/14/2026)
+(As of 10/16/2026)
 
 ### KSP Resources
 - 231x Alloys
