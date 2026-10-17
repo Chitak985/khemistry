@@ -420,23 +420,36 @@ namespace ChitakTech
         public bool Test()
         {
             CTShared.Log("Test() fired!", "ChitakTechResourceCheckManager/Test");
-
-            ShipConstruct ship = EditorLogic.fetch?.ship;
-            if (!TryGetShipCost(ship, out Dictionary<string, double> totalCost,
-                    out List<ChitakTechISRURecipe.ResourceInputMaterial> materialCosts,
-                    out errorMessage))
+            CTShared shared = CTShared.Instance;
+            if (shared != null)
             {
-                CTShared.LogError("Launch blocked: " + errorMessage,
-                    "ChitakTechResourceCheckManager/Test");
-                return false;
-            }
+                if (shared.constructionConsumptionEnabled)
+                {
+                    ShipConstruct ship = EditorLogic.fetch?.ship;
+                    if (!TryGetShipCost(ship, out Dictionary<string, double> totalCost,
+                            out List<ChitakTechISRURecipe.ResourceInputMaterial> materialCosts,
+                            out errorMessage))
+                    {
+                        CTShared.LogError("Launch blocked: " + errorMessage,
+                            "ChitakTechResourceCheckManager/Test");
+                        return false;
+                    }
 
-            if (!TryCheckCosts(totalCost, materialCosts, out errorMessage))
-            {
-                CTShared.LogWarning("Launch blocked: " + errorMessage,
-                    "ChitakTechResourceCheckManager/Test");
-                return false;
+                    if (!TryCheckCosts(totalCost, materialCosts, out errorMessage))
+                    {
+                        CTShared.LogWarning("Launch blocked: " + errorMessage,
+                            "ChitakTechResourceCheckManager/Test");
+                        return false;
+                    }
+                }
+                else
+                    CTShared.Log("Skipping cost check because it is disabled.",
+                        "ChitakTechResourceCheckManager/Test");
             }
+            else
+                CTShared.LogError("CTShared instance is null during pre-flight test, skipping cost check.",
+                    "ChitakTechResourceCheckManager/Test");
+
 
             errorMessage = string.Empty;
             return true;

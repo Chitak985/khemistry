@@ -83,12 +83,17 @@ namespace ChitakTech
         public readonly List<ChitakTechMaterialInstance> KSCMaterialContents =
             new List<ChitakTechMaterialInstance>();
 
-        // ChitakTech GUI (public to access from it)
-        public List<string> _selectorResources;
-        public bool _kcoSelectorVisible = false;
+        // Construction Resource Consumption GUI
+        private List<string> _selectorResources;
+        private bool _kcoSelectorVisible = false;
 
         ///<summary>The random number generator.</summary>
         public static System.Random rand = new System.Random();
+
+        /// <summary>Enables construction resource consumption in VAB and SPH.</summary>
+        public bool constructionConsumptionEnabled = false;
+        /// <summary>Enables the deposit finder window.</summary>
+        public bool depositFinder = false;
 
         /// <summary>
         /// List of vessel situations used in situation conitions.

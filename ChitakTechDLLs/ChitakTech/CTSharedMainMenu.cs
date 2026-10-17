@@ -24,7 +24,7 @@ namespace ChitakTech
         /// The instance of <see cref="CTShared"/> to use everywhere.
         /// This should exist by the time the game loads MainMenu.
         /// </summary>
-        public CTShared kinst;
+        public CTShared shared;
 
         public void Awake()
         {
@@ -36,8 +36,8 @@ namespace ChitakTech
             }
             _instance = this;
 
-            kinst = CTShared.Instance;
-            if (kinst == null)
+            shared = CTShared.Instance;
+            if (shared == null)
             {
                 CTShared.LogFatalError("No CTShared instance and ChitakTech is about to have a bad time", "CTSharedMainMenu/Awake");
                 return;
@@ -45,15 +45,21 @@ namespace ChitakTech
 
             // CTShared persists across scenes. Always reload into fresh collections if the main
             // menu is entered again, rather than accumulating duplicate data.
-            kinst.surfaceDeposits.Clear();
-            kinst.undergroundDeposits.Clear();
-            kinst.batchRecipeList.Clear();
-            kinst.materialList.Clear();
+            shared.surfaceDeposits.Clear();
+            shared.undergroundDeposits.Clear();
+            shared.batchRecipeList.Clear();
+            shared.materialList.Clear();
 
             // Set up <see cref="CTShared"/>'s celestial body list
-            kinst.celestialBodies = FlightGlobals.Bodies.Select(b => b.bodyName).ToList();
+            shared.celestialBodies = FlightGlobals.Bodies.Select(b => b.bodyName).ToList();
 
-            GenerateConfiguredDeposits(kinst);
+            // Deposits
+            GenerateConfiguredDeposits(shared);
+
+            // Configuration
+            ConfigNode settings = GameDatabase.Instance.GetConfigNode("ChitakTechSettings");
+            shared.constructionConsumptionEnabled = CTShared.GetStrValueFromCFG(settings, "ConstructionConsumptionEnabled", "false") == "true";
+            shared.depositFinder = CTShared.GetStrValueFromCFG(settings, "DepositFinder", "false") == "true";
 
             // ChitakTechISRU recipes
             foreach (ConfigNode node in GameDatabase.Instance.GetConfigNodes("CHITAKTECHISRU_RECIPE"))
@@ -69,7 +75,7 @@ namespace ChitakTech
                     CTShared.LogError("A CHITAKTECHISRU_RECIPE has an empty name!", "CTSharedMainMenu/Awake");
                     continue;
                 }
-                if (kinst.batchRecipeList.Any(existingRecipe => existingRecipe._name == recipeName))
+                if (shared.batchRecipeList.Any(existingRecipe => existingRecipe._name == recipeName))
                 {
                     CTShared.LogError("Duplicate ChitakTechISRU recipe name \"" + recipeName
                         + "\"; the later definition was ignored.", "CTSharedMainMenu/Awake");
@@ -77,7 +83,7 @@ namespace ChitakTech
                 }
                 ChitakTechISRURecipe loadedRecipe = new ChitakTechISRURecipe(node, recipeName);
                 if (loadedRecipe.IsValid)
-                    kinst.batchRecipeList.Add(loadedRecipe);
+                    shared.batchRecipeList.Add(loadedRecipe);
                 else
                     CTShared.LogError("Invalid ChitakTechISRU recipe \"" + recipeName
                         + "\" was ignored.", "CTSharedMainMenu/Awake");
@@ -87,9 +93,9 @@ namespace ChitakTech
             foreach (ConfigNode node in GameDatabase.Instance.GetConfigNodes("CHITAKTECH_MATERIAL"))
             {
                 ChitakTechMaterial tmp = new ChitakTechMaterial(node);
-                if (tmp.IsValid && !kinst.materialList.Any(material => material.name == tmp.name))
+                if (tmp.IsValid && !shared.materialList.Any(material => material.name == tmp.name))
                 {
-                    kinst.materialList.Add(tmp);
+                    shared.materialList.Add(tmp);
                     materialCount++;
                 }
                 else if (tmp.IsValid)
@@ -101,9 +107,9 @@ namespace ChitakTech
             // Recipe resource/material references can only be checked after all ChitakTech
             // material definitions have loaded. Remove invalid recipes so a misspelled input
             // cannot accidentally turn into a free conversion.
-            kinst.batchRecipeList.RemoveAll(recipe =>
-                !recipe.ValidateReferences(kinst.materialList, "CTSharedMainMenu/Awake"));
-            CTShared.Log("Created " + kinst.batchRecipeList.Count.ToString()
+            shared.batchRecipeList.RemoveAll(recipe =>
+                !recipe.ValidateReferences(shared.materialList, "CTSharedMainMenu/Awake"));
+            CTShared.Log("Created " + shared.batchRecipeList.Count.ToString()
                 + " valid ChitakTechISRU recipes.", "CTSharedMainMenu/Awake");
         }
 
